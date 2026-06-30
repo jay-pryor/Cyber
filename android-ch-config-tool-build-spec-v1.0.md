@@ -1,0 +1,839 @@
+# CH Config Tool — Engineering Build Specification
+
+**Audience:** an implementing software-engineer agent.
+**Goal:** produce a single, self-contained `.html` file that runs the Cyber-Hardening (CH)
+configuration-management tool described herein, with no further input than this document.
+
+This spec is normative. Where it says **MUST**, the requirement is binding; **SHOULD** marks a
+strong recommendation; **MAY** marks an option. Implement the architecture exactly as specified so
+that the modularity guarantees hold; implement module *internals* using the contracts given.
+
+IMPORTANT: Press Control + Shift + V to view this document in fully rendered markdown format.
+
+---
+
+## 0. Table of contents
+
+1. Product summary & definition of done
+2. Hard constraints and non-goals
+3. Browser environment constraints (`file://`)
+4. Architecture overview
+5. Modularity model (the core requirement)
+6. Data model & schemas
+7. Module catalogue & public APIs
+8. Key algorithms
+9. Input formats & fixtures
+10. Output generation
+11. UI / UX specification
+12. Error-handling specification
+13. Coding & documentation standards
+14. Single-file assembly & module pattern
+15. Testing strategy
+16. Build phases (the plan)
+17. Appendices (schemas, Android adapters, vendored primitives, fixtures, glossary)
+
+---
+
+## 1. Product summary & definition of done
+
+The tool manages CH **decisions** for a fleet of device configurations and **generates** the files
+that implement, verify, and report on those decisions. It is a **pure generator**: it ingests
+captured config files, lets a user record decisions once and inherit them across devices, and emits
+code/config/report files. It never contacts a device.
+
+### 1.1 Definition of done (acceptance criteria)
+
+The build is complete when all of the following hold, verified against the fixtures in Appendix D:
+
+- **DOD-1** A single `.html` file, opened directly from disk (`file://`) in current Chrome, Edge, and Firefox, runs fully with no console errors and no network requests.
+- **DOD-2** A user can load a project file, view three data tables (packages, settings, tactical), search/sort/filter them, and save the project back — losslessly (load→save→load is identity).
+- **DOD-3** A user can onboard a device by supplying three input files; the **Onboard** control is disabled until all three are present and parse without errors.
+- **DOD-4** Onboarding creates a device configuration, embeds immutable hashed snapshots, inherits all keys already in the register, and appends only genuinely-new keys as `undecided`, ending with a triage summary.
+- **DOD-5** Undecided items are visibly flagged; a user can record decisions through controls derived from each dataset's decision schema.
+- **DOD-6** Implementation, Verification, and Reporting are **three independent commands**; each is enabled for a device only when every item applicable to that device is complete.
+- **DOD-7** Each generator emits a single downloadable `.zip` containing its outputs plus a manifest; regenerating from the same project yields byte-identical outputs (deterministic).
+- **DOD-8** The reporting output is a styled `.html` that opens in Microsoft Word as a formatted document (headings, tables, page breaks) suitable for Save-As `.docx`.
+- **DOD-9** A device-configuration view shows, read-only, exactly the applicable decided items for one device, in three panels.
+- **DOD-10** Malformed inputs and invalid operations produce clear, located, non-fatal error messages; the app never silently fails or silently drops data.
+- **DOD-11** Adding a hypothetical fourth dataset or a second platform profile requires **no changes** to core, store, UI shell, diff, completeness, project I/O, or report shell — only a new adapter/profile (demonstrated by the self-test "portability" fixture).
+- **DOD-12** Every module file-block carries a header comment; every public function carries JSDoc; the embedded self-test suite passes.
+
+---
+
+## 2. Hard constraints and non-goals
+
+### 2.1 Constraints (MUST)
+
+- **C-1 Single file.** All HTML, CSS, and JS in one `.html`. No external files, no CDN, no build step required to run.
+- **C-2 No server, no network.** No `fetch`/`XMLHttpRequest` to any origin. No telemetry.
+- **C-3 Plain load/download I/O.** Input via `<input type="file">`; output via `Blob` + object URL + `<a download>`. Do **not** use the File System Access API.
+- **C-4 No browser storage as canonical state.** Do not depend on `localStorage`/`IndexedDB` for the source of truth. (A `localStorage` *draft autosave* is permitted as a non-canonical convenience only; see §6.6.)
+- **C-5 Vanilla stack.** No framework (React/Vue/etc.). Plain JS (ES2019+), the DOM, and CSS. Vendored primitives (§17.C) are inlined verbatim and clearly fenced.
+- **C-6 Deterministic output.** All emitted artifacts and serialized state MUST be byte-stable for identical inputs (stable ordering, fixed formatting, UTC ISO timestamps sourced from a single injectable clock). This explicitly includes the **internal** metadata of binary containers: ZIP entries MUST use a fixed DOS date/time and fixed attribute fields, never wall-clock (see §10.4 and §17.C.3).
+- **C-7 Offline integrity.** Hashing and zipping MUST work on `file://` without Web Crypto (see §3).
+
+### 2.2 Non-goals
+
+- Applying changes to devices (the tool only generates the scripts that do).
+- Live multi-user editing or merge (single-document, last-write-wins; reconcile via SharePoint version history).
+- Authentication, encryption of the project file, or secrets storage (out of scope here).
+- Internationalisation (English only).
+
+---
+
+## 3. Browser environment constraints (`file://`)
+
+The app is opened by double-clicking a file. The implementer MUST account for these `file://`
+realities or the app will fail when run as intended:
+
+- **No cross-file ES module imports.** `import` from sibling files fails under `file://`. Therefore the app is one file using the IIFE-namespace pattern in §14 — **not** `type="module"` with imports.
+- **`crypto.subtle` may be unavailable.** `file://` is not reliably a secure context, so `window.crypto.subtle` can be `undefined`. Hashing MUST use the vendored pure-JS SHA-256 (§17.C). `crypto.getRandomValues` for IDs is available and MAY be used; provide a `Math.random` fallback.
+- **`fetch()` of local paths is blocked.** All input arrives through file pickers; never fetch.
+- **Downloads work.** `URL.createObjectURL(blob)` + a programmatic `<a download>` click works under `file://`. Some browsers throttle *multiple* rapid downloads — therefore each generator produces exactly **one** `.zip` download (§10.4).
+- **`localStorage` origin is unreliable** under `file://` (often the opaque/`null` origin, shared across local files). Honour C-4.
+- **Clipboard API may require a gesture/secure context.** Any "copy" affordance MUST degrade gracefully (fallback to a selectable textarea).
+
+Document these in a top-of-file comment so future maintainers don't reintroduce them.
+
+---
+
+## 4. Architecture overview
+
+### 4.1 Layering and dependency rule
+
+```
+            ┌─────────────────────────────────────────────┐
+   UI shell │ app, router/tabs, tables, device view,       │   (DOM, events)
+            │ onboarding, generate panel, error surface     │
+            └───────────────┬──────────────────────────────┘
+                            │ calls (one direction only)
+            ┌───────────────▼──────────────────────────────┐
+   Engine   │ store · registry · diff · validation ·        │   (PURE: no DOM, no I/O)
+            │ completeness · generate-orchestrator · report │
+            └───────────────┬──────────────────────────────┘
+                            │ uses
+            ┌───────────────▼──────────────────────────────┐
+   Adapters │ platform profiles + dataset adapters          │   (PURE)
+            └───────────────┬──────────────────────────────┘
+                            │ uses
+            ┌───────────────▼──────────────────────────────┐
+   Util/IO  │ hashing, crc32, zip, csv, dom helpers, clock  │
+            └───────────────────────────────────────────────┘
+```
+
+**Dependency rule (MUST):** dependencies point downward only. The **engine and adapters contain no
+DOM access and no direct I/O** — they are pure functions over plain data, returning plain data.
+Only the UI shell and the thin IO helpers touch the DOM, `FileReader`, and downloads. This is what
+makes the engine unit-testable in-file and headless-capable.
+
+### 4.2 Data flow (onboarding → generate)
+
+1. UI reads the three picked files to text (IO helper) → hands raw strings to the engine.
+2. Engine calls the active platform's dataset adapters to **parse** → `ParseResult`s.
+3. Engine **diffs** parsed keys against the register → triage; **mutates** the store (new device config + embedded hashed snapshots + appended undecided items) through a single transactional API.
+4. Store emits a change event → UI re-renders tables/summary from store state.
+5. User edits decisions → store mutations → completeness recomputed.
+6. User invokes a generator → orchestrator gathers the device's applicable+complete items, calls adapter generators + platform preamble/postamble, assembles a manifest, zips, hands the blob to the IO helper to download.
+
+---
+
+## 5. Modularity model (the core requirement)
+
+The single most important design goal: **the generic machinery must not know it is dealing with
+Android, packages, settings, tactical JSON, ADB, or PowerShell.** All of that lives behind two
+interfaces registered at startup. Porting to a new OS or a new input format means writing new
+adapters — never editing core.
+
+### 5.1 `DatasetAdapter`
+
+Defines one *kind* of config data and everything format/platform-specific about it.
+
+```js
+/**
+ * @typedef {Object} DatasetAdapter
+ * @property {string}  id            Globally-unique, namespaced, e.g. 'android.packages'.
+ * @property {string}  label         Human label for tabs/reports, e.g. 'Packages'.
+ * @property {'text'|'json'} inputKind  How the capture file is read.
+ * @property {string}  captureHint   One-line description of how to produce the input file.
+ *
+ * // ---- parsing ----
+ * @property {(raw:string) => ParseResult} parse
+ *           Pure. Normalises a raw capture into keyed items + issues (+ template for JSON).
+ *
+ * // ---- decisions ----
+ * @property {DecisionField[]} decisionSchema   Drives the decision editor and validation.
+ * @property {(item:RegisterItem) => Issue[]} validateDecision   [] when valid.
+ * @property {(item:RegisterItem) => boolean} isComplete         True when decision is sufficient.
+ *
+ * // ---- table UI (data-driven; no hardcoded columns in the UI) ----
+ * @property {ColumnDef[]} columns
+ *
+ * // ---- generation (pure; return file descriptors, do not write anything) ----
+ * @property {(items:RegisterItem[], ctx:DeviceContext) => GeneratedFile[]} generateImplementation
+ * @property {(items:RegisterItem[], ctx:DeviceContext) => GeneratedFile[]} generateVerification
+ * @property {(items:RegisterItem[], ctx:DeviceContext) => string} renderReportSection  // HTML fragment
+ *
+ * // ---- optional: artifact rebuild from a retained template (e.g. tactical JSON) ----
+ * @property {((template:any, items:RegisterItem[]) => GeneratedFile)} [rebuildArtifact]
+ */
+```
+
+### 5.2 `PlatformProfile`
+
+A target OS/transport, composed of dataset adapters plus the platform-level output conventions.
+
+```js
+/**
+ * @typedef {Object} PlatformProfile
+ * @property {string} id               e.g. 'android-adb'.
+ * @property {string} label            e.g. 'Android (ADB)'.
+ * @property {string} outputLanguage   e.g. 'powershell' (informational + comment headers).
+ * @property {DatasetAdapter[]} datasets
+ * @property {string} captureInstructions   Markdown/plain text shown in the onboarding help.
+ * @property {(ctx:DeviceContext) => string} scriptPreamble    Header for impl & verify scripts.
+ * @property {(ctx:DeviceContext) => string} scriptPostamble
+ */
+```
+
+### 5.3 Registry
+
+```js
+App.registry.registerPlatform(profile);     // called once per profile at startup
+App.registry.listPlatforms();                // → PlatformProfile[]
+App.registry.getActivePlatform();            // → PlatformProfile
+App.registry.setActivePlatform(id);          // switches UI + engine target
+App.registry.getDataset(platformId, dsId);   // → DatasetAdapter
+```
+
+The UI builds its tabs, table columns, decision editors, and device-view panels **by iterating the
+active platform's `datasets`** and reading each adapter's `columns`/`decisionSchema`. There MUST be
+no literal `'packages'`/`'settings'`/`'tactical'` branching anywhere outside the Android adapter
+files.
+
+### 5.4 Porting guarantee (how a new OS is added)
+
+To support, say, **Windows registry hardening** or a different Android transport, an implementer:
+
+1. Writes new `DatasetAdapter`s (parse, decisionSchema, columns, generators, report section).
+2. Bundles them into a new `PlatformProfile` with its own preamble/postamble and `outputLanguage`.
+3. Calls `App.registry.registerPlatform(...)`.
+
+No change to: store, registry, diff, validation, completeness, generate-orchestrator, project I/O,
+report shell, error subsystem, or the UI shell. This is asserted by self-test **DOD-11** using a
+trivial "mock" platform fixture (Appendix D.4). Treat any need to edit core to add a platform as a
+design defect.
+
+---
+
+## 6. Data model & schemas
+
+### 6.1 Project file (canonical state)
+
+One JSON document. Authoritative; lives in SharePoint. Full JSON Schema in Appendix A.
+
+```jsonc
+{
+  "schemaVersion": 1,
+  "platformProfileId": "android-adb",
+  "meta": { "createdUtc": "ISO", "modifiedUtc": "ISO", "appVersion": "1.0" },
+
+  "deviceConfigs": [ DeviceConfig, ... ],
+
+  // items grouped by dataset adapter id
+  "items": {
+    "android.packages": [ RegisterItem, ... ],
+    "android.settings": [ RegisterItem, ... ],
+    "android.tactical": [ RegisterItem, ... ]
+  }
+}
+```
+
+### 6.2 `DeviceConfig`
+
+```jsonc
+{
+  "id": "tab-active-5-v2",         // slug, unique per version
+  "baseId": "tab-active-5",        // stable identity shared by all versions of one physical device
+  "version": 2,                    // integer ≥ 1, monotonically increasing per baseId
+  "supersedesId": "tab-active-5",  // id of the prior version this one replaces; null for v1
+  "name": "Tab Active 5",
+  "model": "SM-X306B",
+  "firmware": "X306B...",
+  "onboardedUtc": "ISO",
+  "snapshots": {
+    "android.packages": Snapshot,
+    "android.settings": Snapshot,
+    "android.tactical": Snapshot
+  }
+}
+```
+
+**Versioning (re-onboard).** A physical device is identified by `baseId` (a slug derived from its
+name/model). The **latest** version for a given `baseId` is the one with the highest `version` and
+`supersedesId` not referenced by any other config; only the latest is "active" for generation and
+the device-configuration view. Superseded versions are retained read-only as history (flagged
+"superseded" in the Devices tab). See §8.7 for the re-onboard algorithm and §12.2 for the trigger.
+
+### 6.3 `Snapshot` (immutable, hashed)
+
+```jsonc
+{
+  "capturedUtc": "ISO",
+  "sourceFilename": "pm_list.txt",
+  "sha256": "hex",                 // hash of the raw uploaded bytes
+  "keys": ["com.x.y", ...],        // sorted; the applicability set
+  "values": { "secure/foo": "1" }, // optional per-key capture value (settings drift)
+  "template": { ... }              // optional retained source structure (tactical JSON only)
+}
+```
+
+### 6.4 `RegisterItem`
+
+```jsonc
+{
+  "key": "secure/location_mode",   // stable identity, unique within its dataset
+  "description": "…",              // human-authored, inherited across devices
+  "decision": { ... },             // shape defined by the adapter's decisionSchema; null = undecided
+  "ismRefs": ["ISM-1234"],
+  "rationale": "…",
+  "rollback": "…",
+  "status": "undecided"            // 'undecided' | 'decided'  (derived, see §6.5)
+}
+```
+
+Decision shapes per Android adapter (examples):
+- packages: `{ "action": "keep" | "disable" | "remove" }`
+- settings: `{ "value": "0", "type": "int" }`
+- tactical: `{ "value": true, "type": "bool" }`
+
+### 6.5 Status & completeness
+
+- `status` is **derived** by the adapter's `isComplete(item)`; persist it for convenience but recompute on load (never trust a stale stored flag).
+- **Item complete** ⇔ `adapter.isComplete(item)` is true. Default rule: a non-null decision whose required `decisionSchema` fields are present and valid. ISM ref / rationale are **encouraged but not blocking by default**; expose a single config flag `REQUIRE_ISM_REF` (default `false`) that, when true, folds "≥1 ISM ref" into completeness. (Implement the flag so the team can tighten traceability without code surgery.)
+- **Device ready-to-generate** ⇔ every item *applicable* to that device is complete. *Applicable* ⇔ item.key ∈ the union of that device's snapshot `keys` for that dataset.
+
+### 6.6 Persistence rules
+
+- Canonical state is the downloaded project file. The UI MUST warn (via `beforeunload`) when there are unsaved changes.
+- A `localStorage` **draft autosave** MAY be written on a debounce purely as crash insurance; on load, if a draft newer than the opened file exists, offer to restore it. This is never the source of truth and MUST be clearly labelled in the UI when used. (Respect C-4: degrade silently if `localStorage` is unavailable.)
+- Serialization MUST be deterministic: keys sorted, arrays sorted by stable key, 2-space indent, `\n` line endings, timestamps from the injected clock.
+
+---
+
+## 7. Module catalogue & public APIs
+
+Each row is one logical module (one `<script>` IIFE, §14). "Pure" modules MUST NOT touch the DOM or
+perform I/O. All public functions are documented per §13.
+
+| Namespace | Responsibility | Key public API (abridged) | Pure |
+|-----------|----------------|---------------------------|------|
+| `App.util.clock` | Single time source (injectable for tests/determinism) | `nowIso()`, `setClock(fn)` | yes |
+| `App.util.hash` | SHA-256 (vendored) | `sha256Hex(str) → string` | yes |
+| `App.util.crc32` | CRC-32 (vendored, for zip) | `crc32(bytes) → number` | yes |
+| `App.util.zip` | Store-only ZIP writer | `zip(files:{name,content}[]) → Blob` | yes |
+| `App.util.csv` | CSV export of a table | `toCsv(rows, columns) → string` | yes |
+| `App.util.html` | HTML escaping & small builders | `esc(s)`, `attr(s)`, `el(tag, attrs, kids)` | yes |
+| `App.util.dom` | DOM helpers (UI only) | `mount`, `clear`, `on`, `download(blob,name)` | no |
+| `App.registry` | Platform/adapter registration | see §5.3 | yes |
+| `App.store` | In-memory project + mutations + events | see §7.1 | yes* |
+| `App.projectIo` | (De)serialize + schema-validate + migrate | `parseProject(text)→Result`, `serializeProject(p)→string` | yes |
+| `App.diff` | Triage snapshot vs register | `triage(parsedKeys, registerKeys) → {newKeys, existingKeys}` | yes |
+| `App.validation` | Cross-cutting structural checks | `validateProject(p) → Issue[]`, `validateOnboarding(...)→Issue[]` | yes |
+| `App.completeness` | Completeness & readiness | `itemComplete(...)`, `deviceReady(project, deviceId) → boolean` | yes |
+| `App.generate` | Orchestrate adapter generation + manifest + zip | `buildImplementation(project, deviceId) → {blob,name,issues}` (+ `buildVerification`, `buildReport`) | yes** |
+| `App.report` | Platform-agnostic Word-HTML shell | `wrapReport(title, meta, sectionsHtml[]) → string` | yes |
+| `App.ui.*` | Views & controllers | mount/render functions | no |
+
+\* `App.store` holds mutable state but exposes mutations as pure transformations + an event emitter; it performs no I/O.
+\** `App.generate` returns a `Blob` via the pure zip util; the *download* is done by the UI through `App.util.dom`.
+
+### 7.1 `App.store` API (representative)
+
+```js
+App.store.init(project);                         // load a parsed project (or empty())
+App.store.empty(platformProfileId);              // → blank project
+App.store.getProject();                          // → deep-readonly snapshot
+App.store.onChange(handler);                     // subscribe; returns unsubscribe
+
+// Mutations (each returns {ok, issues}; each is a single transaction; each bumps modifiedUtc)
+App.store.onboardDevice({name, model, firmware, snapshots, parsed});  // adds device + new items
+App.store.setDecision(datasetId, key, decisionPatch);
+App.store.setItemFields(datasetId, key, {description?, ismRefs?, rationale?, rollback?});
+App.store.removeDevice(deviceId);                // removes device + snapshots; NEVER deletes items (§8.5)
+App.store.pruneOrphanedItems();                  // ONLY item-deletion path; explicit+confirmed (§8.5)
+App.store.reonboardDevice({baseDeviceId, name, model, firmware, snapshots, parsed});  // → new version (§7/§12.2)
+
+// Queries (selectors; pure, memoise if needed)
+App.store.applicableItems(deviceId, datasetId);  // → RegisterItem[]
+App.store.undecidedCount(deviceId?);             // overall or per device
+```
+
+Mutations MUST validate via the relevant adapter/validation before committing and surface issues
+rather than throwing. Never mutate the project object in place from outside the store.
+
+---
+
+## 8. Key algorithms
+
+### 8.1 Triage (diff)
+
+```
+triage(parsedKeys: Set, registerKeys: Set):
+    newKeys      = parsedKeys − registerKeys      // → appended as undecided items
+    existingKeys = parsedKeys ∩ registerKeys      // → inherited silently
+    # registerKeys − parsedKeys are simply not applicable to this device; do nothing
+```
+Onboarding appends `newKeys` as `RegisterItem{decision:null, status:'undecided'}`, carrying the
+adapter's default fields. Operates per dataset.
+
+### 8.2 Tactical flatten / rebuild
+
+- **Flatten** (parse): walk the JSON; emit one item per *leaf*. Leaf = a value that is a scalar, or an array (treated whole). Path uses dotted notation; numeric array indices in brackets, e.g. `radios[0].mode`. Record the value's JS type for the decision default. Retain the entire parsed document as `snapshot.template`.
+- **Rebuild** (generate): deep-clone the device's `template`; for each decided tactical item applicable to the device, set the value at its path; serialize with stable key order. The rebuild MUST preserve untouched keys, types, nesting, and arrays. Emit as the tactical apply artifact. (Schema stability across firmware is the known risk — see §16 phase notes.)
+
+### 8.3 Completeness & readiness — see §6.5.
+
+### 8.4 Settings default-drift detection
+
+On onboarding a device whose settings snapshot contains a key already in the register, compare the
+new `captureValue` with previously recorded capture values from other devices' snapshots. If they
+differ, emit an **info** issue ("`secure/foo` default differs: 0 on Tab Active 5, 1 on S23"). This
+never changes a decision; it surfaces firmware drift.
+
+**Unified-decision assumption (v1, binding).** A RegisterItem holds exactly **one** decision shared
+across *every* device whose snapshot contains that key — there is no per-device decision override in
+v1. Drift is informational only. (A future per-device override is explicitly out of scope; do not
+build register or generation structures that assume one decision-per-device.)
+
+### 8.5 Item retention
+
+The register is **append-only by default and grows monotonically.** Items are **never auto-deleted**
+by any mutation: `store.onboardDevice` only adds, and `store.removeDevice` removes the device config
+(and its snapshots) but **leaves every RegisterItem intact** — other devices, including superseded
+versions (§7), may rely on them, and the decision history is meant to be durable.
+
+The **only** path that deletes items is an explicit, separate maintenance command,
+`store.pruneOrphanedItems()`:
+- **Orphan definition:** a RegisterItem whose `key` is not present in *any* snapshot `keys` array of
+  *any* remaining DeviceConfig (all versions) for that dataset — i.e. applicable to zero devices.
+- **Guarded:** the UI MUST require an explicit confirmation showing the exact count and list of keys
+  to be removed before committing; it is never automatic and never runs during onboarding/removal.
+- **Logged:** the action appends a summary to the Activity drawer (how many per dataset, which keys).
+- **No silent archive in v1:** pruned items are dropped, not stashed. Recovery is via SharePoint
+  version history of the project file (§2.2). Document this at the call site.
+
+### 8.6 Deterministic serialization
+
+A single `stableStringify` used for the project file, manifests, and the tactical artifact: object
+keys sorted ascending, arrays of items sorted by `key`, 2-space indent, `\n` newlines, no trailing
+whitespace. All hashing is computed over these canonical strings (or raw uploaded bytes for
+snapshots).
+
+### 8.7 Re-onboard versioning
+
+Onboarding resolves identity by `baseId` (slug of name+model). Behaviour:
+
+```
+onboard(parsed, snapshots, name, model, firmware):
+    baseId   = slug(name, model)
+    existing = latest DeviceConfig with this baseId   // may be none
+    if existing is none:
+        → create v1: {id: baseId, baseId, version:1, supersedesId:null, …}; triage as §8.1
+    else:
+        if every dataset's new snapshot.sha256 == existing snapshot.sha256:
+            → NO-OP. Emit state info "Re-onboard of <name>: identical snapshots, nothing to do."
+              Do not create a version, do not mutate the store.
+        else:
+            → create a NEW version (do NOT mutate `existing`):
+                version      = existing.version + 1
+                id           = baseId + '-v' + version      // unique slug
+                supersedesId = existing.id
+              Embed the new hashed snapshots; run triage (§8.1) of the new snapshot keys against the
+              register and append only genuinely-new keys as undecided. `existing` is retained,
+              read-only, flagged "superseded".
+```
+
+Rationale: a device whose firmware/config drifted gets a fresh, independently-hashed configuration
+without destroying the prior record (audit trail), and without touching shared register decisions
+(decisions remain unified across all configs — see §6.5 / the unified-decision assumption in §8.4).
+Generation, readiness, and the device view operate on the **latest** version only; superseded
+versions are visible but inert. Implemented by `store.reonboardDevice` / `store.onboardDevice`
+sharing one code path keyed on the identity check above.
+
+---
+
+## 9. Input formats & fixtures
+
+Canonical formats the parsers expect (the capture process, external to this tool, must produce
+them). Parsers MUST be tolerant where safe and explicit where not. Full samples in Appendix D.
+
+- **Packages** (`text`): one package per line. Tolerate a leading `package:` and trailing `=path`/installer fields (strip them). Ignore blank lines and `#` comments. Dedupe (warn on duplicates), sort. Error if the file is empty or no line yields a plausible package token.
+- **Settings** (`text`): tab-separated `namespace<TAB>key<TAB>value`, one per line; `namespace ∈ {system,secure,global}`. Key = `namespace/key`. The **key segment** (after the namespace) MUST match `[A-Za-z0-9._:-]+`; reject anything else at parse (this keeps the key shell-safe so only the *value* ever needs escaping). The **value** is unrestricted (it may contain spaces, tabs, quotes, `'`, `"`, `$`, `<`, `=`, etc.); store it verbatim as `captureValue` and escape it only at generation time per Appendix B's escaping rule. Error on: missing/extra fields, unknown namespace, malformed key, duplicate `namespace/key`.
+- **Tactical** (`json`): a JSON document; flatten per §8.2. Error on invalid JSON. Warn on empty object.
+
+Each parser returns `ParseResult{items, warnings, errors, template?}`. Onboarding is blocked if any
+input yields `errors`.
+
+---
+
+## 10. Output generation
+
+Three independent commands. Each is pure up to the final `Blob`; the UI performs the download.
+
+### 10.1 Implementation
+
+For the chosen device, for each dataset, call `adapter.generateImplementation(applicableComplete,
+ctx)`. Wrap each script with `platform.scriptPreamble/Postamble(ctx)`. Android specifics in
+Appendix B (pm/settings/tactical). Include a generated header comment noting the source project,
+device, firmware, generation timestamp, and tool version.
+
+### 10.2 Verification
+
+As above with `generateVerification`. Android verify scripts read state back (`settings get`,
+`pm list packages`, tactical read-back where exposed) and emit per-item PASS/FAIL/MISSING, or
+EVIDENCED where a value cannot be read back. Specify exit/report semantics in the script header.
+
+### 10.3 Reporting (Word-targeted HTML)
+
+`App.report.wrapReport(title, meta, sections)` produces a complete, self-contained styled HTML
+document (inline `<style>`), with: a title block, a metadata table (project, device, firmware,
+date, hashes), then one section per dataset from `adapter.renderReportSection(...)`, then an ISM
+coverage section (every item grouped by ISM ref, sub-grouped by dataset). Use CSS that Word honours:
+real `<table>` with borders, heading styles, and page breaks via `div { page-break-before: always }`
+/ `<br style="page-break-before:always">`. The file MUST open in Word as a formatted document.
+**All dynamic text MUST pass through `esc()`** to prevent a stray value from corrupting markup.
+
+### 10.4 Bundling & manifest
+
+Each command assembles its `GeneratedFile[]` plus a `manifest.json` (tool version, project hash,
+device, firmware, generation UTC, list of outputs with per-file sha256, and the decision snapshot
+used) into **one store-only ZIP** (§17.C) and triggers a single download named
+`<device>-<command>-<UTCstamp>.zip`. Determinism: identical project + device ⇒ identical zip bytes
+(fixed timestamps from the injected clock during tests; in production the manifest timestamp is the
+only varying field and is excluded from the determinism self-test).
+
+**ZIP byte-determinism (MUST).** A store-only ZIP still carries per-entry DOS modification
+date/time fields in both the local file header and the central directory. These MUST NOT be sourced
+from wall-clock — doing so would break DOD-7. The implementer MUST write a **fixed constant** for
+every entry:
+- DOS time = `0x0000`, DOS date = `0x0021` (i.e. 1980-01-01 00:00:00, the minimum legal DOS value).
+- "Version made by"/"version needed", general-purpose bit flag (UTF-8 language-encoding flag set),
+  internal/external file attributes, and disk numbers MUST all be fixed constants.
+- Entry order MUST be stable (the order in which `GeneratedFile[]` is assembled).
+With these fixed, a given `files:{name,content}[]` array always serializes to identical bytes. The
+determinism self-test (§15) asserts `zip(files)` byte-equals a second `zip(files)` of the same input.
+
+---
+
+## 11. UI / UX specification
+
+Clean, dependency-free, professional. One page, tabbed. Plain semantic HTML + a small inline CSS
+design system (CSS custom properties for colour/spacing/typography; a neutral, high-contrast,
+print-friendly palette). No icon fonts/CDNs; use Unicode glyphs or inline SVG sparingly.
+
+### 11.1 Global chrome
+- Top bar: project name, dirty-state indicator, **Load project**, **Save project**, **Export CSVs**, active platform selector, **Self-tests** (dev) link.
+- Left or top tabs: one **data table tab per dataset** (from the active profile), a **Devices** tab, an **Onboard** tab, a **Generate** tab. A persistent **Activity/Errors** drawer.
+
+### 11.2 Data table tabs (one per dataset, data-driven)
+- Columns from `adapter.columns` plus computed **Applies to** (device names whose snapshot has the key) and **Status**.
+- Free-text search across key + description; column sort; "Incomplete only" toggle. Undecided rows visually flagged (e.g. left border + badge).
+- Inline editing of decision (control rendered from `decisionSchema`: enum→`<select>`; value-typed→value input + type select; bool→toggle), description, ISM refs (tag input), rationale, rollback. Edits commit to the store on change; validation issues shown inline.
+- Performant rendering for ~1–2k rows: render via `DocumentFragment`, debounce search (~150 ms), and SHOULD windowed-render if a dataset exceeds a configurable threshold (e.g. 1500 rows).
+
+### 11.3 Devices tab
+- List of device configs (name, model, firmware, version, applicable counts, ready/▢ undecided count). Superseded versions (§8.7) are shown grouped under their `baseId` and visibly flagged "superseded" (read-only history); the latest version is the active one.
+- Selecting one opens the **device-configuration view**: three **read-only** panels (one per dataset) listing that device's applicable decided items (key, decision, ISM refs). Read-only in v1. Generation acts on the latest version only.
+
+### 11.4 Onboard tab
+- Three labelled file slots (per dataset), each showing parse status (✓ N items / ✗ error). The platform's `captureInstructions` shown as help.
+- Name/model/firmware fields. **Onboard** button disabled until all three slots parse without errors and a non-empty device name is given. A name+model matching an existing device is **allowed** — it is a re-onboard (§8.7); if so, the UI MUST indicate "this will re-onboard <name> (creates a new version / no-op if unchanged)" before commit. On click: run onboarding/re-onboarding, then show the triage summary (counts of new/existing per dataset, warnings, drift info, and which version was created or that it was an unchanged no-op) and switch focus to the first dataset filtered to "Incomplete only".
+
+### 11.5 Generate tab
+- Device selector. Three buttons — **Implementation**, **Verification**, **Reporting** — each independently enabled iff `deviceReady`. Disabled buttons show why ("3 settings undecided"). Clicking produces the single zip download and logs to the Activity drawer.
+
+### 11.6 Activity / Errors drawer
+- Append-only, timestamped log of parse results, validations, and generations; errors/warnings styled distinctly; clearable. Nothing fails silently (§12).
+
+### 11.7 Accessibility (SHOULD)
+- Semantic landmarks, labelled controls, visible focus, keyboard-operable tabs/tables, colour not the sole signal (pair with text/badges), sufficient contrast.
+
+---
+
+## 12. Error-handling specification
+
+### 12.1 Result pattern
+Engine functions return values or `{ ok:boolean, value?, issues:Issue[] }`; they do **not** throw for
+expected conditions. Reserve exceptions for programmer errors (caught at the UI boundary and logged
+to the drawer with a generic "unexpected error" plus the message — never a blank failure).
+
+`Issue` shape per §5/Appendix A: `{category, severity, message, location?, fix?}`.
+
+### 12.2 Categories & handling
+
+| Category | Examples | Severity | Effect |
+|----------|----------|----------|--------|
+| parse | empty file, wrong file in slot, invalid JSON, settings line malformed | error | blocks onboarding; shown on the slot |
+| validation | duplicate key, unknown namespace, decision type mismatch, bad ISM ref format | error/warning | blocks commit (error) or annotates (warning) |
+| state | no project loaded; empty/blank device name | error | blocks the action |
+| state | re-onboard with **identical** snapshot hashes | info | no-op; logs "nothing to do" (§8.7) |
+| state | re-onboard with **differing** snapshot hashes | info | creates a new device version, not an error (§8.7) |
+| completeness | generate attempted with undecided applicable items | (prevented) | buttons disabled with reason |
+| generation | tactical template missing, value un-serialisable at path | error | aborts that generation, reports which item |
+
+Every blocking error states **what**, **where**, and a **suggested fix**. A clean run still emits a
+positive confirmation (e.g. "Onboarded S23: 9 new, 371 inherited, 0 errors").
+
+---
+
+## 13. Coding & documentation standards
+
+The user requires comprehensively commented code. These are binding.
+
+### 13.1 File / module header (every `<script>` module)
+```js
+/* =============================================================================
+ * MODULE: App.<namespace>
+ * PURPOSE: <one-paragraph what & why>
+ * PURITY:  <pure | UI/DOM | IO>  — state the constraint explicitly.
+ * DEPENDS: <list of App.* namespaces it uses>
+ * INVARIANTS: <key guarantees this module upholds>
+ * ============================================================================= */
+```
+
+### 13.2 Function documentation
+Every public function (and any non-trivial private one) carries JSDoc: summary, `@param` with
+types, `@returns`, `@throws` (if any), and a short `@example` for engine functions. Use the typedefs
+from §5/§6 as the type vocabulary (declare them once in a `types` module).
+
+### 13.3 Inline comments
+Comment the **why**, not the **what**. Document each non-obvious decision, every invariant relied
+upon, and every `file://`/Word/determinism workaround at its site. Mark vendored code with clear
+`BEGIN/END VENDORED` banners and provenance. No commented-out dead code.
+
+### 13.4 Conventions
+- Naming: `camelCase` functions/vars, `PascalCase` typedefs, `SCREAMING_SNAKE` consts. Adapter ids namespaced (`android.packages`).
+- Immutability: treat project state as immutable outside the store; mutations return new objects.
+- Output safety: **all** user/data-derived text written into HTML goes through `esc()`; all text written into generated scripts is escaped/quoted per the target language by the adapter.
+- Determinism: no `Date.now()`/`Math.random()` in engine paths except via `App.util.clock` and an injectable id generator.
+- Size: keep functions focused; prefer many small pure functions. No module may reach into another's internals — only its published API.
+
+---
+
+## 14. Single-file assembly & module pattern
+
+Because cross-file ES imports fail under `file://`, the app is one HTML file containing ordered
+classic `<script>` blocks, each an IIFE that attaches to a single global namespace object. No
+bundler required; the "modules" are conceptual and physically separated by banners.
+
+```html
+<script>
+/* App namespace root */ var App = window.App || {};
+</script>
+
+<script>
+/* MODULE: App.util.html ... */
+(function (App) {
+  'use strict';
+  function esc(s) { /* ... */ }
+  App.util = App.util || {};
+  App.util.html = { esc, /* ... */ };
+})(App);
+</script>
+
+<!-- ...further modules in dependency order... -->
+
+<script>
+/* MODULE: App.bootstrap — register platforms, mount UI -- LAST */
+(function (App) {
+  'use strict';
+  App.registry.registerPlatform(App.platforms.androidAdb);
+  App.ui.app.mount(document.getElementById('root'));
+})(App);
+</script>
+```
+
+**Load order (MUST)**: `types` → `util.*` → `registry` → `projectIo` → `store` → `diff` →
+`validation` → `completeness` → `report` → `generate` → `adapters (android.*)` → `platform
+(android-adb)` → `ui.*` → `bootstrap`. Adapters depend only on `util`/`types`. If a future build
+step is adopted, each module maps 1:1 to a source file and is concatenated in this order — keep the
+boundaries clean to preserve that seam.
+
+---
+
+## 15. Testing strategy
+
+No external test runner is available, so embed one.
+
+- **`App.test` harness:** tiny `assert`, `assertEqual` (deep), `assertDeepEqual`, and a `suite/test` registrar. A `#selftest` URL hash (or a dev-panel button) runs all suites and renders pass/fail with diffs. MUST NOT run in normal use.
+- **Coverage targets:** every pure engine function and every adapter `parse`/`generate*`/`isComplete`. Include determinism tests (serialize×2 equal; zip×2 equal under fixed clock), round-trip tests (project load→save→load identity), and the **portability test** (register the mock platform from Appendix D.4 and assert tables/onboarding/generation work with zero core edits — guards DOD-11).
+- **Fixtures:** Appendix D — valid + malformed inputs for each dataset, a two-device sample project, and the mock platform. Edge cases to cover: empty files, duplicate keys, unknown namespace, invalid JSON, tactical with nested arrays, a value containing tabs/quotes/`<`/`=`, a package named like a setting, default drift across two devices, generate-before-complete (blocked), re-onboarding the same device (identical hashes → no-op; differing hashes → new version supersedes prior), the adversarial settings value `a'b"c$(whoami)` d;e` round-tripping through the two-layer shell escaping (Appendix B), and `zip(files)` byte-equality across two calls.
+
+---
+
+## 16. Build phases (the plan)
+
+Each phase is independently demonstrable and ends with the listed acceptance test. Implement in
+order; do not start a phase before its predecessor's acceptance passes.
+
+**Phase 0 — Skeleton & conventions.** HTML scaffold; `App` namespace; module load order; `types`;
+`util.clock/html/dom/csv`; vendored `hash`, `crc32`, `zip` (Appendix C); `App.test` harness; doc
+standards in place. *Accept:* page loads with no errors; self-test harness runs an example passing
+suite; `sha256Hex` and `zip` self-tests pass on `file://`.
+
+**Phase 1 — Data model & project I/O.** Typedefs; `projectIo.parse/serialize` with schema validation
+(Appendix A) + `migrate(v→v)`; `store` with `empty/init/getProject/onChange` and `stableStringify`;
+CSV export. *Accept:* load/save round-trips the Appendix D sample losslessly; malformed project
+reports located issues.
+
+**Phase 2 — Adapter framework & Android adapters.** `registry`; `DatasetAdapter`/`PlatformProfile`
+contracts; implement `android.packages`, `android.settings`, `android.tactical` (**parse +
+decisionSchema + columns + isComplete + validateDecision** first); assemble + register the
+`android-adb` profile (generators stubbed). *Accept:* parser unit tests pass on valid + malformed
+fixtures producing correct items/warnings/errors; tactical flatten/rebuild round-trips.
+
+**Phase 3 — Read-only tables (data-driven).** Tabs/columns generated from the active profile; render
+a loaded project; search/sort/incomplete-filter; HTML-escaped cells; performance pass. *Accept:*
+tables render the sample; search/sort/filter correct; 1.5k-row fixture renders responsively.
+
+**Phase 4 — Onboarding & triage.** File slots + `FileReader`; gated Onboard; `diff.triage`; snapshot
+embedding + hashing; `store.onboardDevice`; append undecided; triage summary; drift info;
+validation surfacing; re-onboard versioning (§8.7). *Accept:* onboarding device #2 inherits common
+keys and flags only new ones; invalid inputs reported; re-onboarding the same device with identical
+hashes is a logged no-op, and with differing hashes creates a new version (`-v2`) that supersedes
+the prior (prior retained read-only) while leaving register decisions untouched.
+
+**Phase 5 — Decision editing & gating.** `decisionSchema`-driven editors; commit to store;
+`completeness`/`deviceReady`; incomplete flags; generate-gating wired (buttons stubbed). *Accept:*
+deciding all applicable items flips a device to ready; generate buttons enable/disable with correct
+reasons.
+
+**Phase 6 — Device view.** Read-only per-device panels from `applicableItems`. *Accept:* panels show
+exactly the applicable decided items per dataset.
+
+**Phase 7 — Generators.** Implement `generate.buildImplementation`, then `buildVerification`
+(independent), then `buildReport` (Word-HTML shell + adapter sections + ISM coverage); manifests +
+hashes + store-only zip + single download. *Accept:* each command emits a valid zip; outputs
+deterministic under fixed clock; report opens in Word as a formatted document (manual check noted in
+README comment).
+
+**Phase 8 — Hardening & polish.** Complete error surface; accessibility pass; `beforeunload` dirty
+guard; optional `localStorage` draft; in-app help (capture instructions, "how state/saving works");
+full self-test suite incl. portability test; final pass against the §1.1 checklist. *Accept:* all
+DOD items verified.
+
+---
+
+## 17. Appendices
+
+### Appendix A — Project JSON Schema (authoritative)
+
+Provide a JSON-Schema-style definition the implementer encodes in `projectIo` validation. Required
+top-level: `schemaVersion` (const 1), `platformProfileId` (string, must be a registered platform),
+`meta` (object: `createdUtc`,`modifiedUtc` ISO date-time; `appVersion` string), `deviceConfigs`
+(array of DeviceConfig), `items` (object whose keys are dataset ids of the active platform, values
+arrays of RegisterItem). DeviceConfig requires `id`(slug, unique),`baseId`(slug),`version`(integer
+≥1),`supersedesId`(slug|null),`name`,`model`,`firmware`,`onboardedUtc`,
+`snapshots`(object keyed by dataset id → Snapshot). Validation MUST check version integrity: per
+`baseId`, versions are a contiguous `1..n` chain where each non-v1 config's `supersedesId` references
+the immediately prior version's `id`, and exactly one config per `baseId` is the latest (unreferenced
+by any `supersedesId`). Snapshot requires
+`capturedUtc`,`sourceFilename`,`sha256`(hex 64),`keys`(string[] unique sorted); optional
+`values`(object),`template`(any). RegisterItem requires `key`,`decision`(object|null),`ismRefs`
+(string[]),`status`(enum), optional `description`,`rationale`,`rollback`. Reject unknown top-level
+keys; report each violation as a located `Issue`. Implement `migrate(project)` switching on
+`schemaVersion` for forward compatibility (currently identity for v1).
+
+### Appendix B — Android (ADB) platform & adapters (reference implementation)
+
+`PlatformProfile{ id:'android-adb', label:'Android (ADB)', outputLanguage:'powershell' }`.
+`scriptPreamble` emits a PowerShell header: tool/version/project/device/firmware/UTC banner,
+`Set-StrictMode`, an ADB-presence check, a single target-device guard, and transcript start;
+`scriptPostamble` stops the transcript. `captureInstructions` documents the three captures and the
+required normalised formats (§9).
+
+**Shell-safe value emission (MUST — injection-safety contract).** Generated PowerShell drives the
+device through `adb -s $Serial shell …`, so every emitted value crosses **two** parsers: the
+host **PowerShell** parser and the on-device **POSIX shell** (`/system/bin/sh`). Adapters MUST quote
+through both layers using these two pure helpers (define once in the Android adapter file, document
+with JSDoc, cover with self-tests):
+
+```js
+// PowerShell single-quoted literal: wrap in ' … ', double every embedded single quote.
+function psSingleQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+
+// POSIX-shell single-quoted literal: wrap in ' … ', replace every embedded ' with '\'' .
+function shSingleQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+```
+
+Emission rule for any data-derived value `v` sent to the device shell:
+1. Build the **device-side command string** with the value POSIX-quoted, e.g.
+   `settings put secure foo ` + `shSingleQuote(v)`.
+2. Pass that whole device-side string to `adb … shell` as a **single PowerShell argument** by
+   wrapping it with `psSingleQuote(...)`, so PowerShell performs no further word-splitting or
+   expansion. Never interpolate a raw value into a double-quoted PowerShell string.
+
+This makes the two helpers total over arbitrary bytes: a value containing `'`, `"`, `$`, spaces,
+tabs, `;`, `&&`, `$(...)`, or backticks is rendered as inert literal text on both sides. Keys and
+package tokens are charset-restricted at parse (§9, below) so they need no escaping; **only values
+do**. Self-tests MUST include the adversarial value `a'b"c$(whoami)` d;e` and assert the generated
+line, when conceptually unwrapped one layer at a time, yields exactly that literal string.
+
+**`android.packages`** — inputKind `text`. parse per §9. decisionSchema:
+`[{name:'action',kind:'enum',options:['keep','disable','remove'],required:true}]`. columns: key,
+description, decision(action), appliesTo, ism, status. isComplete: action ∈ options.
+generateImplementation: for `disable` → `adb -s $Serial shell pm disable-user --user 0 <pkg>`; for
+`remove` → `adb -s $Serial shell pm uninstall --user 0 <pkg>`; `keep` → no-op (comment only). Guard
+each with a presence check; idempotent. generateVerification: `pm list packages -d`/`-e` read-back,
+compare, emit PASS/FAIL/MISSING. renderReportSection: a table of pkg/action/ism/rationale.
+**Quoting:** package tokens are restricted to `[A-Za-z0-9._]`; reject anything else at parse to keep
+shell generation injection-safe.
+
+**`android.settings`** — inputKind `text`, parse per §9, key `namespace/key`, store `captureValue`.
+decisionSchema: `[{name:'value',kind:'string',required:true},{name:'type',kind:'enum',options:
+['string','int','float','bool'],required:true}]`. generateImplementation: `adb -s $Serial shell
+settings put <namespace> <key> <value>` where `<value>` is emitted through the two-layer
+shell-safe rule above (`psSingleQuote(... + shSingleQuote(value))`); `bool` is normalised to `0`/`1`
+and `int`/`float` validated numeric before quoting, but **all** values are still quoted (a numeric
+value is just a quoted literal the device accepts). generateVerification: `settings get <namespace>
+<key>` read-back and compare, normalising bool/int (`true`≡`1`, `false`≡`0`; trim whitespace).
+Reject keys/namespaces outside the allowed charset/set at parse (§9); never rely on the value being
+"clean" — always escape.
+
+**`android.tactical`** — inputKind `json`, flatten per §8.2, retain template. decisionSchema:
+`[{name:'value',kind:'value-typed',required:true}]` (editor adapts to the leaf's JS type;
+default from the captured value). generateImplementation/rebuildArtifact: deep-clone the device's
+tactical template, apply decided values at their paths (§8.2), serialize deterministically →
+`tactical.json` plus a PowerShell push step. **Accepted v1 limitation (binding):** the on-device
+apply mechanism is device-specific and is intentionally left as a single, clearly-marked
+`# TODO(tactical-apply): …` block in the generated script for v1. This is *not* a defect and does
+**not** gate completeness, readiness, or any DOD item: the tactical generator is considered complete
+for v1 when it (a) deterministically rebuilds and emits a correct `tactical.json` artifact, and
+(b) emits the push-step scaffold with the TODO marker and a comment explaining what a maintainer
+must fill in. The TODO marker text MUST be stable (so determinism holds) and MUST be greppable.
+generateVerification: read-back where exposed else mark EVIDENCED. renderReportSection:
+path/value/ism table. **Type fidelity:** preserve booleans/numbers as JSON types, not strings.
+
+> The Android specifics live entirely in this appendix's adapters. The rest of the app is platform-blind.
+
+### Appendix C — Vendored primitives (inline, fenced with provenance)
+
+The implementer MUST inline, with `BEGIN/END VENDORED` banners and source attribution:
+1. **SHA-256** — a compact, dependency-free, public-domain/MIT JS implementation operating on UTF-8 strings/bytes (required because Web Crypto may be absent on `file://`).
+2. **CRC-32** — standard table-based implementation (for ZIP entries).
+3. **Store-only ZIP writer** — builds a valid ZIP using *stored* (no compression) entries: per-file local file header + data, followed by the central directory and end-of-central-directory record; CRC-32, compressed size = uncompressed size, sizes/offsets little-endian, UTF-8 filenames (set the language-encoding flag). Output a single `Blob` (`application/zip`). Keep entry order stable for determinism. **All DOS date/time fields MUST be the fixed constant `time=0x0000, date=0x0021` (1980-01-01), and all version/attribute fields fixed constants, per §10.4 — never wall-clock — so the writer is a pure function of its input and `zip(files)` is byte-reproducible.** (May instead inline a minimal MIT-licensed zip lib, provided it runs offline, store-only, and emits fixed timestamps; hand-rolled is preferred to minimise footprint.)
+
+### Appendix D — Fixtures
+
+Provide, as inline test data:
+- **D.1 packages** — valid list (with a `package:` prefix and a duplicate to dedupe) + malformed (empty; a line with a space).
+- **D.2 settings** — valid TSV across all three namespaces, including the adversarial value `a'b"c$(whoami)` d;e` (single quote, double quote, command-substitution, backtick, space, `;`) plus one value with `=`, to exercise the two-layer escaping (Appendix B) + malformed (wrong field count; unknown namespace `foo`; malformed key with a space; duplicate key).
+- **D.3 tactical** — valid nested JSON incl. an array and a boolean + malformed (invalid JSON).
+- **D.4 mock platform** — a trivial `PlatformProfile` with one text dataset (`mock.kv`, key=`k`, decision=`{value}`) used solely by the portability self-test to prove core needs no edits to host a new platform.
+- **D.5 sample project** — two devices (Tab Active 5, S23) sharing most keys, with a handful of S23-only keys and one cross-device settings default-drift, to exercise inheritance, triage, drift, and readiness.
+
+### Appendix E — Glossary
+
+Register (the shared decision store), Decision vs Applicability (§5/§6), Snapshot, Dataset adapter,
+Platform profile, Item, Complete/Ready, EVIDENCED (applied but not machine-verifiable), Drift
+(changed default across firmware), Triage (the new/existing/not-applicable split).

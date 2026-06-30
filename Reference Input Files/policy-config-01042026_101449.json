@@ -1,0 +1,442 @@
+{
+  "allowNightVisionAccess": false,
+  "allowUserEditTime": false,
+  "appAdminWhitelist": [],
+  "appInstallWhitelist": [],
+  "appSignatureWhitelist": [],
+  "auditLogRules": {
+    "groups": [],
+    "outcome": "all",
+    "severity": "notice"
+  },
+  "batteryWhitelist": [
+    "io.sdsasolutions.tacticalsettings"
+  ],
+  "bluetoothDevicesWhitelist": [],
+  "disabledAppsList": [],
+  "domainFilters": [],
+  "enableGpsTime": false,
+  "enableWarrantyBitNotification": false,
+  "ethernetConfigs": [],
+  "firewallRules": [],
+  "lockscreenTimeoutSeconds": 0,
+  "nr5gModeStateSimSlot0": "enable_both",
+  "nr5gModeStateSimSlot1": "enable_both",
+  "passwordPolicy": {
+    "maxAttemptsBeforeWipe": 0,
+    "maxCharSequence": 0,
+    "maxLockTime": 0,
+    "maxNumSequence": 0,
+    "minimumLength": 0,
+    "passwordQuality": "none"
+  },
+  "policyList": [
+    {
+      "checked": false,
+      "name": "Disable Bluetooth"
+    },
+    {
+      "checked": false,
+      "name": "Disable Bluetooth Tethering"
+    },
+    {
+      "checked": false,
+      "name": "Disable Bluetooth Data Transfer"
+    },
+    {
+      "checked": false,
+      "name": "Activate Bluetooth Device Restriction"
+    },
+    {
+      "checked": false,
+      "name": "Disable Bluetooth Discovery"
+    },
+    {
+      "checked": false,
+      "name": "Disable Bluetooth Pairing"
+    },
+    {
+      "checked": false,
+      "name": "Disable Wifi"
+    },
+    {
+      "checked": false,
+      "name": "Disable Wifi Direct"
+    },
+    {
+      "checked": false,
+      "name": "Disable Wifi Tethering"
+    },
+    {
+      "checked": false,
+      "name": "Activate Wifi SSID Restriction"
+    },
+    {
+      "checked": false,
+      "name": "Disable Open Wifi Hotspot"
+    },
+    {
+      "checked": false,
+      "name": "Set Min Wifi Security - WEP"
+    },
+    {
+      "checked": false,
+      "name": "Set Min Wifi Security - WPA"
+    },
+    {
+      "checked": false,
+      "name": "Set Min Wifi Security - EAPPWD"
+    },
+    {
+      "checked": false,
+      "name": "Set Min Wifi Security - PEAP"
+    },
+    {
+      "checked": false,
+      "name": "Set Min Wifi Security - EAPTLS"
+    },
+    {
+      "checked": false,
+      "name": "Disable USB Tethering"
+    },
+    {
+      "checked": false,
+      "name": "Disable Unsecure Connections"
+    },
+    {
+      "checked": false,
+      "name": "Disable BLE Scanning"
+    },
+    {
+      "checked": false,
+      "name": "Disable Wifi Scanning"
+    },
+    {
+      "checked": false,
+      "name": "Set Emergency Call Only"
+    },
+    {
+      "checked": false,
+      "name": "Disable Mobile Data Usage"
+    },
+    {
+      "checked": false,
+      "name": "Disable Incoming Calls"
+    },
+    {
+      "checked": false,
+      "name": "Disable Outgoing Calls"
+    },
+    {
+      "checked": false,
+      "name": "Disable Incoming SMS"
+    },
+    {
+      "checked": false,
+      "name": "Disable Outgoing SMS"
+    },
+    {
+      "checked": false,
+      "name": "Disable Incoming MMS"
+    },
+    {
+      "checked": false,
+      "name": "Disable Outgoing MMS"
+    },
+    {
+      "checked": false,
+      "name": "Disable RCS"
+    },
+    {
+      "checked": false,
+      "name": "Disable WAP Push"
+    },
+    {
+      "checked": false,
+      "name": "Prevent GPS Setting Changes"
+    },
+    {
+      "checked": false,
+      "name": "Disable NFC"
+    },
+    {
+      "checked": false,
+      "name": "Disable Multiple User Mode"
+    },
+    {
+      "checked": false,
+      "name": "Disallow User Add VPN"
+    },
+    {
+      "checked": false,
+      "name": "Disallow User Change VPN"
+    },
+    {
+      "checked": false,
+      "name": "Disallow User Set Always-On VPN"
+    },
+    {
+      "checked": false,
+      "name": "Blacklist Installs By Package"
+    },
+    {
+      "checked": false,
+      "name": "Blacklist Installs By Signature"
+    },
+    {
+      "checked": false,
+      "name": "Prevent Uninstalls"
+    },
+    {
+      "checked": false,
+      "name": "Prevent New Admin Activation"
+    },
+    {
+      "checked": false,
+      "name": "Disable Settings"
+    },
+    {
+      "checked": false,
+      "name": "Enable Automatic Date Time"
+    },
+    {
+      "checked": false,
+      "name": "Enable 24-Hour Clock"
+    },
+    {
+      "checked": false,
+      "name": "Prevent Edit Date Time"
+    },
+    {
+      "checked": false,
+      "name": "Disable Camera"
+    },
+    {
+      "checked": false,
+      "name": "Disable Audio Record"
+    },
+    {
+      "checked": false,
+      "name": "Disable Video Record"
+    },
+    {
+      "checked": true,
+      "name": "Disable Factory Reset"
+    },
+    {
+      "checked": false,
+      "name": "Disallow Airplane Mode"
+    },
+    {
+      "checked": false,
+      "name": "Disable SD Card"
+    },
+    {
+      "checked": false,
+      "name": "Disable Screen Capture"
+    },
+    {
+      "checked": false,
+      "name": "Disable Clipboard"
+    },
+    {
+      "checked": false,
+      "name": "Disable Clipboard Sharing"
+    },
+    {
+      "checked": false,
+      "name": "Disable USB Debugging"
+    },
+    {
+      "checked": false,
+      "name": "Disable Developer Mode"
+    },
+    {
+      "checked": false,
+      "name": "Disable Mock Location"
+    },
+    {
+      "checked": false,
+      "name": "Disable USB File Transfer"
+    },
+    {
+      "checked": false,
+      "name": "Disable Microphone"
+    },
+    {
+      "checked": false,
+      "name": "Disable USB Host Storage"
+    },
+    {
+      "checked": false,
+      "name": "Disable Power Saving Mode"
+    },
+    {
+      "checked": false,
+      "name": "Disable Wallpaper Change"
+    },
+    {
+      "checked": false,
+      "name": "Disable Firmware Recovery"
+    },
+    {
+      "checked": true,
+      "name": "Disable Firmware Auto Update"
+    },
+    {
+      "checked": false,
+      "name": "Disable OTA Updates"
+    },
+    {
+      "checked": false,
+      "name": "Disable Safe Mode"
+    },
+    {
+      "checked": false,
+      "name": "Disable Share List"
+    },
+    {
+      "checked": false,
+      "name": "Disallow Non-Market Apps"
+    },
+    {
+      "checked": false,
+      "name": "Disable Google Auto Sync"
+    },
+    {
+      "checked": false,
+      "name": "Disable Google Crash Report"
+    },
+    {
+      "checked": false,
+      "name": "Disable Google Backup"
+    },
+    {
+      "checked": false,
+      "name": "Disable Secure Notifications"
+    },
+    {
+      "checked": false,
+      "name": "Disable Unredacted Notifications"
+    },
+    {
+      "checked": false,
+      "name": "Disable Secure Camera"
+    },
+    {
+      "checked": true,
+      "name": "Enable Audit Logging"
+    },
+    {
+      "checked": false,
+      "name": "Enable Boot Banner"
+    },
+    {
+      "checked": false,
+      "name": "Enable CC Mode"
+    },
+    {
+      "checked": false,
+      "name": "Enforce CRL Checking"
+    },
+    {
+      "checked": false,
+      "name": "Enforce OCSP Checking"
+    },
+    {
+      "checked": false,
+      "name": "Prevent Certificate Removal"
+    },
+    {
+      "checked": false,
+      "name": "Prevent New Supported Accounts"
+    },
+    {
+      "checked": false,
+      "name": "Enable Firewall Rules"
+    },
+    {
+      "checked": false,
+      "name": "Disable Fingerprint Authentication"
+    },
+    {
+      "checked": false,
+      "name": "Disable Face Authentication"
+    },
+    {
+      "checked": false,
+      "name": "Exclude SDCard on Wipe"
+    },
+    {
+      "checked": false,
+      "name": "Disable Smart Lock"
+    },
+    {
+      "checked": false,
+      "name": "Require SDCard Encryption"
+    },
+    {
+      "checked": false,
+      "name": "Disable Dex Mode"
+    },
+    {
+      "checked": false,
+      "name": "Enforce Dex Ethernet Only"
+    },
+    {
+      "checked": false,
+      "name": "Enable HardKey Broadcasts"
+    },
+    {
+      "checked": false,
+      "name": "Enable Stealth Mode"
+    },
+    {
+      "checked": false,
+      "name": "Auto Adjust Touch Sensitivity"
+    },
+    {
+      "checked": false,
+      "name": "Turn Off Ethernet Auto Connect"
+    },
+    {
+      "checked": false,
+      "name": "Enable Call Auto Pickup All"
+    },
+    {
+      "checked": false,
+      "name": "Enable Call Auto Record"
+    },
+    {
+      "checked": true,
+      "name": "Disable Hotspot 2.0"
+    },
+    {
+      "checked": false,
+      "name": "Disable Ethernet Auto Config"
+    },
+    {
+      "checked": false,
+      "name": "Disable 2G Connectivity"
+    },
+    {
+      "checked": false,
+      "name": "Disable ESIM"
+    },
+    {
+      "checked": true,
+      "name": "Enable Randomised Mac Address"
+    },
+    {
+      "checked": false,
+      "name": "Disable POGO Keyboard Connection"
+    }
+  ],
+  "stealthHwControl": "0000000000",
+  "usbConnectionType": "usb-tethering",
+  "usbDeviceAccessList": "",
+  "usbHostWhitelist": [],
+  "usbSerialNumberAccessList": "",
+  "wifiSsidsWhitelist": [],
+  "wlan0Mtu": 1500
+}
