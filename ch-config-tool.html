@@ -152,6 +152,13 @@
   table.data th, table.data td { border: 1px solid var(--c-border); padding: 6px 8px; text-align: left; vertical-align: top; }
   table.data thead th { background: var(--c-surface-alt); position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
   table.data thead th .arrow { color: var(--c-accent); }
+  /* Resizable, fixed-layout tables (review-2 #4) + wrapping cells (review-2 #3) */
+  table.data.resizable { table-layout: fixed; width: auto; }
+  table.data td { word-break: break-word; overflow-wrap: anywhere; }
+  table.data th.lead-col { width: 34px; }
+  table.data thead th { position: relative; }
+  table.data thead th .col-resize { position: absolute; top: 0; right: -3px; width: 8px; height: 100%; cursor: col-resize; user-select: none; }
+  table.data td.dcell .val-edit { width: 100%; box-sizing: border-box; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.7em; font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
   table.data tbody tr.undecided { border-left: 3px solid var(--c-undecided-border); }
   table.data tbody tr:nth-child(even) { background: var(--c-surface-alt); }
   .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--c-border); }
@@ -2532,26 +2539,18 @@
         return { items: keys.map(function (k) { return { key: k, defaultValue: values[k] }; }), keys: keys, values: values, warnings: warnings, errors: errors };
       },
 
+      // The decision is just the value (review-2): a single string applied verbatim.
+      // The earlier value-type field was dropped — captured Android values are already
+      // in device form and are emitted quoted-verbatim (no per-type normalisation).
       decisionSchema: [
-        { name: 'value', kind: 'string', required: true },
-        { name: 'type', kind: 'enum', options: ['string', 'int', 'float', 'bool'], required: true }
+        { name: 'value', kind: 'string', required: true }
       ],
 
       validateDecision: function (item) {
         var d = item.decision;
         if (d === null) return [];
-        var out = [];
-        if (typeof d.value !== 'string') out.push({ category: 'validation', severity: 'error', message: 'value must be a string.', location: item.key });
-        if (['string', 'int', 'float', 'bool'].indexOf(d.type) === -1) {
-          out.push({ category: 'validation', severity: 'error', message: 'type must be string, int, float or bool.', location: item.key });
-          return out;
-        }
-        if (typeof d.value === 'string') {
-          if (d.type === 'int' && !/^-?\d+$/.test(d.value)) out.push({ category: 'validation', severity: 'error', message: 'int value must be an integer.', location: item.key });
-          if (d.type === 'float' && !/^-?\d+(\.\d+)?$/.test(d.value)) out.push({ category: 'validation', severity: 'error', message: 'float value must be numeric.', location: item.key });
-          if (d.type === 'bool' && ['0', '1', 'true', 'false'].indexOf(d.value.toLowerCase()) === -1) out.push({ category: 'validation', severity: 'error', message: 'bool value must be 0/1/true/false.', location: item.key });
-        }
-        return out;
+        if (typeof d.value !== 'string') return [{ category: 'validation', severity: 'error', message: 'value must be a string.', location: item.key }];
+        return [];
       },
       isComplete: function (item) {
         return item.decision !== null && this.validateDecision(item).every(function (i) { return i.severity !== 'error'; });
@@ -2560,7 +2559,7 @@
       columns: [
         { key: 'key', label: 'Key', get: function (it) { return it.key; } },
         { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
-        { key: 'decision', label: 'Value (type)', get: function (it) { return it.decision ? (it.decision.value + ' (' + it.decision.type + ')') : ''; } },
+        { key: 'decision', label: 'Value', get: function (it) { return it.decision ? it.decision.value : ''; } },
         { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
       ],
 
@@ -2591,7 +2590,7 @@
       },
       renderReportSection: function (items, ctx) {
         var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? (it.decision.value + ' (' + it.decision.type + ')') : '') +
+          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? it.decision.value : '') +
             '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
         return '<h2>Settings</h2><table><thead><tr><th>Key</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
@@ -2950,11 +2949,10 @@
         T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'disable' }, controlRefs: [] }), true);
         T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'nope' }, controlRefs: [] }), false);
       });
-      s.test('settings validateDecision type checks', function () {
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 'abc', type: 'int' } }).length, 1);
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: '5', type: 'int' } }).length, 0);
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 'yes', type: 'bool' } }).length, 1);
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 'true', type: 'bool' } }).length, 0);
+      s.test('settings validateDecision: any string value valid; non-string invalid (no type field)', function () {
+        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: "a'b\"c$(x); long value" } }).length, 0);
+        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: null }).length, 0);
+        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 5 } }).length, 1);
       });
       s.test('tactical isComplete with falsey value', function () {
         T.assertEqual(A.tactical.isComplete({ key: 't', decision: { value: false, type: 'bool' }, controlRefs: [] }), true);
@@ -3535,6 +3533,20 @@
       return map;
     }
 
+    var MIN_COL_WIDTH = 60; // px (review-2 #4)
+    /** Sensible default column widths (px) by column key; resized widths override. */
+    function colDefaultWidth(key) {
+      switch (key) {
+        case 'key': return 240;
+        case 'description': return 220;
+        case 'decision': return 280;
+        case 'controlRefs': return 180;
+        case 'appliesTo': return 160;
+        case 'status': return 100;
+        default: return 160;
+      }
+    }
+
     function ctrl(dsId, key, field, kind, extra) {
       return 'data-decision data-ds="' + esc(dsId) + '" data-key="' + esc(key) + '" data-field="' + esc(field) + '" data-kind="' + kind + '"' + (extra || '');
     }
@@ -3556,14 +3568,15 @@
             '</select>';
         }
         if (f.kind === 'string') {
+          // Full-width, wrapping value box (review-2 #3): long values stay fully visible.
           var cur2 = d && d[f.name] != null ? d[f.name] : (cap ? cap.value : '');
-          return '<input type="text" ' + ctrl(dsId, item.key, f.name, 'string') + ' value="' + esc(cur2) + '" size="12" aria-label="' + esc(f.name) + '">';
+          return '<textarea ' + ctrl(dsId, item.key, f.name, 'string') + ' rows="1" class="val-edit" aria-label="' + esc(f.name) + '">' + esc(cur2) + '</textarea>';
         }
         if (f.kind === 'value-typed') {
           var rawVal = d && ('value' in d) ? d.value : (cap ? cap.value : '');
           var shown = (typeof rawVal === 'string') ? rawVal : App.util.stable.stableStringify(rawVal);
           var curType = d && d.type ? d.type : (cap ? cap.type : 'string');
-          return '<input type="text" ' + ctrl(dsId, item.key, f.name, 'value-typed') + ' value="' + esc(shown) + '" size="12" aria-label="value"> ' + typeSelect(dsId, item.key, curType);
+          return '<textarea ' + ctrl(dsId, item.key, f.name, 'value-typed') + ' rows="1" class="val-edit" aria-label="value">' + esc(shown) + '</textarea> ' + typeSelect(dsId, item.key, curType);
         }
         if (f.kind === 'bool') {
           var on = !!(d && d[f.name]);
@@ -3627,9 +3640,12 @@
       var sk = ui.sortKey || 'key', sdir = ui.sortDir || 'asc';
       var colspan = cols.length + 1; // + leading expander column
 
-      var head = '<th scope="col" aria-label="expand"></th>' + cols.map(function (c) {
+      var colWidths = ui.colWidths || {};
+      var head = '<th class="lead-col" scope="col" aria-label="expand"></th>' + cols.map(function (c) {
         var arrow = (c.key === sk) ? ' <span class="arrow">' + (sdir === 'asc' ? '▲' : '▼') + '</span>' : '';
-        return '<th data-col="' + esc(c.key) + '" scope="col">' + esc(c.label) + arrow + '</th>';
+        var w = colWidths[c.key] || colDefaultWidth(c.key);
+        return '<th data-col="' + esc(c.key) + '" scope="col" style="width:' + w + 'px">' + esc(c.label) + arrow +
+          '<span class="col-resize" data-col-resize="' + esc(c.key) + '" title="Drag to resize"></span></th>';
       }).join('');
 
       var body = rows.map(function (r) {
@@ -3657,7 +3673,7 @@
 
       if (!rows.length) body = '<tr><td colspan="' + colspan + '" class="muted">No matching items.</td></tr>';
 
-      return '<table class="data"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
+      return '<table class="data resizable"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
     }
 
     App.ui = App.ui || {};
@@ -4292,6 +4308,8 @@
     }
     var _searchTimer = null;
     var _editIssues = {}; // transient decision-validation issues, keyed "dsId|key"
+    var _colResizing = false;     // true mid-drag, to suppress the trailing sort click
+    var MIN_COL_WIDTH_PX = 60;    // minimum column width (review-2 #4)
 
     function activeDatasets() {
       var p = App.registry.getActivePlatform();
@@ -4363,12 +4381,23 @@
     }
 
     /** Offer to restore a local draft autosave if one exists and hasn't been dismissed. */
+    /** Format a UTC ISO timestamp as AEST (UTC+10, no DST) for display only (review-2 #1).
+     *  Canonical timestamps in state/artifacts stay UTC; this is a presentation helper. */
+    function toAest(iso) {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      var t = new Date(d.getTime() + 10 * 3600 * 1000); // UTC+10 = AEST
+      var p = function (n) { return ('0' + n).slice(-2); };
+      return t.getUTCFullYear() + '-' + p(t.getUTCMonth() + 1) + '-' + p(t.getUTCDate()) + ' ' +
+        p(t.getUTCHours()) + ':' + p(t.getUTCMinutes()) + ':' + p(t.getUTCSeconds()) + ' AEST';
+    }
+
     function renderRestoreBanner() {
       if (_state.draftDismissed) return '';
       var d = loadDraft();
       if (!d) return '';
       return '<div class="restore-banner" role="region" aria-label="Draft autosave">' +
-        '<span>A local <strong>draft autosave</strong> from ' + esc(d.savedUtc.replace('T', ' ').slice(0, 19)) + ' UTC was found (non-canonical crash insurance).</span>' +
+        '<span>A local <strong>draft autosave</strong> from ' + esc(toAest(d.savedUtc)) + ' was found (non-canonical crash insurance).</span>' +
         '<span class="spacer"></span>' +
         '<button data-action="restore-draft">Restore draft</button>' +
         '<button data-action="discard-draft">Discard</button>' +
@@ -4438,10 +4467,30 @@
     function wire() {
       dom.on(_root, 'click', '[data-tab]', function (e, el) { _state.activeTab = el.getAttribute('data-tab'); render(); });
       dom.on(_root, 'click', 'th[data-col]', function (e, el) {
+        // Ignore clicks on the resize handle (review-2 #4) so resizing doesn't sort.
+        if (e.target && e.target.matches && e.target.matches('[data-col-resize]')) return;
+        if (_colResizing) return;
         var ui = uiFor(_state.activeTab), col = el.getAttribute('data-col');
         if (ui.sortKey === col) ui.sortDir = (ui.sortDir === 'asc') ? 'desc' : 'asc';
         else { ui.sortKey = col; ui.sortDir = 'asc'; }
         renderTableHost();
+      });
+      // Manual column resizing (review-2 #4): drag the handle on a header.
+      dom.on(_root, 'mousedown', '[data-col-resize]', function (e, el) {
+        e.preventDefault(); e.stopPropagation();
+        var col = el.getAttribute('data-col-resize');
+        var th = el; while (th && th.tagName !== 'TH') th = th.parentNode;
+        if (!th) return;
+        var startX = e.clientX, startW = th.offsetWidth;
+        _colResizing = true;
+        function onMove(ev) { th.style.width = Math.max(MIN_COL_WIDTH_PX, startW + (ev.clientX - startX)) + 'px'; }
+        function onUp(ev) {
+          document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
+          var ui = uiFor(_state.activeTab); ui.colWidths = ui.colWidths || {};
+          ui.colWidths[col] = Math.max(MIN_COL_WIDTH_PX, startW + (ev.clientX - startX));
+          setTimeout(function () { _colResizing = false; }, 0); // swallow the trailing click
+        }
+        document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
       });
       dom.on(_root, 'input', '[data-search]', function (e, el) {
         var dsId = el.getAttribute('data-search'), val = el.value;
@@ -4606,7 +4655,7 @@
       App.store.init(res.value);
       App.store.markDirty();           // restored draft is NOT a saved file → unsaved
       _state.draftDismissed = true; _state.activeTab = defaultTab();
-      App.ui.activity.log({ severity: 'success', message: 'Restored draft autosave from ' + d.savedUtc + ' — Save to make it canonical.' });
+      App.ui.activity.log({ severity: 'success', message: 'Restored draft autosave from ' + toAest(d.savedUtc) + ' — Save to make it canonical.' });
       render();
     }
 
@@ -4673,7 +4722,7 @@
     }
 
     App.ui = App.ui || {};
-    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme };
+    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme, toAest: toAest };
   })(App);
   </script>
 
@@ -4992,11 +5041,12 @@
       });
       s.test('invalid decision is stored but stays incomplete + returns issues', function () {
         deviceProject();
-        var res = App.store.setDecision('android.settings', 'secure/x', { value: 'abc', type: 'int' });
+        // packages action is still a constrained enum, so an invalid action exercises this path.
+        var res = App.store.setDecision('android.packages', 'com.a', { action: 'bogus' });
         T.assertEqual(res.ok, false);
         T.assert(res.issues.length >= 1);
-        var it = App.store.getProject().items['android.settings'].filter(function (i) { return i.key === 'secure/x'; })[0];
-        T.assertDeepEqual(it.decision, { value: 'abc', type: 'int' }, 'value should still be stored (no silent drop)');
+        var it = App.store.getProject().items['android.packages'].filter(function (i) { return i.key === 'com.a'; })[0];
+        T.assertDeepEqual(it.decision, { action: 'bogus' }, 'value should still be stored (no silent drop)');
         T.assertEqual(it.status, 'undecided');
       });
       s.test('clearing a decision (null) returns to undecided', function () {
@@ -5029,13 +5079,12 @@
         T.assert(/data-kind="enum"/.test(html));
         T.assert(/>keep</.test(html) && />disable</.test(html) && />remove</.test(html));
       });
-      s.test('settings renders value input + type select; prefilled from capture', function () {
+      s.test('settings renders a full-width value box, NO type select, prefilled from capture', function () {
         deviceProject();
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', { sortKey: 'key' }, {});
-        // settings 'value' is kind 'string'; 'type' is kind 'enum' with the 4 type options.
-        T.assert(/data-kind="string"/.test(html), 'no value input');
-        T.assert(/data-kind="enum"/.test(html) && />int</.test(html) && />bool</.test(html), 'no type select');
-        T.assert(/value="0"/.test(html), 'captured value not prefilled');
+        T.assert(/data-kind="string"/.test(html) && /class="val-edit"/.test(html), 'no full-width value box');
+        T.assert(!/data-kind="enum-synth"/.test(html), 'settings must not have a value-type select');
+        T.assert(/>0<\/textarea>/.test(html), 'captured value not prefilled');
       });
       s.test('tactical renders value-typed input + type select', function () {
         deviceProject();
@@ -5516,6 +5565,28 @@
         T.assertEqual(App.store.addControl({ title: '' }).ok, false);
         var a = App.store.addControl({ title: 'Same' }), b = App.store.addControl({ title: 'Same' });
         T.assert(a.id !== b.id, 'ids should be unique');
+      });
+    });
+
+    T.suite('review-2: AEST banner time + resizable/wrapping value columns', function (s) {
+      s.test('toAest converts UTC to UTC+10 with an AEST label', function () {
+        T.assertEqual(App.ui.app.toAest('2026-06-30T00:00:00.000Z'), '2026-06-30 10:00:00 AEST');
+        T.assertEqual(App.ui.app.toAest('2026-06-30T15:30:00.000Z'), '2026-07-01 01:30:00 AEST'); // rolls the date
+      });
+      s.test('settings value box is a full-width wrapping textarea (no type select)', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=http://a/very/long?value=1&that=should&wrap=yes'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, {});
+        T.assert(/<textarea[^>]*data-kind="string"[^>]*class="val-edit"/.test(html) || /class="val-edit"[^>]*data-kind="string"/.test(html) || (/data-kind="string"/.test(html) && /class="val-edit"/.test(html)), 'value box not a val-edit textarea');
+        T.assert(!/data-kind="enum-synth"/.test(html));
+      });
+      s.test('table columns are resizable: handles + width styles + stored width override', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { colWidths: { key: 333 } }, {});
+        T.assert(/data-col-resize="key"/.test(html), 'no resize handle');
+        T.assert(/data-col="key"[^>]*style="width:333px"/.test(html), 'stored column width not applied');
+        T.assert(/class="data resizable"/.test(html), 'table not in fixed/resizable layout');
       });
     });
 

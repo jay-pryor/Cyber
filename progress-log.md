@@ -65,6 +65,30 @@ Control-coverage report; v1→v2 migration). Updated v1.0 fixtures to schemaVers
 
 **Result:** 136/136 self-tests pass.
 
+### 2026-06-30 — Review-2 changes (UI/UX) — ✅ COMPLETE
+
+Actioned the four review-2 notes:
+1. **Draft-banner time in AEST.** Added `toAest(iso)` (UTC+10, display-only); the restore banner and
+   the restore log line now show e.g. `2026-06-30 10:00:00 AEST`. Canonical timestamps stay UTC
+   (determinism unaffected).
+2. **Removed the settings value-type dropdown.** `android.settings.decisionSchema` is now just
+   `[{value, string}]`; the value is applied **verbatim** (quoted at generation) — no per-type
+   normalisation. (The dropdown was the value type, not the namespace; dropping it is safe because
+   captured Android values are already in device form.) Old project files with a vestigial `type` key
+   still load and generate correctly.
+3. **Full-width wrapping value box.** The settings (and tactical) value editors are now full-width
+   `textarea.val-edit` controls that wrap long values (`white-space:pre-wrap; overflow-wrap:anywhere`).
+4. **Manually resizable columns (all 3 tables).** Tables use `table-layout:fixed` with per-column
+   widths + a drag handle on each header (min width 60px); widths persist per dataset in UI state.
+   A drag guard prevents the resize from triggering a column sort.
+
+**Tests:** 3 new self-tests (toAest; settings value-box has no type select + is a val-edit textarea;
+columns have resize handles + width styles + stored-width override). Updated the settings
+validate/render tests for the type-field removal and the textarea change.
+
+**Defects:** none in the product (only expected test-fixture updates from the settings/value-box
+changes). 139/139 self-tests pass; clean boot; real-data generation still byte-deterministic.
+
 ---
 
 ## Log
