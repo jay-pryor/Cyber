@@ -306,6 +306,18 @@
   .panel .ov-edit select, .panel .ov-edit textarea.val-edit { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); width: 100%; box-sizing: border-box; resize: vertical; }
   .panel .ov-edit .ov-revert { font-size: 11px; padding: 1px 6px; white-space: nowrap; flex: 0 0 auto; }
 
+  /* Device groups (Phase 10 / §19.4). */
+  .add-group { display: flex; gap: 8px; align-items: center; margin: 8px 0 12px; }
+  .add-group input { font: inherit; padding: 5px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); min-width: 200px; }
+  .dev-group-section { border: 1px solid var(--c-border); border-radius: 8px; margin: 10px 0; padding: 8px 10px; background: var(--c-surface); }
+  .dev-group-section .grp-title { margin: 0 0 6px; font-size: 14px; }
+  .dev-group-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .dev-group-head .grp-name { font: inherit; font-weight: 600; padding: 3px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .grp-members { width: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+  .grp-member { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+  .gov-add { margin-top: 12px; padding: 10px; border: 1px dashed var(--c-border); border-radius: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .gov-add select, .gov-add textarea, .gov-add input { font: inherit; font-size: 13px; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+
   /* Draft restore banner */
   .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
   .restore-banner .spacer { flex: 1; }
@@ -4816,7 +4828,7 @@
   (function (App) {
     'use strict';
     var esc = App.util.html.esc;
-    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null, deviationsFirst: false };
+    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null, deviationsFirst: false, openGroupId: null, groupAdd: { dsId: null, key: '' }, newGroupName: '' };
     var _devSearchTimer = null;
     var _ctx = null;
 
@@ -4872,12 +4884,148 @@
           '</div>';
       }
 
-      var groupsHtml = order.map(function (baseId) {
-        var members = groups[baseId].slice().sort(function (a, b) { return b.version - a.version; }); // latest first
+      // A version-stack (all versions of one baseId), latest first.
+      function stackHtml(baseId) {
+        var members = groups[baseId].slice().sort(function (a, b) { return b.version - a.version; });
         return '<div class="dev-group">' + members.map(function (c) { return rowHtml(c, !latestIds[c.id]); }).join('') + '</div>';
+      }
+
+      // --- Device-group sections (spec §19.4) ---------------------------------
+      // Map each present baseId to its group (if any).
+      var groupOf = {}; (project.groups || []).forEach(function (g) { (g.deviceBaseIds || []).forEach(function (b) { groupOf[b] = g; }); });
+      // All distinct baseIds present, name-ordered via their latest config name.
+      var nameOf = {}; App.ui.model.getLatestConfigs(project).forEach(function (c) { if (nameOf[c.baseId] === undefined) nameOf[c.baseId] = c.name; });
+      var allBases = order.slice().sort(function (a, b) { return (nameOf[a] || a) < (nameOf[b] || b) ? -1 : 1; });
+
+      function memberCheckboxes(g) {
+        var inG = {}; (g.deviceBaseIds || []).forEach(function (b) { inG[b] = true; });
+        return allBases.map(function (b) {
+          return '<label class="grp-member"><input type="checkbox" data-group-member data-group-id="' + esc(g.id) + '" data-baseid="' + esc(b) + '"' + (inG[b] ? ' checked' : '') + '> ' + esc(nameOf[b] || b) + '</label>';
+        }).join('');
+      }
+      function groupSection(g) {
+        var members = allBases.filter(function (b) { return groupOf[b] && groupOf[b].id === g.id; });
+        var stacks = members.length ? members.map(stackHtml).join('') : '<p class="muted" style="padding:6px 10px">No devices in this group yet.</p>';
+        var nDev = App.overrides.groupDeviations(project, g.id).length;
+        var head = '<div class="dev-group-head">' +
+          '<input class="grp-name" data-group-name data-group-id="' + esc(g.id) + '" value="' + esc(g.name) + '" aria-label="group name">' +
+          '<span class="muted" style="font-size:12px">' + members.length + ' device' + (members.length === 1 ? '' : 's') + '</span>' +
+          '<button data-group-deviations="' + esc(g.id) + '">Deviations (' + nDev + ')</button>' +
+          '<button class="danger" data-group-remove="' + esc(g.id) + '">Delete group</button>' +
+          '<div class="grp-members"><span class="muted" style="font-size:12px">Members: </span>' + (allBases.length ? memberCheckboxes(g) : '<span class="muted">none</span>') + '</div>' +
+          '</div>';
+        return '<section class="dev-group-section"><h3 class="grp-title">' + esc(g.name) + '</h3>' + head + stacks + '</section>';
+      }
+
+      var groupSections = (project.groups || []).slice().sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; }).map(groupSection).join('');
+      var ungrouped = allBases.filter(function (b) { return !groupOf[b]; });
+      var ungroupedHtml = ungrouped.length
+        ? '<section class="dev-group-section"><h3 class="grp-title">Ungrouped</h3>' + ungrouped.map(stackHtml).join('') + '</section>'
+        : '';
+      var addGroup = '<div class="add-group"><input data-group-newname placeholder="New group name" value="' + esc(_dev.newGroupName || '') + '" aria-label="new group name"><button class="primary" data-action="add-group">Add group</button></div>';
+
+      return '<div><h2>Devices</h2>' +
+        '<p class="muted">Latest version is active for generation; older versions are read-only history. Group overrides apply to every device in the group (default → group → device).</p>' +
+        addGroup + groupSections + ungroupedHtml +
+        (_dev.openGroupId ? renderGroupModal(project, _dev.openGroupId) : '') +
+        '</div>';
+    }
+
+    /** Applicable-key union across a group's member latest configs for a dataset. */
+    function groupUnionKeys(project, g, dsId) {
+      var set = {}, latest = App.ui.model.getLatestConfigs(project);
+      (g.deviceBaseIds || []).forEach(function (b) {
+        var c = latest.filter(function (x) { return x.baseId === b; })[0];
+        var sn = c && c.snapshots[dsId];
+        if (sn && Array.isArray(sn.keys)) sn.keys.forEach(function (k) { set[k] = true; });
+      });
+      return Object.keys(set);
+    }
+
+    /** A schema-driven group-override editor, seeded with a decision (data-gov-* attrs). */
+    function govControl(adapter, decision, fieldPrefix) {
+      var d = decision;
+      return adapter.decisionSchema.map(function (f) {
+        var common = fieldPrefix + ' data-gov-field="' + esc(f.name) + '" data-gov-kind="' + f.kind + '"';
+        if (f.kind === 'enum') {
+          var cur = d && d[f.name] != null ? d[f.name] : '';
+          return '<select ' + common + ' aria-label="' + esc(f.name) + '"><option value="">—</option>' +
+            f.options.map(function (o) { return '<option value="' + esc(o) + '"' + (cur === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
+        }
+        if (f.kind === 'string') {
+          var cur2 = d && d[f.name] != null ? d[f.name] : '';
+          return '<textarea ' + common + ' rows="1" class="val-edit" aria-label="' + esc(f.name) + '">' + esc(cur2) + '</textarea>';
+        }
+        if (f.kind === 'value-typed') {
+          var rawVal = d && ('value' in d) ? d.value : '';
+          var shown = (typeof rawVal === 'string') ? rawVal : App.util.stable.stableStringify(rawVal);
+          var vtype = (d && d.type) ? d.type : (typeof rawVal === 'boolean' ? 'bool' : (typeof rawVal === 'number' ? (rawVal % 1 === 0 ? 'int' : 'float') : 'string'));
+          return '<textarea ' + common + ' data-vtype="' + esc(vtype) + '" rows="1" class="val-edit" aria-label="value">' + esc(shown) + '</textarea>';
+        }
+        if (f.kind === 'bool') {
+          var on = !!(d && d[f.name]);
+          return '<input type="checkbox" ' + common + (on ? ' checked' : '') + ' aria-label="' + esc(f.name) + '">';
+        }
+        return '';
+      }).join(' ');
+    }
+
+    /** Group "Deviations" modal (spec §19.4 / OVR-6): view + edit/remove + add group overrides. */
+    function renderGroupModal(project, groupId) {
+      var g = (project.groups || []).filter(function (x) { return x.id === groupId; })[0];
+      if (!g) return '';
+      var sections = datasets(project).map(function (d) {
+        var adapter = App.registry.getDataset(project.platformProfileId, d.id);
+        var dispKey = adapter.displayKey || function (k) { return k; };
+        var ovMap = (g.overrides && g.overrides[d.id]) || {};
+        var keys = Object.keys(ovMap).sort();
+        var rows = keys.map(function (key) {
+          var dV = (project.items[d.id] || []).filter(function (it) { return it.key === key; })[0];
+          var defText = dV && dV.decision != null ? JSON.stringify(dV.decision) : '(undecided)';
+          return '<tr><td>' + esc(dispKey(key)) + '</td><td class="muted">' + esc(defText) + ' →</td>' +
+            '<td>' + govControl(adapter, ovMap[key], 'data-gov data-gov-ds="' + esc(d.id) + '" data-gov-key="' + esc(key) + '"') + '</td>' +
+            '<td><button class="ov-revert" data-gov-remove data-ds="' + esc(d.id) + '" data-key="' + esc(key) + '">Remove</button></td></tr>';
+        }).join('');
+        var table = keys.length
+          ? '<table><thead><tr><th>Key</th><th>Default →</th><th>Group value</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
+          : '<div class="empty">No group overrides for ' + esc(d.label) + '.</div>';
+        return '<div class="panel"><h3>' + esc(d.label) + ' (' + keys.length + ')</h3>' + table + '</div>';
       }).join('');
 
-      return '<div><h2>Devices</h2><p class="muted">Latest version is active for generation; older versions are read-only history.</p>' + groupsHtml + '</div>';
+      // Add-override form: dataset select + key select (union, not-yet-overridden) + editor + Set.
+      var addDs = _dev.groupAdd.dsId || (datasets(project)[0] && datasets(project)[0].id);
+      var addAdapter = App.registry.getDataset(project.platformProfileId, addDs);
+      var dsSel = datasets(project).map(function (d) { return '<option value="' + esc(d.id) + '"' + (d.id === addDs ? ' selected' : '') + '>' + esc(d.label) + '</option>'; }).join('');
+      var ovKeys = (g.overrides && g.overrides[addDs]) || {};
+      var addDispKey = (addAdapter && addAdapter.displayKey) || function (k) { return k; };
+      var keyOpts = groupUnionKeys(project, g, addDs).filter(function (k) { return !(k in ovKeys); }).sort()
+        .map(function (k) { return '<option value="' + esc(k) + '"' + (k === _dev.groupAdd.key ? ' selected' : '') + '>' + esc(addDispKey(k)) + '</option>'; }).join('');
+      var addForm = '<div class="gov-add"><strong>Add override:</strong> ' +
+        '<select data-gov-add-ds aria-label="dataset">' + dsSel + '</select> ' +
+        '<select data-gov-add-key aria-label="key"><option value="">— key —</option>' + keyOpts + '</select> ' +
+        (addAdapter ? govControl(addAdapter, null, 'data-gov-add-field-ctl') : '') +
+        ' <button class="primary" data-gov-add-set data-ds="' + esc(addDs) + '">Set</button></div>';
+
+      return '<div class="modal-overlay" data-group-modal>' +
+        '<div class="modal" role="dialog" aria-modal="true" aria-label="Group deviations for ' + esc(g.name) + '">' +
+          '<div class="modal-head"><div><h3>' + esc(g.name) + ' — deviations from default</h3>' +
+            '<div class="modal-sub">Group overrides apply to every member device (default → group → device).</div></div>' +
+            '<button type="button" class="modal-close" data-group-modal-close aria-label="Close">×</button></div>' +
+          '<div class="modal-body"><div class="panels">' + sections + '</div>' + addForm + '</div>' +
+        '</div></div>';
+    }
+
+    /** Build a decision object from a NodeList of data-gov* controls; null if no value set. */
+    function govDecision(controls) {
+      var decision = {}, hasValue = false;
+      Array.prototype.forEach.call(controls, function (c) {
+        var field = c.getAttribute('data-gov-field'), kind = c.getAttribute('data-gov-kind');
+        if (kind === 'bool') { decision[field] = c.checked; hasValue = true; }
+        else if (kind === 'value-typed') { if (String(c.value) !== '') { decision[field] = coerceOv(c.value, c.getAttribute('data-vtype')); hasValue = true; } }
+        else if (kind === 'enum') { if (c.value !== '') { decision[field] = c.value; hasValue = true; } }
+        else { decision[field] = c.value; hasValue = true; } // string: '' is a valid value
+      });
+      return hasValue ? decision : null;
     }
 
     /** Coerce an override editor string to a typed JS value (mirrors the data-table coerce). */
@@ -5114,6 +5262,68 @@
       _ctx = ctx;
       App.util.dom.on(ctx.root, 'click', '[data-device-view]', function (e, el) { _dev.selectedId = el.getAttribute('data-device-view'); _dev.assignResults = {}; _dev.detailSearch = ''; _dev.collapsed = {}; _dev.openControlId = null; ctx.refreshMain(); });
       App.util.dom.on(ctx.root, 'click', '[data-device-back]', function () { _dev.selectedId = null; _dev.assignResults = {}; _dev.detailSearch = ''; _dev.collapsed = {}; _dev.openControlId = null; ctx.refreshMain(); });
+
+      // ---- device groups (spec §19.4 / T10.5) ----
+      App.util.dom.on(ctx.root, 'input', '[data-group-newname]', function (e, el) { _dev.newGroupName = el.value; });
+      App.util.dom.on(ctx.root, 'click', '[data-action="add-group"]', function () {
+        var res = App.store.addGroup({ name: _dev.newGroupName, deviceBaseIds: [] });
+        if (res.ok) _dev.newGroupName = ''; else App.ui.activity.logIssues(res.issues, 'Add group');
+        ctx.refreshMain();
+      });
+      App.util.dom.on(ctx.root, 'change', '[data-group-name]', function (e, el) {
+        App.store.updateGroup(el.getAttribute('data-group-id'), { name: el.value });
+      });
+      App.util.dom.on(ctx.root, 'click', '[data-group-remove]', function (e, el) {
+        var res = App.store.removeGroup(el.getAttribute('data-group-remove'));
+        App.ui.activity.logIssues(res.issues);
+        ctx.refreshMain();
+      });
+      App.util.dom.on(ctx.root, 'change', '[data-group-member]', function (e, el) {
+        var id = el.getAttribute('data-group-id'), baseId = el.getAttribute('data-baseid');
+        var g = (App.store.getProject().groups || []).filter(function (x) { return x.id === id; })[0]; if (!g) return;
+        var set = (g.deviceBaseIds || []).filter(function (b) { return b !== baseId; });
+        if (el.checked) set.push(baseId);
+        App.store.updateGroup(id, { deviceBaseIds: set });
+        ctx.refreshMain();
+      });
+      // Group deviations modal open/close.
+      App.util.dom.on(ctx.root, 'click', '[data-group-deviations]', function (e, el) {
+        _dev.openGroupId = el.getAttribute('data-group-deviations');
+        _dev.groupAdd = { dsId: (datasets(App.store.getProject())[0] || {}).id || null, key: '' };
+        ctx.refreshMain();
+      });
+      App.util.dom.on(ctx.root, 'click', '[data-group-modal-close]', function () { _dev.openGroupId = null; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'click', '[data-group-modal]', function (e, el) { if (e.target === el) { _dev.openGroupId = null; ctx.refreshMain(); } });
+      // Edit an existing group override (gather the row's controls -> setGroupOverride).
+      App.util.dom.on(ctx.root, 'change', '[data-gov]', function (e, el) {
+        var dsId = el.getAttribute('data-gov-ds'), key = el.getAttribute('data-gov-key');
+        var cell = el; while (cell && cell.tagName !== 'TD') cell = cell.parentNode;
+        if (!cell || !_dev.openGroupId) return;
+        var decision = govDecision(cell.querySelectorAll('[data-gov]'));
+        var res = decision === null
+          ? App.store.clearGroupOverride(_dev.openGroupId, dsId, key)
+          : App.store.setGroupOverride(_dev.openGroupId, dsId, key, decision);
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Group override');
+      });
+      App.util.dom.on(ctx.root, 'click', '[data-gov-remove]', function (e, el) {
+        var res = App.store.clearGroupOverride(_dev.openGroupId, el.getAttribute('data-ds'), el.getAttribute('data-key'));
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Remove group override');
+      });
+      // Add-override form: change dataset (re-render keys/editor), pick key, Set.
+      App.util.dom.on(ctx.root, 'change', '[data-gov-add-ds]', function (e, el) { _dev.groupAdd = { dsId: el.value, key: '' }; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'change', '[data-gov-add-key]', function (e, el) { _dev.groupAdd.key = el.value; });
+      App.util.dom.on(ctx.root, 'click', '[data-gov-add-set]', function (e, el) {
+        var dsId = el.getAttribute('data-ds');
+        var keySel = el.parentNode.querySelector('[data-gov-add-key]');
+        var key = keySel ? keySel.value : _dev.groupAdd.key;
+        if (!key) { App.ui.activity.log({ severity: 'warning', message: 'Pick a key to override first.' }); return; }
+        var decision = govDecision(el.parentNode.querySelectorAll('[data-gov-add-field-ctl]'));
+        if (decision === null) { App.ui.activity.log({ severity: 'warning', message: 'Choose an override value first.' }); return; }
+        var res = App.store.setGroupOverride(_dev.openGroupId, dsId, key, decision);
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Add group override');
+        else _dev.groupAdd.key = '';
+        ctx.refreshMain();
+      });
       // Collapse/expand a device panel (review-5 #1) — re-render only the panels so
       // the search box keeps focus and the rest of the view is untouched.
       App.util.dom.on(ctx.root, 'click', '[data-panel-toggle]', function (e, el) {
@@ -5192,7 +5402,7 @@
 
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
-    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems, _dev: _dev };
+    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems, renderGroupModal: renderGroupModal, _dev: _dev };
   })(App);
   </script>
 
@@ -7135,6 +7345,53 @@
         // a superseded panel set carries no override editor
         var sup = App.ui.views.devices.renderPanels(p, 'dev-m1', '');
         T.assert(/data-ov /.test(sup), 'latest renderPanels should include override controls');
+      });
+    });
+
+    T.suite('T10.5 device groups UI (sections + deviations modal)', function (s) {
+      function twoDevices() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Alpha', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Bravo', model: 'M2', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.c'),
+          'android.settings': snapB('android.settings', 'secure:\ny=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+      }
+      s.test('renderList shows group sections (+ Ungrouped), Add group, member checkboxes and a deviation count', function () {
+        twoDevices();
+        var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['alpha-m1'] });
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' }); // 1 deviation
+        var html = App.ui.views.devices.renderList(App.store.getProject());
+        T.assert(/data-action="add-group"/.test(html), 'no Add group control');
+        T.assert(/class="grp-title">Rugged</.test(html) && /Ungrouped/.test(html), 'group/ungrouped sections missing');
+        T.assert(new RegExp('data-group-deviations="' + g.id + '">Deviations \\(1\\)').test(html), 'deviation count wrong');
+        T.assert(/data-baseid="alpha-m1"[^>]*checked/.test(html), 'alpha should be a checked member of Rugged');
+        // Bravo is not in Rugged -> appears in Ungrouped (and as an unchecked member checkbox).
+        T.assert(/data-device-view="bravo-m2"/.test(html), 'bravo stack should render (Ungrouped)');
+      });
+      s.test('group deviations modal lists overrides + an add-override form', function () {
+        twoDevices();
+        var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['alpha-m1'] });
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' });
+        App.ui.views.devices._dev.groupAdd = { dsId: null, key: '' };
+        var html = App.ui.views.devices.renderGroupModal(App.store.getProject(), g.id);
+        T.assert(/modal-overlay/.test(html) && /data-group-modal-close/.test(html), 'no modal / close button');
+        T.assert(/data-gov-remove[^>]*data-key="com.a"/.test(html), 'existing override row missing');
+        T.assert(/data-gov-add-ds/.test(html) && /data-gov-add-set/.test(html), 'no add-override form');
+      });
+      s.test('a group override added then removed updates the modal list', function () {
+        twoDevices();
+        var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['alpha-m1'] });
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' });
+        var before = App.ui.views.devices.renderGroupModal(App.store.getProject(), g.id);
+        T.assert(/data-key="com.a"/.test(before), 'override should be listed');
+        App.store.clearGroupOverride(g.id, 'android.packages', 'com.a');
+        var after = App.ui.views.devices.renderGroupModal(App.store.getProject(), g.id);
+        T.assert(!/data-gov-remove[^>]*data-key="com.a"/.test(after), 'override should be gone after remove');
       });
     });
 
