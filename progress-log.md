@@ -97,6 +97,36 @@ changes). 139/139 self-tests pass; clean boot; real-data generation still byte-d
   so corners round the black box without clipping the logo text. File grew ~18KB → ~315KB.
 - 139/139 self-tests still pass.
 
+### 2026-06-30 — Review-3 changes — ✅ COMPLETE
+
+Actioned the seven review-3 notes (spec §18.5):
+1. **Generate as .txt.** Generate tab checkbox to emit script files as `.txt` instead of `.ps1`;
+   wrapping is decided on the original extension first so the preamble is preserved; data files
+   (tactical.json) unchanged; manifest reflects the names. Threaded via an `opts.scriptsAsTxt` arg.
+2. **No tactical type control.** Tactical decision is now `{value}` only; the value is coerced to the
+   captured leaf's JS type (carried in `data-vtype`) so JSON-type fidelity holds without a type select.
+   Settings already had its type removed (review-2).
+3. **policyList parsing (binding).** A tactical `policyList` of `{name, checked}` objects flattens to
+   one leaf per policy keyed by name, valued by checked (`policyList.Disable Bluetooth = false`).
+   Rebuild sets `checked` by name (order/other fields preserved). Verified on the real policy JSON:
+   100 policies, no index-style keys, round-trips identically.
+4. **Rationale preset button** — fills the rationale with `"Not required for device use-case."`.
+5a. **Add control types manually** — optional `project.controlTypes`; `store.addControlType` +
+   `knownControlTypes()` (seed ∪ controlTypes ∪ in-use); Control Manager input + button.
+5b. **Import controls CSV** — header must be exactly `title,type,description` (else refused with a
+   located error); `store.importControls` adds all in one transaction and auto-registers unknown types.
+   Promoted the RFC-4180 parser to `App.util.csv.parseCsv` (shared by packages-CSV + control import).
+6. **Device-detail search** — a search box filters the three read-only panels (key/decision/control
+   titles/description); re-renders only `#dev-panels` so the box keeps focus.
+
+**Tests:** +6 self-tests (txt rename keeps preamble; policyList flatten/rebuild; addControlType/dup;
+importControls + auto-type; device-panel search filter). Updated settings/tactical/devices-note tests
+for the type-removal and note-text changes.
+
+**Defects:** none in the product (only expected test-fixture updates). **145/145 self-tests pass**;
+clean boot (5 views, types seeded ISM/AHG/Custom); real-data generation byte-deterministic with the
+new policyList parsing.
+
 ---
 
 ## Log

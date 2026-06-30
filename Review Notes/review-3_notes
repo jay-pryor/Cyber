@@ -1,0 +1,11 @@
+1. Can you add a check box in the generate tab that will output the ps1 files as txt files instead of ps1. 
+2. Can you also get rid of the type values (int string, etc,.) in the tactical table too
+3. There's an issue with parsing the tactical json. The section policy list has a set of policies in this format:     {
+      "checked": false,
+      "name": "Disable Bluetooth"
+    },
+but that isn't two separate policies. The part behind "name" is the name of the policy, and the part behind "checked" is the settings. So it should be parsed as 'Disable Bluetooth' being set to 'false'. I think this only applies to policy list settings, so you could hardcode it so any policies under that heading are handled a different way.
+4. Can you add a button to the right of the rationale text box called 'Set to "Not required for device use-case" Which fills out the rationale box with "Not required for device use-case."
+5. Can you add a way to add extra control types manually, it can be somewhere in the control manager tab.
+5. Can you add a way to import lists of controls as CSVs. The columns should be exactly: title,type,description     with any types not existing already in the app being created and added to the app automatically. If the CSV doesn't have those columns it should refuse and throw an error explaining the issue.
+6. When you go into a specific device in the Devices tab, can you add a search bar that will filter the lists of packages, settings, and tactical that are displayed. So that I'd be able to go into a specific device config and see if something specific applies to that one.

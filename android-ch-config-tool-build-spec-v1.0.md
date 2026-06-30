@@ -979,3 +979,31 @@ project schema to **version 2**.
   §11.3: add the three "set from files" controls. Add a **Control Manager** tab.
 - §17.A schema: validate `controls`, `controlRefs` reference integrity, `schemaVersion === 2`.
 - §5.1 DatasetAdapter: add optional `assignmentHint` and `parseAssignment` members.
+
+### 18.5 Review-3 amendments (v1.1)
+
+- **RV3-1 Generate as .txt.** The Generate tab MUST offer a checkbox to emit script files with a
+  `.txt` extension instead of the platform `scriptExtension` (e.g. `.ps1`). Wrapping (preamble/
+  postamble) is decided on the ORIGINAL extension first so the script body is unchanged; only the
+  filename changes. Data files (e.g. `tactical.json`) are unaffected. The manifest reflects the
+  emitted names. Determinism (DOD-7) holds for a given option value.
+- **RV3-2 No tactical type control.** The tactical decision is `{value}` only — no user-facing value-
+  type control. JSON-type fidelity is preserved by coercing the edited value to the CAPTURED leaf's JS
+  type (carried as `data-vtype`). (Settings likewise carries no type — §review-2.)
+- **RV3-3 `policyList` semantics (binding).** A tactical array named `policyList` whose elements are
+  `{name, checked}` objects MUST flatten to one leaf per policy keyed by the policy **name** and
+  valued by **checked** (e.g. `policyList.Disable Bluetooth` = `false`), NOT to `policyList[i].checked`/
+  `[i].name`. Rebuild MUST set the matching policy's `checked` by name, preserving array order and any
+  other fields. Round-trip identity holds.
+- **RV3-4 Rationale preset.** The item detail editor MUST provide a button beside the rationale field
+  that fills it with exactly `"Not required for device use-case."`.
+- **RV3-5 Control types (`controlTypes`).** The Control Manager MUST allow adding control types
+  manually. The project MAY carry an optional top-level `controlTypes: string[]`. The set of selectable
+  types = seed `['ISM','AHG','Custom']` ∪ `controlTypes` ∪ types in use. (Optional/additive — no schema
+  version bump.)
+- **RV3-6 Import controls CSV.** The Control Manager MUST import controls from a CSV whose header is
+  exactly `title,type,description`; otherwise it REFUSES with a located error. Unknown types are
+  auto-registered (RV3-5).
+- **RV3-7 Device-detail search.** The device-configuration view MUST provide a search box that filters
+  the three read-only panels (by key / decision / control titles / description). Read-only (DOD-9)
+  is unchanged.
