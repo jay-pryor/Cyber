@@ -836,4 +836,146 @@ Provide, as inline test data:
 
 Register (the shared decision store), Decision vs Applicability (§5/§6), Snapshot, Dataset adapter,
 Platform profile, Item, Complete/Ready, EVIDENCED (applied but not machine-verifiable), Drift
-(changed default across firmware), Triage (the new/existing/not-applicable split).
+(changed default across firmware), Triage (the new/existing/not-applicable split), Control (a named
+requirement an item satisfies — §18.3), Assignment (setting a device's decisions in bulk from files —
+§18.2).
+
+---
+
+# 18. v1.1 feature set (addendum to the v1.0 spec)
+
+This section is **normative** and extends the v1.0 spec. It adds three features requested in review:
+a dark-mode UI theme (§18.1), a bulk "set decisions from existing files" workflow (§18.2), and a
+**Control Manager** with first-class control references (§18.3). It also raises the project
+`schemaVersion` to **2** (§18.3) with a forward migration.
+
+All **hard constraints (§2.1)**, the **modularity model (§5)**, the **purity boundary (§4.1)**, and
+**determinism (§6 C-6, §8.6, §10.4)** continue to bind. New format/dataset-specific behaviour MUST
+live behind the adapter/platform interfaces (§5) — no new dataset-id branching in core (§5.3).
+
+### 18.1 Dark-mode theme (UI only)
+
+- **DM-1 (MUST)** A theme toggle in the top bar (§11.1) switches the **entire app UI** between a
+  light and a dark palette. Implementation MUST be driven by the existing CSS custom properties: a
+  `[data-theme="dark"]` selector on the root element re-defines the palette variables only — no
+  per-component restyle, no second stylesheet.
+- **DM-2 (SHOULD)** On first load the theme follows the OS preference (`prefers-color-scheme`). The
+  user's explicit choice persists across loads in `localStorage` (non-canonical; honour **C-4** —
+  wrap all access and degrade silently if unavailable).
+- **DM-3 (MUST)** The theme is **UI-only**. It MUST NOT affect any generated artifact (report HTML,
+  scripts, manifests, zips) or any serialized state — determinism (**C-6**, **DOD-7**) is unchanged.
+  The report's own inline `<style>` (§10.3) is independent of the app theme.
+- **DM-4 (SHOULD)** The dark palette MUST keep sufficient contrast (§11.7); the toggle is a labelled
+  control exposing pressed state (`aria-pressed`). Colour is never the sole status signal (§11.7).
+
+### 18.2 Set decisions from existing files (bulk assignment)
+
+A workflow, **distinct from onboarding**, to set a device configuration's decisions in bulk from an
+uploaded set of files. Onboarding (§8.1, §11.4) is unchanged: it still only embeds snapshots and
+appends genuinely-new keys as `undecided`. This workflow operates **after** a device exists.
+
+- **ASG-1 (MUST)** From the device-configuration view (§11.3, Devices tab), for the **latest** version
+  of the selected device, provide **three independent controls — one per dataset** (packages,
+  settings, tactical) — each accepting one input file and applying it to that device's decisions for
+  that dataset only.
+- **ASG-2 (MUST — exact-set validation, before any mutation).** The set of keys present in the input
+  file MUST be **exactly equal** to the set of keys *applicable* to that device for that dataset
+  (*applicable* = union of that device's snapshot `keys` for the dataset, §6.5). If they differ, the
+  operation is **REFUSED with no mutation**, and the UI lists the deltas: keys *missing* from the file
+  (applicable but absent) and keys *extra* in the file (present but not applicable). No partial apply.
+- **ASG-3 (MUST — format validation, before any mutation).** Each input is parsed and validated
+  first; malformed input (bad header/JSON, invalid action, malformed/duplicate/charset-invalid keys)
+  REFUSES the operation with **located** error issues (§12, DOD-10). Nothing fails silently.
+- **ASG-4 — input formats:**
+  - **Settings:** the §9 settings capture format (sectioned `<namespace>:` + `key=value`). Each
+    decision is set to `{value: <file value, verbatim>, type: 'string'}`. (All values are quoted at
+    generation regardless of type; the operator MAY refine a value's type later in the Settings tab.)
+  - **Tactical:** the §9 tactical JSON. Each decision is set to `{value, type}` from the corresponding
+    flattened leaf (§8.2) — JSON types preserved.
+  - **Packages:** a **CSV** whose header row is exactly `package,action,description`. Column 1 is the
+    package name and MUST tolerate an optional leading `package:` prefix; column 2 is the action
+    `keep|disable|remove`; column 3 is a free-text description (RFC-4180 quoting — may be quoted and
+    contain commas). The decision is `{action}`; the item's `description` is set from column 3.
+    Package tokens remain charset-restricted (§9 / Appendix B) — reject others.
+- **ASG-5 (MUST)** On success, update — in **one transaction** — the register decisions for exactly
+  the device's applicable keys (and, for packages, the item descriptions), recompute completeness
+  (§6.5), bump `meta.modifiedUtc`, emit a change, and log a summary to the Activity drawer.
+- **ASG-6 (MUST — data-driven, A-4 / §5.3).** Format knowledge stays in the adapter. Each
+  `DatasetAdapter` MAY implement:
+  - `assignmentHint: string` — a one-line description of the accepted file format (shown in the UI).
+  - `parseAssignment(raw) → {assignments:[{key, decision, fields?}], warnings:Issue[], errors:Issue[]}`
+    — parse the assignment file into per-key decisions (`fields` carries non-decision item fields such
+    as `{description}` for packages). The **generic** engine performs the §ASG-2 exact-set validation
+    and the transactional apply; it never branches on dataset id.
+  - An adapter without `parseAssignment` simply offers no bulk-assignment control for its dataset.
+- **ASG-7 — unified-decision consequence (binding).** Per the v1 unified-decision assumption (§8.4),
+  a key carries **one** decision shared by every device that has it. Applying from a device's files
+  therefore updates the **shared** decisions for that device's applicable keys, which may also apply
+  to other devices. This is intended; §ASG-2 guarantees the affected set is exactly the device's
+  applicable keys. The UI SHOULD note this where the workflow is invoked. (A future per-device
+  override remains out of scope, §8.4.)
+- **ASG-8 (MUST)** The device-configuration panels remain read-only displays (§11.3, DOD-9); the
+  assignment controls are a separate, clearly-labelled affordance with their input-format help shown
+  inline (the packages CSV format MUST be explained there).
+
+### 18.3 Control Manager & control references (schemaVersion 2)
+
+Replaces free-text `ismRefs` with first-class **controls** managed in a dedicated tab, and bumps the
+project schema to **version 2**.
+
+- **CTL-1 — `Control` entity.** A new top-level project array `controls: [Control, …]` where
+  ```jsonc
+  Control = {
+    "id":   "slug",                 // stable, unique within the project
+    "title":"Disable Bluetooth",    // human label, shown everywhere a ref is displayed
+    "type": "ISM",                  // seeded options: "ISM" | "AHG" | "Custom" (extensible list)
+    "description":"…",
+    "assignedDeviceIds":["tab-active-5"]   // device baseIds this control applies to (stable identity)
+  }
+  ```
+  The **type** option list is a seeded constant (`['ISM','AHG','Custom']`) so the team can extend it
+  without touching control logic. `assignedDeviceIds` reference device `baseId`s (so an assignment
+  survives re-onboard versioning, §8.7); the UI displays them by device name.
+- **CTL-2 — `RegisterItem.controlRefs`.** Rename `ismRefs` → **`controlRefs`**: an array of `Control`
+  `id`s (no longer free text). All references MUST point to an existing control; a dangling ref is a
+  validation error (Appendix A), auto-pruned on load with a logged warning.
+- **CTL-3 — `schemaVersion: 2` + migration.** Bump the project `schemaVersion` to `2`. `projectIo.migrate`
+  MUST convert v1 → v2 **losslessly**: create `controls: []` if absent; for each item's legacy
+  `ismRefs` string, *find-or-create* a control (match by title; `type` inferred — prefix `ISM`→`ISM`,
+  `AHG`→`AHG`, else `Custom`; empty description; empty `assignedDeviceIds`) and replace the item's
+  refs with `controlRefs` of those control ids. `migrate(v2)` is identity. Reject unknown
+  `schemaVersion` with a located issue (§17.A).
+- **CTL-4 — Control Manager tab.** A new tab lists every control (title, type, description, assigned
+  device count) and supports **add / edit / remove**. Editing exposes title, a type `<select>` seeded
+  per CTL-1, description, and a multi-select of device configurations (by name). Its purpose is to
+  view and manage the control catalogue; it does **not** assign decisions.
+- **CTL-5 — Control refs in the data tabs.** Decision↔control assignment stays in the data-table tabs
+  (§11.2). The former "ISM Refs" column **and** editor are renamed **"Control Refs"**. The editor is
+  no longer a free-text box: it is a **multi-select search** over the control catalogue (search by
+  title/type, select one or more); the column renders the **titles** of the referenced controls.
+- **CTL-6 — store CRUD.** `store.addControl`, `updateControl`, `removeControl` (transactional, §7.1).
+  `removeControl` MUST strip the removed id from every item's `controlRefs` and log the change.
+  `setItemFields` accepts `controlRefs` (replacing the old `ismRefs`).
+- **CTL-7 — Report.** The "ISM coverage" section (§10.3) becomes **"Control coverage"**: items grouped
+  by control (shown as `title` + `type`), sub-grouped by dataset. Items referencing no control fall
+  under a "(no control)" group.
+- **CTL-8 — Completeness flag.** Rename the `REQUIRE_ISM_REF` flag (§6.5) to **`REQUIRE_CONTROL_REF`**
+  (semantics unchanged: when `true`, completeness also requires ≥1 control ref). Keep it a single
+  config switch (no code surgery to toggle).
+- **CTL-9 (MUST — portability/DOD-11).** None of the above may require edits to the generic store/
+  registry/diff/completeness/generate/report internals beyond the documented `controls`/`controlRefs`
+  data-model additions; per-platform behaviour is untouched. The portability self-test (§15, DOD-11)
+  MUST still pass with the mock platform.
+
+### 18.4 Amendments to v1.0 clauses (quick index)
+
+- §6.1 project file: add top-level `controls` array; `schemaVersion` const becomes `2`.
+- §6.4 RegisterItem: `ismRefs` → `controlRefs` (array of control ids).
+- §6.5: `REQUIRE_ISM_REF` → `REQUIRE_CONTROL_REF`.
+- §7.1 store API: add `addControl/updateControl/removeControl`, `applyDeviceAssignment`; `setItemFields`
+  takes `controlRefs`.
+- §10.3 report: "ISM coverage" → "Control coverage".
+- §11.1: add the dark-mode toggle. §11.2: rename ISM Refs → Control Refs (multi-select search).
+  §11.3: add the three "set from files" controls. Add a **Control Manager** tab.
+- §17.A schema: validate `controls`, `controlRefs` reference integrity, `schemaVersion === 2`.
+- §5.1 DatasetAdapter: add optional `assignmentHint` and `parseAssignment` members.

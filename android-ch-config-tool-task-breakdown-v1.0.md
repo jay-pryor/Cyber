@@ -457,3 +457,203 @@ T8.1 errors ─ T8.2 a11y ─ T8.3 beforeunload ─ T8.4 draft ─ T8.5 help ─
 
 Each task is self-contained: read its block + the cited spec sections + the modules it depends on,
 then build and self-test it in one pass.
+
+---
+
+## Phase 9 — v1.1 enhancements (dark mode · set-from-files · Control Manager)
+
+> Companion spec: **§18** (added v1.1). These tasks build on the completed v1.0 (Phases 0–8) in the
+> single file **`ch-config-tool.html`**. All global rules **A-1…A-9** still bind. Three independent
+> tracks: **9.1** (dark mode, standalone), **9.2–9.4** (bulk assignment), **9.5–9.9** (Control
+> Manager + schemaVersion 2). Build a track end-to-end before the next; 9.5 must land before 9.6–9.9.
+>
+> Exit gate: dark mode toggles the whole UI without touching any generated artifact; bulk-assignment
+> validates exact key-set equality and refuses with deltas otherwise; Control Manager CRUD works,
+> control refs are multi-select over the catalogue, the v1→v2 migration is lossless, and the full
+> self-test suite (incl. the DOD-11 portability test) stays green.
+
+### Track A — Dark mode
+
+#### T9.1 · Dark-mode theme + toggle
+- **Depends on:** Phase 8 (UI shell)
+- **Spec:** §18.1 (DM-1…DM-4), §11.1, §11.7, C-4, C-6
+- **Objective:** A top-bar toggle that switches the whole UI between light/dark via CSS variables only.
+- **Build:**
+  - Add a `[data-theme="dark"]` block in the inline `<style>` that overrides **only** the `:root`
+    palette custom properties (`--c-bg`, `--c-surface`, `--c-border`, `--c-text`, `--c-accent`, badge
+    colours, etc.) with a high-contrast dark palette. No component rules change (DM-1).
+  - Toggle button in the top bar (e.g. `data-action="toggle-theme"`, `aria-pressed`). Clicking flips
+    `document.documentElement.setAttribute('data-theme', …)` between `light`/`dark` and updates the
+    label/icon.
+  - First load: if no stored preference, read `window.matchMedia('(prefers-color-scheme: dark)')`
+    (guarded). Persist explicit choice under a `localStorage` key (e.g. `ch-config-theme`), all access
+    `try/catch`-guarded; degrade silently (C-4, DM-2). Reuse the existing draft-storage guard pattern.
+  - **Do not** read the theme anywhere in `App.generate`/`App.report` or serialization (DM-3); it is a
+    DOM concern only. Put a tiny pure helper `nextTheme(cur) → 'light'|'dark'` so it is unit-testable.
+- **Self-tests to add:** `nextTheme('light')==='dark'`, `nextTheme('dark')==='light'`; assert a report
+  built under each theme is byte-identical (theme cannot leak into output — reuse the determinism harness).
+- **Definition of done:** Whole UI restyles via the data-theme attribute; preference persists and
+  degrades silently; generated artifacts and self-tests are unaffected; toggle is keyboard-operable
+  with `aria-pressed`.
+
+### Track B — Set decisions from existing files (bulk assignment)
+
+#### T9.2 · Adapter `parseAssignment` + `assignmentHint` (per-dataset assignment parsers)
+- **Depends on:** T2.3, T2.4, T2.5 (the three Android adapters)
+- **Spec:** §18.2 (ASG-4, ASG-6), §5.1, §9, Appendix B, A-4, A-6
+- **Objective:** Teach each Android adapter to parse its bulk-assignment file into per-key decisions,
+  keeping all format knowledge in the adapter (no core branching).
+- **Build:** On each adapter add:
+  - `assignmentHint: string` — one-line format description shown in the UI.
+  - `parseAssignment(raw) → {assignments:[{key, decision, fields?}], warnings, errors}`:
+    - **packages:** parse a **CSV** with an exact header `package,action,description` (RFC-4180:
+      handle quoted fields/embedded commas/escaped quotes). Tolerate an optional leading `package:` on
+      column 1; enforce the package charset (Appendix B). `action ∈ {keep,disable,remove}`. Emit
+      `{key: pkg, decision:{action}, fields:{description: col3}}`. Errors: wrong/missing header,
+      malformed CSV, invalid action, illegal package token, duplicate package.
+    - **settings:** reuse `settings.parse(raw)`; map each parsed key → `{key, decision:{value: capturedValue, type:'string'}}`.
+      Surface the parser's own errors/warnings.
+    - **tactical:** reuse `tactical.parse(raw)`; map each flattened leaf → `{key, decision:{value, type}}`
+      preserving JSON types (§8.2). Surface invalid-JSON / non-object-root errors.
+  - Keep `parse` (onboarding) untouched. `parseAssignment` is additive.
+- **Self-tests to add:** packages CSV — valid (with/without `package:`, a quoted description containing
+  a comma) → correct assignments; bad header / invalid action / dup / illegal token → located errors.
+  Settings/tactical assignment parse map to `{value,type}` correctly; invalid inputs error.
+- **Definition of done:** Each adapter parses its assignment file to per-key decisions; format errors
+  are located; no dataset-id logic leaks into core.
+
+#### T9.3 · `store.applyDeviceAssignment` + exact-set validator (engine)
+- **Depends on:** T9.2, T5.2 (`setDecision`/`setItemFields`), T6.1 (`applicableItems`)
+- **Spec:** §18.2 (ASG-2, ASG-3, ASG-5, ASG-7), §6.5, §8.4, §7.1, §12, A-3
+- **Objective:** A pure, transactional engine path that validates exact key-set equality, then applies
+  an assignment to a device's applicable keys in one commit.
+- **Build:** `App.store.applyDeviceAssignment(deviceId, datasetId, parsed) → {ok, issues}` where
+  `parsed` is a `parseAssignment` result:
+  1. Resolve the device (MUST be a **latest** config) and dataset; error if unknown.
+  2. If `parsed.errors.length` → refuse (return them; no mutation) (ASG-3).
+  3. Compute `applicable = applicableItems(deviceId, datasetId)` keys. Compute
+     `missing = applicable − assignmentKeys`, `extra = assignmentKeys − applicable`. If either is
+     non-empty → **refuse** with located issues enumerating each delta (ASG-2). No partial apply.
+  4. Validate every assignment decision via `adapter.validateDecision`; any error → refuse (ASG-3).
+  5. **One transaction** (single `commit`): for each assignment set `item.decision` and merge
+     `fields` (e.g. `description`); recompute status; bump `modifiedUtc`; emit once.
+  6. Return `{ok:true, issues:[success summary]}`.
+  - Document the **unified-decision consequence** (ASG-7) at the call site: this updates shared
+    decisions for the device's applicable keys.
+- **Self-tests to add:** exact-match set → applies all decisions + descriptions, device flips ready;
+  file missing a key → refused with a `missing` delta and **no mutation**; file with an extra key →
+  refused with an `extra` delta; an invalid action in the parsed set → refused; success is a single
+  `onChange` emission (transactional).
+- **Definition of done:** Validation precedes mutation; deltas are precise; apply is atomic and
+  deterministic; honours §8.4.
+
+#### T9.4 · Devices-view "Set from files" UI (three controls)
+- **Depends on:** T9.3, T6.1 (device view)
+- **Spec:** §18.2 (ASG-1, ASG-8), §11.3, §12, DOD-10
+- **Objective:** From the device-configuration view, expose three independent file controls (one per
+  dataset) that run the assignment workflow, with inline format help and delta/error surfacing.
+- **Build:** In the device detail view add a clearly-labelled "Set decisions from files" section with
+  one file input per dataset, each showing the adapter's `assignmentHint` (the **packages CSV format
+  MUST be explained** here, ASG-8). On file select: read text → `adapter.parseAssignment` →
+  `store.applyDeviceAssignment`. On refusal, render the deltas/errors inline and log them to the
+  Activity drawer; on success log the summary and re-render the (read-only) panels. The panels stay
+  read-only (ASG-8). Show a short note about the unified-decision consequence (ASG-7).
+- **Self-tests to add:** the delta/summary text builders are pure-tested; a render test that the
+  section shows three inputs and the packages format help.
+- **Definition of done:** All three workflows run from the Devices menu; refusals show located
+  deltas/errors; nothing fails silently; success updates decisions and readiness.
+
+### Track C — Control Manager & control references (schemaVersion 2)
+
+#### T9.5 · Data model v2 — `controls` entity, `controlRefs`, schema + `migrate(v1→v2)`
+- **Depends on:** T1.2 (projectIo), T0.2 (types)
+- **Spec:** §18.3 (CTL-1, CTL-2, CTL-3), §17.A, §6.1, §6.4
+- **Objective:** Introduce the `Control` entity and `controlRefs`, bump `schemaVersion` to 2, and add a
+  lossless forward migration.
+- **Build:**
+  - `types`: add `@typedef Control {id,title,type,description,assignedDeviceIds}`; change `RegisterItem.ismRefs` → `controlRefs:string[]`.
+  - `projectIo`: `SCHEMA_VERSION = 2`. Validate top-level `controls` (array of well-formed Control;
+    unique ids; `type` a non-empty string; `assignedDeviceIds` reference existing device baseIds —
+    warn on dangling). Validate `controlRefs` reference existing control ids — **dangling = error**
+    (or auto-prune on load with a logged warning; pick auto-prune + warning for resilience).
+  - `migrate(project)`: `case 1:` build `controls` by find-or-creating one per distinct legacy
+    `ismRefs` string (match by title; infer `type` ISM/AHG/Custom by prefix; empty desc/assignments),
+    rewrite each item's refs to `controlRefs` of those ids, set `schemaVersion=2`. `case 2:` identity.
+    Unknown → located issue.
+- **Self-tests to add:** a v1 fixture with `ismRefs:['ISM-1','AHG-2','foo']` migrates to 3 controls
+  (types ISM/AHG/Custom) and `controlRefs` of their ids; round-trip identity at v2; dangling
+  `controlRefs` flagged/pruned; unknown schemaVersion rejected.
+- **Definition of done:** v1 projects load via lossless migration; v2 schema validated incl. ref
+  integrity; round-trip stable (DOD-2/DOD-7 preserved).
+
+#### T9.6 · `store` control CRUD + ref integrity
+- **Depends on:** T9.5, T5.2
+- **Spec:** §18.3 (CTL-6), §7.1
+- **Objective:** Transactional CRUD for controls and `controlRefs` plumbing.
+- **Build:** `addControl({title,type,description,assignedDeviceIds}) → {ok,issues,id}` (slug/unique id,
+  from injected id generator/clock — no `Math.random` in engine, A-2); `updateControl(id, patch)`;
+  `removeControl(id)` MUST strip `id` from every item's `controlRefs` and log how many were affected.
+  `setItemFields` accepts `controlRefs` (replace the old `ismRefs` handling). All bump `modifiedUtc`
+  and emit. `recomputeStatus` and `completeness` reference `controlRefs`.
+- **Self-tests to add:** add→update→remove lifecycle; `removeControl` clears refs from items that used
+  it; `setItemFields({controlRefs})` persists.
+- **Definition of done:** CRUD transactional; no orphaned refs after remove; deterministic.
+
+#### T9.7 · Control Manager tab UI
+- **Depends on:** T9.6, T3.1 (shell/tab router)
+- **Spec:** §18.3 (CTL-1, CTL-4), §11
+- **Objective:** A new "Control Manager" tab to view/add/edit/remove controls.
+- **Build:** Register an `App.ui.views.controls` view (render + wire, like the other views) and add a
+  "Control Manager" tab. List controls (title, type, description, assigned-device count). Add/edit form
+  with: title input, type `<select>` seeded `['ISM','AHG','Custom']`, description textarea, and a
+  multi-select of device configurations (by name → baseId). Remove button with confirmation. All edits
+  go through `store` CRUD; all text `esc`-ed (A-6).
+- **Self-tests to add:** render shows existing controls + the seeded type options; pure helpers
+  (e.g. device-name↔baseId mapping) unit-tested.
+- **Definition of done:** Catalogue viewable and editable; assignments persist; data-driven, escaped.
+
+#### T9.8 · Control-refs multi-select in the data tabs
+- **Depends on:** T9.6, T5.3 (inline editors)
+- **Spec:** §18.3 (CTL-5), §11.2, A-6
+- **Objective:** Replace the free-text "ISM Refs" column/editor with a "Control Refs" multi-select over
+  the control catalogue.
+- **Build:** Rename the column header and the data field everywhere (`ismRefs`→`controlRefs`). In the
+  row editor, replace the text input with a **multi-select search**: filter the control catalogue by
+  title/type, select one or more; persist the chosen control **ids** via `setItemFields({controlRefs})`.
+  The column cell renders the referenced controls' **titles** (resolved from the catalogue), comma-sep.
+  No free-text entry. Keep it data-driven (the column is still produced generically; only the editor
+  control changes).
+- **Self-tests to add:** the column renders control titles for given ref ids; selecting/deselecting
+  updates `controlRefs`; an unknown id resolves gracefully (shows nothing / logs).
+- **Definition of done:** Control Refs are catalogue-backed multi-select; titles display in the table;
+  edits persist; no open-ended text box remains.
+
+#### T9.9 · Report "Control coverage" + flag rename + suite
+- **Depends on:** T9.6, T7.5 (report), T8.7 (portability suite)
+- **Spec:** §18.3 (CTL-7, CTL-8, CTL-9), §10.3, §6.5, §15, DOD-11
+- **Objective:** Finish the control-ref rollout across reporting/completeness and re-prove portability.
+- **Build:** Rename the report "ISM coverage" section to **"Control coverage"** grouped by control
+  (`title` + `type`), sub-grouped by dataset; items with no `controlRefs` under "(no control)".
+  Update the per-dataset report sections' "ISM" column to "Control" (showing titles). Rename the
+  completeness flag `REQUIRE_ISM_REF` → `REQUIRE_CONTROL_REF` (same semantics). Re-run/extend the
+  DOD-11 portability test to confirm the mock platform still works with the v2 model (its items use
+  `controlRefs`).
+- **Self-tests to add:** report contains "Control coverage" grouped by control title/type; flag rename
+  folds ≥1 control ref into completeness; portability test green on v2.
+- **Definition of done:** Reporting and completeness use controls; DOD-11/DOD-12 still pass; full suite
+  green at `#selftest`.
+
+### Phase 9 dependency map
+
+```
+T9.1 dark mode (standalone)
+
+T9.2 parseAssignment ─ T9.3 applyDeviceAssignment ─ T9.4 set-from-files UI
+
+T9.5 data model v2 (controls + controlRefs + migrate) ─┬─ T9.6 control CRUD ─┬─ T9.7 Control Manager tab
+                                                        │                    ├─ T9.8 control-refs multi-select
+                                                        └────────────────────┴─ T9.9 report/flag/suite
+```
+
+> Note (working filename): v1.0 task blocks say `index.html`; the delivered artifact is
+> `ch-config-tool.html`. Phase 9 tasks land in that same single file per A-1/A-9 load order.
