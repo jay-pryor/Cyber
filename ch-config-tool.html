@@ -291,6 +291,21 @@
   .modal-close { margin-left: auto; background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--c-text); padding: 0 4px; }
   .modal-body { padding: 14px 16px; overflow-y: auto; }
 
+  /* Device-config override editing + divergence highlighting (Phase 10 / §19.5). */
+  .dev-detail-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .dev-pin { font-size: 12px; display: inline-flex; align-items: center; gap: 5px; color: var(--c-text-muted); white-space: nowrap; }
+  .diverge-legend { font-size: 11px; color: var(--c-text-muted); display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; }
+  .diverge-legend .swatch, .diverge-tag { display: inline-block; }
+  .diverge-legend .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--c-border); }
+  .swatch.group, .diverge-tag.group { background: #f0c800; }
+  .swatch.device, .diverge-tag.device { background: #ff8c00; }
+  .diverge-tag { font-size: 10px; color: #000; border-radius: 3px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+  tr.dev-diverge-group > td { background: rgba(240, 200, 0, 0.18); }
+  tr.dev-diverge-device > td { background: rgba(255, 140, 0, 0.20); }
+  .panel .ov-edit { display: flex; align-items: center; gap: 6px; }
+  .panel .ov-edit select, .panel .ov-edit textarea.val-edit { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); width: 100%; box-sizing: border-box; resize: vertical; }
+  .panel .ov-edit .ov-revert { font-size: 11px; padding: 1px 6px; white-space: nowrap; flex: 0 0 auto; }
+
   /* Draft restore banner */
   .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
   .restore-banner .spacer { flex: 1; }
@@ -4801,7 +4816,7 @@
   (function (App) {
     'use strict';
     var esc = App.util.html.esc;
-    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null };
+    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null, deviationsFirst: false };
     var _devSearchTimer = null;
     var _ctx = null;
 
@@ -4865,33 +4880,89 @@
       return '<div><h2>Devices</h2><p class="muted">Latest version is active for generation; older versions are read-only history.</p>' + groupsHtml + '</div>';
     }
 
-    /** The read-only device-configuration view: three panels (spec §11.3, DOD-9). */
+    /** Coerce an override editor string to a typed JS value (mirrors the data-table coerce). */
+    function coerceOv(str, type) {
+      if (type === 'bool') { var l = String(str).trim().toLowerCase(); if (l === 'true' || l === '1') return true; if (l === 'false' || l === '0') return false; return str; }
+      if (type === 'int') { var n = parseInt(str, 10); return isNaN(n) ? str : n; }
+      if (type === 'float') { var f = parseFloat(str); return isNaN(f) ? str : f; }
+      return str;
+    }
+
+    /** A schema-driven override editor for one item, seeded with the effective decision (spec §19.5). */
+    function renderOverrideControl(adapter, dsId, item, effDecision) {
+      var d = effDecision;
+      return adapter.decisionSchema.map(function (f) {
+        var common = 'data-ov data-ov-ds="' + esc(dsId) + '" data-ov-key="' + esc(item.key) + '" data-ov-field="' + esc(f.name) + '" data-ov-kind="' + f.kind + '"';
+        if (f.kind === 'enum') {
+          var cur = d && d[f.name] != null ? d[f.name] : '';
+          return '<select ' + common + ' aria-label="override ' + esc(f.name) + '"><option value="">—</option>' +
+            f.options.map(function (o) { return '<option value="' + esc(o) + '"' + (cur === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
+        }
+        if (f.kind === 'string') {
+          var cur2 = d && d[f.name] != null ? d[f.name] : '';
+          return '<textarea ' + common + ' rows="1" class="val-edit" aria-label="override ' + esc(f.name) + '">' + esc(cur2) + '</textarea>';
+        }
+        if (f.kind === 'value-typed') {
+          var rawVal = d && ('value' in d) ? d.value : '';
+          var shown = (typeof rawVal === 'string') ? rawVal : App.util.stable.stableStringify(rawVal);
+          var vtype = (d && d.type) ? d.type : (typeof rawVal === 'boolean' ? 'bool' : (typeof rawVal === 'number' ? (rawVal % 1 === 0 ? 'int' : 'float') : 'string'));
+          return '<textarea ' + common + ' data-vtype="' + esc(vtype) + '" rows="1" class="val-edit" aria-label="override value">' + esc(shown) + '</textarea>';
+        }
+        if (f.kind === 'bool') {
+          var on = !!(d && d[f.name]);
+          return '<input type="checkbox" ' + common + (on ? ' checked' : '') + ' aria-label="override ' + esc(f.name) + '">';
+        }
+        return '';
+      }).join(' ');
+    }
+
     /**
-     * The three read-only panels, filtered by an optional search term (review-3 #6).
-     * Each panel is COLLAPSIBLE (review-5 #1) and the Control Refs column is dropped
-     * here (review-5 #1) — control↔item links are surfaced via the per-control view
-     * below instead.
+     * The device-configuration panels (spec §11.3 / §19.5, DOD-9 amended). Each panel
+     * is collapsible (review-5 #1) and filtered by the search term (review-3 #6).
+     *  - LATEST version: lists every APPLICABLE item showing its EFFECTIVE decision
+     *    (default→group→device), a divergence class/marker (OVR-4), an inline override
+     *    editor (writes via store.setDeviceOverride, OVR-8) and a Revert affordance.
+     *  - SUPERSEDED version: read-only (effective decision only).
      */
     function renderPanels(project, deviceId, search) {
       var q = (search || '').toLowerCase().trim();
+      var dc = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      var isLatest = !!dc && App.ui.model.getLatestConfigs(project).some(function (c) { return c.id === deviceId; });
+      var clsOrder = { device: 0, group: 1, 'default': 2 };
       return datasets(project).map(function (d) {
         var adapter = App.registry.getDataset(project.platformProfileId, d.id);
         var get = decisionGet(adapter);
-        var decided = applicable(project, deviceId, d.id).filter(function (it) { return it.status === 'decided'; });
         var dispKey = adapter.displayKey || function (k) { return k; };
-        var rows = decided.slice().sort(function (a, b) { return a.key < b.key ? -1 : 1; }).map(function (it) {
-          return { it: it, disp: dispKey(it.key), dec: String(get(it)) };
+        var appItems = applicable(project, deviceId, d.id);
+        var rows = appItems.map(function (it) {
+          var eff = App.overrides.effectiveItem(project, d.id, it, deviceId);
+          var cls = App.overrides.classify(project, d.id, it, deviceId);
+          var hasOv = !!(dc && dc.overrides && dc.overrides[d.id] && Object.prototype.hasOwnProperty.call(dc.overrides[d.id], it.key));
+          return { it: it, eff: eff, disp: dispKey(it.key), dec: eff.decision != null ? String(get(eff)) : '', cls: cls, hasOv: hasOv };
         }).filter(function (r) {
           if (!q) return true;
           return (r.disp + ' ' + r.dec + ' ' + (r.it.description || '')).toLowerCase().indexOf(q) !== -1;
         });
+        rows.sort(function (a, b) {
+          if (_dev.deviationsFirst && clsOrder[a.cls] !== clsOrder[b.cls]) return clsOrder[a.cls] - clsOrder[b.cls];
+          return a.it.key < b.it.key ? -1 : a.it.key > b.it.key ? 1 : 0;
+        });
         var bodyRows = rows.map(function (r) {
-          return '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.dec) + '</td></tr>';
+          var rowCls = r.cls === 'group' ? 'dev-diverge-group' : r.cls === 'device' ? 'dev-diverge-device' : '';
+          var marker = r.cls === 'group' ? '<span class="diverge-tag group" title="Differs from default via a group override">group</span>'
+            : r.cls === 'device' ? '<span class="diverge-tag device" title="Differs from the inherited value via this device&#39;s override">device</span>' : '';
+          var decCell = '<td>' + (r.dec ? esc(r.dec) : '<span class="muted">—</span>') + ' ' + marker + '</td>';
+          if (!isLatest) return '<tr class="' + rowCls + '"><td>' + esc(r.disp) + '</td>' + decCell + '</tr>';
+          var editor = '<div class="ov-edit">' + renderOverrideControl(adapter, d.id, r.it, r.eff.decision) +
+            (r.hasOv ? ' <button type="button" class="ov-revert" data-ov-revert data-ds="' + esc(d.id) + '" data-key="' + esc(r.it.key) + '" title="Revert to the inherited value">Revert</button>' : '') + '</div>';
+          return '<tr class="' + rowCls + '"><td>' + esc(r.disp) + '</td>' + decCell + '<td>' + editor + '</td></tr>';
         }).join('');
+        var headCols = isLatest ? '<th>Key</th><th>Effective</th><th>Override</th>' : '<th>Key</th><th>Effective</th>';
+        var colspan = isLatest ? 3 : 2;
         var body = rows.length
-          ? '<table><thead><tr><th>Key</th><th>Decision</th></tr></thead><tbody>' + bodyRows + '</tbody></table>'
-          : '<div class="empty">' + (q ? 'No matching decided items.' : 'No decided items.') + '</div>';
-        var note = '<div class="panel-note">' + rows.length + (q ? ' matching' : '') + ' of ' + decided.length + ' decided</div>';
+          ? '<table><thead><tr>' + headCols + '</tr></thead><tbody>' + bodyRows + '</tbody></table>'
+          : '<div class="empty">' + (q ? 'No matching applicable items.' : 'No applicable items.') + '</div>';
+        var note = '<div class="panel-note">' + rows.length + (q ? ' matching' : '') + ' of ' + appItems.length + ' applicable</div>';
         var collapsed = !!_dev.collapsed[d.id];
         var caret = collapsed ? '▸' : '▾';
         return '<div class="panel' + (collapsed ? ' collapsed' : '') + '">' +
@@ -4981,14 +5052,24 @@
       var isLatest = App.ui.model.getLatestConfigs(project).some(function (c) { return c.id === deviceId; });
       var banner = isLatest ? '' : '<div class="superseded-banner">Superseded version — read-only history. Generation and readiness use the latest version.</div>';
 
+      // Legend (OVR-4): yellow = group override, orange = device override.
+      var legend = '<div class="diverge-legend"><span class="swatch group"></span> Group override <span class="swatch device"></span> Device override</div>';
+      // "Deviations first" pin toggle (OVR-5), UI-state only.
+      var pin = '<label class="dev-pin"><input type="checkbox" data-dev-deviations-first' + (_dev.deviationsFirst ? ' checked' : '') + '> Deviations first</label>';
+
       return '<div>' +
         '<button data-device-back>← Devices</button>' +
         '<div class="dev-detail-head" style="margin-top:10px">' +
           '<h2 style="margin:0">' + esc(dc.name) + '</h2>' +
           '<span class="dev-meta">' + esc(dc.model) + ' · ' + esc(dc.firmware) + ' · v' + dc.version + ' · onboarded ' + esc(dc.onboardedUtc.slice(0, 10)) + '</span>' +
+          (isLatest ? legend : '') +
         '</div>' +
         banner +
-        '<input class="dev-search" type="search" data-dev-search placeholder="Filter this device\'s packages, settings & tactical…" value="' + esc(_dev.detailSearch || '') + '" aria-label="Filter device items">' +
+        '<div class="dev-detail-tools">' +
+          '<input class="dev-search" type="search" data-dev-search placeholder="Filter this device\'s packages, settings & tactical…" value="' + esc(_dev.detailSearch || '') + '" aria-label="Filter device items">' +
+          (isLatest ? pin : '') +
+        '</div>' +
+        (isLatest ? '<p class="muted" style="font-size:12px;margin:4px 0">Decisions shown are <strong>effective</strong> (default → group → device). Edit a value to set a <strong>device override</strong>; matching the inherited value reverts it. Group overrides are managed from the Devices list.</p>' : '') +
         '<div class="panels" id="dev-panels">' + renderPanels(project, deviceId, _dev.detailSearch) + '</div>' +
         renderDeviceControls(project, deviceId) +
         (isLatest ? renderAssignSection(project, deviceId) : '') +
@@ -5060,6 +5141,37 @@
           if (host && _dev.selectedId) host.innerHTML = renderPanels(App.store.getProject(), _dev.selectedId, val);
         }, 150);
       });
+      // "Deviations first" pin toggle (OVR-5) — re-render only the panels.
+      App.util.dom.on(ctx.root, 'change', '[data-dev-deviations-first]', function (e, el) {
+        _dev.deviationsFirst = el.checked;
+        var host = document.getElementById('dev-panels');
+        if (host && _dev.selectedId) host.innerHTML = renderPanels(App.store.getProject(), _dev.selectedId, _dev.detailSearch);
+      });
+      // Per-item DEVICE OVERRIDE edit (spec §19.5, OVR-8). Gather the row's override
+      // controls into one decision and commit (no-op vs inherited clears it).
+      App.util.dom.on(ctx.root, 'change', '[data-ov]', function (e, el) {
+        var dsId = el.getAttribute('data-ov-ds'), key = el.getAttribute('data-ov-key');
+        var cell = el; while (cell && cell.tagName !== 'TD') cell = cell.parentNode;
+        if (!cell || !_dev.selectedId) return;
+        var controls = cell.querySelectorAll('[data-ov]');
+        var decision = {}, clear = false;
+        Array.prototype.forEach.call(controls, function (c) {
+          var field = c.getAttribute('data-ov-field'), kind = c.getAttribute('data-ov-kind');
+          if (kind === 'bool') decision[field] = c.checked;
+          else if (kind === 'value-typed') decision[field] = coerceOv(c.value, c.getAttribute('data-vtype'));
+          else if (kind === 'enum') { if (c.value === '') clear = true; else decision[field] = c.value; }
+          else decision[field] = c.value;
+        });
+        var res = clear
+          ? App.store.clearDeviceOverride(_dev.selectedId, dsId, key)
+          : App.store.setDeviceOverride(_dev.selectedId, dsId, key, decision);
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Device override');
+        // store.onChange triggers a full re-render of the detail view.
+      });
+      App.util.dom.on(ctx.root, 'click', '[data-ov-revert]', function (e, el) {
+        var res = App.store.clearDeviceOverride(_dev.selectedId, el.getAttribute('data-ds'), el.getAttribute('data-key'));
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Revert override');
+      });
       App.util.dom.on(ctx.root, 'change', '[data-assign-file]', function (e, el) {
         var dsId = el.getAttribute('data-assign-file'), file = el.files[0], deviceId = _dev.selectedId;
         if (!file || !deviceId) return;
@@ -5080,7 +5192,7 @@
 
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
-    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems };
+    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems, _dev: _dev };
   })(App);
   </script>
 
@@ -6268,21 +6380,23 @@
     });
 
     T.suite('ui.views.devices detail (DOD-9)', function (s) {
-      s.test('three panels show EXACTLY applicable decided items', function () {
+      s.test('panels list APPLICABLE items with effective decisions + an override editor (DOD-9 amended §19.5)', function () {
         var p = setup();
         var html = App.ui.views.devices.renderDetail(p, 'tab-m1');
         // 3 dataset panels
         T.assertEqual((html.match(/class="panel"/g) || []).length, 3);
-        // Tab packages: com.a decided+applicable shown; com.b undecided NOT shown; com.c not applicable NOT shown.
-        T.assert(html.indexOf('com.a') !== -1, 'com.a (applicable+decided) should appear');
-        T.assert(html.indexOf('com.b') === -1, 'com.b (undecided) must NOT appear');
+        // Tab packages: both com.a (decided) and com.b (undecided) are APPLICABLE -> shown;
+        // com.c is not applicable -> not shown.
+        T.assert(html.indexOf('com.a') !== -1, 'applicable com.a should appear');
+        T.assert(html.indexOf('com.b') !== -1, 'applicable com.b should now appear (panels list applicable items)');
         T.assert(html.indexOf('com.c') === -1, 'com.c (not applicable) must NOT appear');
-        T.assert(/1 of 1 decided/.test(html), 'packages note wrong'); // com.a decided (com.b undecided not counted)
+        T.assert(/2 of 2 applicable/.test(html), 'packages note should count applicable items');
+        T.assert(/data-ov-ds="android.packages"/.test(html), 'latest device view should expose an override editor');
       });
-      s.test('decision value is displayed via the adapter column', function () {
+      s.test('effective decision value is displayed via the adapter column', function () {
         var p = setup();
         var html = App.ui.views.devices.renderDetail(p, 's23-m2');
-        T.assert(/com\.c/.test(html) && />remove</.test(html), 'S23 should show com.c = remove');
+        T.assert(/com\.c/.test(html) && /remove/.test(html), 'S23 should show com.c = remove');
       });
       s.test('superseded device detail shows the read-only banner', function () {
         setup();
@@ -6306,7 +6420,7 @@
         T.assert(/data-panel-toggle="android.packages"/.test(html), 'no panel collapse toggle');
         T.assert(/aria-expanded="true"/.test(html), 'panel should default expanded');
         T.assert(html.indexOf('Control Refs') === -1, 'Control Refs column should be removed from the device panels');
-        T.assert(/<th>Key<\/th><th>Decision<\/th>/.test(html), 'panel table should be Key/Decision only');
+        T.assert(/<th>Key<\/th><th>Effective<\/th><th>Override<\/th>/.test(html), 'panel table should be Key/Effective/Override (latest, §19.5)');
       });
       s.test('controls assigned to the device are listed, clickable, with a count', function () {
         setup();
@@ -6575,7 +6689,7 @@
         var f = App.ui.views.devices.renderPanels(p, 'r3-m1', 'com.b');
         T.assert(f.indexOf('com.b') !== -1 && f.indexOf('com.a') === -1, 'search did not filter');
         var none = App.ui.views.devices.renderPanels(p, 'r3-m1', 'zzz-nomatch');
-        T.assert(/No matching decided items/.test(none));
+        T.assert(/No matching applicable items/.test(none));
       });
     });
 
@@ -6968,6 +7082,59 @@
         App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
         var cb = manifestDecisions(App.store.getProject()).filter(function (d) { return d.key === 'com.b'; })[0];
         T.assertEqual(cb.source, 'default');
+      });
+    });
+
+    T.suite('T10.6 device-config override UI (divergence + editing)', function (s) {
+      // com.a decided keep (default); group override on com.b (so com.b diverges).
+      function projGroupOnB() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['dev-m1'] });
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.b', { action: 'keep' });
+        return App.store.getProject();
+      }
+      s.test('a group-overridden item renders dev-diverge-group + a group marker', function () {
+        App.ui.views.devices._dev.deviationsFirst = false; App.ui.views.devices._dev.collapsed = {};
+        var html = App.ui.views.devices.renderPanels(projGroupOnB(), 'dev-m1', '');
+        T.assert(/dev-diverge-group/.test(html), 'no group-divergence row class');
+        T.assert(/diverge-tag group/.test(html), 'no group marker');
+      });
+      s.test('a device override renders dev-diverge-device; one equal to the group value clears (OVR-8)', function () {
+        projGroupOnB();
+        App.store.setDeviceOverride('dev-m1', 'android.packages', 'com.b', { action: 'remove' }); // differs from group keep
+        var html1 = App.ui.views.devices.renderPanels(App.store.getProject(), 'dev-m1', '');
+        T.assert(/dev-diverge-device/.test(html1), 'device override should colour orange');
+        // setting the device override equal to the inherited (group) value clears it
+        App.store.setDeviceOverride('dev-m1', 'android.packages', 'com.b', { action: 'keep' });
+        var ov = App.store.getProject().deviceConfigs.filter(function (c) { return c.id === 'dev-m1'; })[0].overrides;
+        T.assert(!(ov['android.packages'] && ov['android.packages']['com.b']), 'override equal to group should clear');
+        var html2 = App.ui.views.devices.renderPanels(App.store.getProject(), 'dev-m1', '');
+        T.assert(/dev-diverge-group/.test(html2) && !/dev-diverge-device/.test(html2), 'should reclassify as group');
+      });
+      s.test('Deviations-first pins diverging rows to the top', function () {
+        var p = projGroupOnB(); // com.b diverges (group), com.a does not
+        var D = App.ui.views.devices;
+        D._dev.collapsed = {};
+        D._dev.deviationsFirst = true;
+        var pinned = D.renderPanels(p, 'dev-m1', '');
+        T.assert(pinned.indexOf('com.b') < pinned.indexOf('com.a'), 'deviating com.b should be pinned above com.a');
+        D._dev.deviationsFirst = false;
+        var alpha = D.renderPanels(p, 'dev-m1', '');
+        T.assert(alpha.indexOf('com.a') < alpha.indexOf('com.b'), 'default order should be alphabetical');
+      });
+      s.test('latest device view shows the override editor + legend; superseded panels are read-only', function () {
+        var p = projGroupOnB();
+        var latest = App.ui.views.devices.renderDetail(p, 'dev-m1');
+        T.assert(/diverge-legend/.test(latest), 'no legend on the latest device view');
+        T.assert(/data-ov /.test(latest), 'no override editor on the latest device view');
+        // a superseded panel set carries no override editor
+        var sup = App.ui.views.devices.renderPanels(p, 'dev-m1', '');
+        T.assert(/data-ov /.test(sup), 'latest renderPanels should include override controls');
       });
     });
 
