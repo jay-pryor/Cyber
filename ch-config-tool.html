@@ -3787,7 +3787,13 @@
         var snap = dc.snapshots[dsId];
         if (!adapter || !snap) return;
         var keySet = {}; snap.keys.forEach(function (k) { keySet[k] = true; });
-        var undecided = (project.items[dsId] || []).filter(function (it) { return keySet[it.key] && !itemComplete(adapter, it); }).length;
+        // Evaluate the EFFECTIVE decision (default→group→device, spec §19.2/OVR-3) so a
+        // device/group override can satisfy completeness even when the default is undecided.
+        var undecided = (project.items[dsId] || []).filter(function (it) {
+          if (!keySet[it.key]) return false;
+          var eff = App.overrides ? App.overrides.effectiveItem(project, dsId, it, deviceId) : it;
+          return !itemComplete(adapter, eff);
+        }).length;
         if (undecided > 0) reasons.push({ datasetId: dsId, label: adapter.label, undecided: undecided });
         total += undecided;
       });
@@ -4018,15 +4024,32 @@
     var sha = App.util.hash.sha256Hex;
     var stable = App.util.stable.stableStringify;
 
-    /** Items applicable to a device for a dataset AND complete (decided). */
-    function gather(project, deviceId, dsId) {
+    /**
+     * Original RegisterItems that are applicable to a device for a dataset AND complete
+     * under their EFFECTIVE decision (default→group→device, spec §19.2/OVR-3), sorted by key.
+     */
+    function applicableComplete(project, deviceId, dsId) {
       var dc = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
       if (!dc) return [];
       var snap = dc.snapshots[dsId];
       if (!snap) return [];
+      var adapter = App.registry.getDataset(project.platformProfileId, dsId);
       var ks = {}; snap.keys.forEach(function (k) { ks[k] = true; });
-      return (project.items[dsId] || []).filter(function (it) { return ks[it.key] && it.status === 'decided'; })
-        .slice().sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+      return (project.items[dsId] || []).filter(function (it) {
+        if (!ks[it.key]) return false;
+        var eff = App.overrides ? App.overrides.effectiveItem(project, dsId, it, deviceId) : it;
+        return App.completeness.itemComplete(adapter, eff);
+      }).slice().sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
+    }
+
+    /**
+     * Items applicable+complete, each with its decision replaced by the EFFECTIVE value
+     * so adapters (generators/report) stay override-blind (spec §19.2, OVR-3).
+     */
+    function gather(project, deviceId, dsId) {
+      return applicableComplete(project, deviceId, dsId).map(function (it) {
+        return App.overrides ? App.overrides.effectiveItem(project, dsId, it, deviceId) : it;
+      });
     }
 
     /** Compact a UTC ISO timestamp for a filename, e.g. 20260630T120000Z. */
@@ -4036,7 +4059,11 @@
     function buildManifest(project, dc, command, generatedUtc, platform, outputFiles) {
       var decisions = {};
       platform.datasets.forEach(function (ds) {
-        decisions[ds.id] = gather(project, dc.id, ds.id).map(function (it) { return { key: it.key, decision: it.decision }; });
+        // Record the EFFECTIVE decision + its source per item (spec §19.6 / OVR-7).
+        decisions[ds.id] = applicableComplete(project, dc.id, ds.id).map(function (it) {
+          var eff = App.overrides ? App.overrides.effectiveDecision(project, ds.id, it, dc.id) : { decision: it.decision, source: 'default' };
+          return { key: it.key, decision: eff.decision, source: eff.source };
+        });
       });
       var manifest = {
         tool: TOOL_NAME, toolVersion: TOOL_VERSION, command: command, generatedUtc: generatedUtc,
@@ -6898,6 +6925,49 @@
         T.assertEqual(v2.version, 2);
         T.assertDeepEqual(v2.overrides['android.packages'], { 'com.b': { action: 'disable' } }, 'com.b carried, com.a pruned');
         T.assert(res.issues.some(function (i) { return /pruned/.test(i.message) && /com\.a/.test(i.message); }), 'no prune-info logged');
+      });
+    });
+
+    T.suite('T10.4 effective completeness, generation & manifest', function (s) {
+      // Onboard a device, decide everything EXCEPT com.a (left undecided by default).
+      function setupAllButComA() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.setDecision('android.packages', 'com.b', { action: 'keep' });
+        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
+        App.store.setDecision('android.tactical', 'enabled', { value: true });
+      }
+      function implScript(p) { return App.generate.buildImplementation(p, 'dev-m1').files.filter(function (f) { return f.name === 'packages.impl.ps1'; })[0].content; }
+      function manifestDecisions(p) { return JSON.parse(App.generate.buildImplementation(p, 'dev-m1').files.filter(function (f) { return f.name === 'manifest.json'; })[0].content).decisions['android.packages']; }
+
+      s.test('a DEVICE override rescues readiness and flows into the script + manifest (source device)', function () {
+        setupAllButComA();
+        T.assertEqual(App.completeness.deviceReady(App.store.getProject(), 'dev-m1'), false, 'undecided com.a should block readiness');
+        App.store.setDeviceOverride('dev-m1', 'android.packages', 'com.a', { action: 'remove' });
+        var p = App.store.getProject();
+        T.assertEqual(App.completeness.deviceReady(p, 'dev-m1'), true, 'device override should rescue readiness');
+        T.assert(/uninstall --user 0 'com\.a'/.test(implScript(p)), 'overridden com.a (remove) not generated');
+        var ca = manifestDecisions(p).filter(function (d) { return d.key === 'com.a'; })[0];
+        T.assertDeepEqual(ca.decision, { action: 'remove' }); T.assertEqual(ca.source, 'device');
+      });
+      s.test('a GROUP override flows into generation + manifest (source group)', function () {
+        setupAllButComA();
+        var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['dev-m1'] });
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' });
+        var p = App.store.getProject();
+        T.assertEqual(App.completeness.deviceReady(p, 'dev-m1'), true);
+        T.assert(/disable-user --user 0 'com\.a'/.test(implScript(p)), 'group-overridden com.a (disable) not generated');
+        var ca = manifestDecisions(p).filter(function (d) { return d.key === 'com.a'; })[0];
+        T.assertEqual(ca.source, 'group');
+      });
+      s.test('default decisions still record source "default"', function () {
+        setupAllButComA();
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        var cb = manifestDecisions(App.store.getProject()).filter(function (d) { return d.key === 'com.b'; })[0];
+        T.assertEqual(cb.source, 'default');
       });
     });
 
