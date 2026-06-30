@@ -1352,8 +1352,8 @@
   (function (App) {
     'use strict';
 
-    var SCHEMA_VERSION = 2; // v2 (spec §18.3): adds top-level `controls`; ismRefs→controlRefs
-    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'items', 'controls', 'controlTypes'];
+    var SCHEMA_VERSION = 3; // v3 (spec §19): adds top-level `groups` + per-config `overrides` (value-only)
+    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'groups', 'items', 'controls', 'controlTypes'];
     var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
     var SHA_RE = /^[0-9a-f]{64}$/;
@@ -1425,6 +1425,26 @@
             controlIds[c.id] = true;
           }
         });
+      }
+
+      // groups (spec §19.2.2): structural validation only — dangling/non-applicable
+      // memberships and overrides are auto-pruned on load (selfHealV3), never a hard
+      // error (mirrors the CTL-2 controlRefs path).
+      if (p.groups !== undefined) {
+        if (!Array.isArray(p.groups)) {
+          issues.push(issue('error', 'groups must be an array.', 'groups'));
+        } else {
+          var gids = {};
+          p.groups.forEach(function (g, i) {
+            var loc = 'groups[' + i + ']';
+            if (!isPlainObject(g)) { issues.push(issue('error', 'DeviceGroup must be an object.', loc)); return; }
+            if (typeof g.id !== 'string' || !SLUG_RE.test(g.id)) issues.push(issue('error', 'DeviceGroup.id must be a slug.', loc + '.id'));
+            else { if (gids[g.id]) issues.push(issue('error', 'Duplicate DeviceGroup id "' + g.id + '".', loc)); gids[g.id] = true; }
+            if (typeof g.name !== 'string' || !g.name) issues.push(issue('error', 'DeviceGroup.name must be a non-empty string.', loc + '.name'));
+            if (g.deviceBaseIds !== undefined && !isStringArray(g.deviceBaseIds)) issues.push(issue('error', 'DeviceGroup.deviceBaseIds must be an array of strings.', loc + '.deviceBaseIds'));
+            if (g.overrides !== undefined && !isPlainObject(g.overrides)) issues.push(issue('error', 'DeviceGroup.overrides must be an object.', loc + '.overrides'));
+          });
+        }
       }
 
       // items
@@ -1523,6 +1543,8 @@
           validateSnapshot(dc.snapshots[dsId], loc + '.snapshots.' + dsId, issues);
         });
       }
+      // overrides (spec §19.2.1): structural only; applicability/validity self-heal on load.
+      if (dc.overrides !== undefined && !isPlainObject(dc.overrides)) issues.push(issue('error', 'DeviceConfig.overrides must be an object.', loc + '.overrides'));
     }
 
     /**
@@ -1598,16 +1620,101 @@
     }
 
     /**
-     * Migrate a project forward to the current schema version (spec §17.A, §18.3).
+     * Migrate a v2 project to v3 (spec §19.7): add top-level `groups` and a per-config
+     * `overrides` map. Lossless. (Empty override maps are dropped at serialize time.)
+     * @param {Project} v2
+     * @returns {Project} v3
+     */
+    function migrateV2toV3(v2) {
+      var out = JSON.parse(JSON.stringify(v2));
+      out.schemaVersion = 3;
+      if (!Array.isArray(out.groups)) out.groups = [];
+      (out.deviceConfigs || []).forEach(function (dc) { if (!isPlainObject(dc.overrides)) dc.overrides = {}; });
+      return out;
+    }
+
+    /**
+     * Migrate a project forward to the current schema version (spec §17.A, §18.3, §19.7).
+     * Migrations CHAIN (v1→v2→v3) so an old file reaches the current schema in one call.
      * @param {Project} project
      * @returns {Project}
      */
     function migrate(project) {
-      switch (project && project.schemaVersion) {
-        case 1: return migrateV1toV2(project);
-        case 2: return project;          // current
-        default: return project;          // unknown -> pass through; schema check flags it
+      var p = project;
+      if (p && p.schemaVersion === 1) p = migrateV1toV2(p);
+      if (p && p.schemaVersion === 2) p = migrateV2toV3(p);
+      return p; // v3 (current) or unknown -> pass through; schema check flags unknown
+    }
+
+    /** Latest DeviceConfig per baseId (highest version), keyed by baseId. */
+    function latestByBase(configs) {
+      var out = {};
+      (configs || []).forEach(function (dc) {
+        if (dc && typeof dc.baseId === 'string' && (!out[dc.baseId] || dc.version > out[dc.baseId].version)) out[dc.baseId] = dc;
+      });
+      return out;
+    }
+
+    /**
+     * Self-heal v3 groups & overrides on load (spec §19.7): drop dangling/duplicate
+     * group memberships and non-applicable/invalid override entries, returning a
+     * warning Issue per removal. Mutates `p`. Never a hard error.
+     * @returns {Issue[]}
+     */
+    function selfHealV3(p) {
+      var warnings = [];
+      function warn(msg, loc) { warnings.push({ category: 'validation', severity: 'warning', message: msg, location: loc }); }
+      var validDs = (typeof p.platformProfileId === 'string' && App.registry.hasPlatform(p.platformProfileId)) ? App.registry.datasetIds(p.platformProfileId) : null;
+      var pid = p.platformProfileId;
+      var latest = latestByBase(p.deviceConfigs);
+
+      function pruneOverrideMap(map, keysFor, label) {
+        if (!isPlainObject(map)) return;
+        Object.keys(map).forEach(function (dsId) {
+          var bucket = map[dsId];
+          if (!isPlainObject(bucket)) { delete map[dsId]; return; }
+          if (validDs && validDs.indexOf(dsId) === -1) { delete map[dsId]; warn(label + ': override dataset "' + dsId + '" is not registered — removed.', 'overrides'); return; }
+          var ks = {}; (keysFor(dsId) || []).forEach(function (k) { ks[k] = true; });
+          var adapter = (pid && App.registry.hasPlatform(pid)) ? App.registry.getDataset(pid, dsId) : null;
+          Object.keys(bucket).forEach(function (key) {
+            if (!ks[key]) { delete bucket[key]; warn(label + ': override "' + dsId + '/' + key + '" is not applicable — removed.', 'overrides'); return; }
+            if (adapter && typeof adapter.validateDecision === 'function') {
+              var bad = (adapter.validateDecision({ key: key, decision: bucket[key], controlRefs: [] }) || []).some(function (i) { return i.severity === 'error'; });
+              if (bad) { delete bucket[key]; warn(label + ': override "' + dsId + '/' + key + '" has an invalid value — removed.', 'overrides'); }
+            }
+          });
+          if (!Object.keys(bucket).length) delete map[dsId];
+        });
       }
+
+      // Groups: enforce single-group membership + existing baseIds; prune group overrides.
+      var claimed = {};
+      (p.groups || []).forEach(function (g) {
+        if (!g) return;
+        if (Array.isArray(g.deviceBaseIds)) {
+          g.deviceBaseIds = g.deviceBaseIds.filter(function (b) {
+            if (!latest[b]) { warn('group "' + g.id + '": unknown device "' + b + '" — removed from membership.', 'groups'); return false; }
+            if (claimed[b]) { warn('device "' + b + '" is already in another group — removed from "' + g.id + '".', 'groups'); return false; }
+            claimed[b] = true; return true;
+          });
+        }
+        pruneOverrideMap(g.overrides, function (dsId) {
+          var keys = [];
+          (g.deviceBaseIds || []).forEach(function (b) { var sn = latest[b] && latest[b].snapshots[dsId]; if (sn && Array.isArray(sn.keys)) keys = keys.concat(sn.keys); });
+          return keys;
+        }, 'group "' + g.id + '"');
+      });
+
+      // Per-config overrides: applicable = THAT version's snapshot keys for the dataset.
+      (p.deviceConfigs || []).forEach(function (dc) {
+        if (!dc || !isPlainObject(dc.overrides)) return;
+        pruneOverrideMap(dc.overrides, function (dsId) {
+          var sn = dc.snapshots && dc.snapshots[dsId];
+          return sn && Array.isArray(sn.keys) ? sn.keys : [];
+        }, 'device "' + dc.id + '"');
+      });
+
+      return warnings;
     }
 
     /**
@@ -1625,11 +1732,23 @@
       var issues = validateSchema(migrated);
       var hasError = issues.some(function (i) { return i.severity === 'error'; });
       if (hasError) return { ok: false, issues: issues };
-      return { ok: true, value: migrated, issues: issues };
+      // Self-heal v3 groups/overrides (prune dangling/non-applicable/invalid + warn).
+      var healWarnings = selfHealV3(migrated);
+      return { ok: true, value: migrated, issues: issues.concat(healWarnings) };
     }
 
     /** Deep clone via JSON (project data is plain JSON). */
     function clone(v) { return JSON.parse(JSON.stringify(v)); }
+
+    /** Drop empty override buckets/maps from a config or group so output stays canonical (§19.7). */
+    function dropEmptyOverrides(obj) {
+      if (!obj || !isPlainObject(obj.overrides)) return;
+      Object.keys(obj.overrides).forEach(function (dsId) {
+        var b = obj.overrides[dsId];
+        if (!isPlainObject(b) || !Object.keys(b).length) delete obj.overrides[dsId];
+      });
+      if (!Object.keys(obj.overrides).length) delete obj.overrides;
+    }
 
     /**
      * Produce the canonical, deterministic project string (spec §8.6).
@@ -1667,6 +1786,15 @@
         p.controls.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
       }
       if (Array.isArray(p.controlTypes)) p.controlTypes.sort();
+      // Canonical groups (spec §19.7): drop empty overrides, sort deviceBaseIds, sort by id.
+      if (Array.isArray(p.deviceConfigs)) p.deviceConfigs.forEach(dropEmptyOverrides);
+      if (Array.isArray(p.groups)) {
+        p.groups.forEach(function (g) {
+          if (Array.isArray(g.deviceBaseIds)) g.deviceBaseIds.sort();
+          dropEmptyOverrides(g);
+        });
+        p.groups.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
+      }
       // stableStringify sorts all object keys.
       return App.util.stable.stableStringify(p);
     }
@@ -1721,6 +1849,7 @@
         platformProfileId: platformProfileId,
         meta: { createdUtc: now, modifiedUtc: now, appVersion: APP_VERSION },
         deviceConfigs: [],
+        groups: [],
         controls: [],
         controlTypes: [],
         items: items
@@ -1847,6 +1976,21 @@
       var supersedesId = existing ? existing.id : null;
       var newConfig = { id: id, baseId: baseId, version: version, supersedesId: supersedesId, name: name, model: model, firmware: firmware, onboardedUtc: App.util.clock.nowIso(), snapshots: snapshots };
 
+      // Re-onboard override carry-forward (spec §19.2.1): copy the prior latest
+      // config's overrides into the new version, pruning keys that left the snapshot.
+      var carried = {}, prunedOverrides = [];
+      if (existing && existing.overrides) {
+        datasetIds.forEach(function (dsId) {
+          var src = existing.overrides[dsId]; if (!src) return;
+          var snap = snapshots[dsId];
+          var keyset = {}; (snap && snap.keys || []).forEach(function (k) { keyset[k] = true; });
+          var kept = {};
+          Object.keys(src).forEach(function (key) { if (keyset[key]) kept[key] = src[key]; else prunedOverrides.push(dsId + '/' + key); });
+          if (Object.keys(kept).length) carried[dsId] = kept;
+        });
+      }
+      newConfig.overrides = carried;
+
       // ---- triage per dataset + drift detection ----
       var perDataset = {}, drift = [], newItemsByDs = {}, driftSeen = {};
       datasetIds.forEach(function (dsId) {
@@ -1885,6 +2029,7 @@
       datasetIds.forEach(function (dsId) { totalNew += perDataset[dsId].newCount; totalExisting += perDataset[dsId].existingCount; });
       var verb = existing ? ('Re-onboarded ' + name + ' as v' + version + ' (supersedes ' + supersedesId + ')') : ('Onboarded ' + name);
       var issues = [{ category: 'state', severity: 'success', message: verb + ': ' + totalNew + ' new, ' + totalExisting + ' inherited, 0 errors.' }].concat(drift);
+      if (prunedOverrides.length) issues.push({ category: 'state', severity: 'info', message: 'Carried forward overrides; pruned ' + prunedOverrides.length + ' no-longer-applicable key(s): ' + prunedOverrides.join(', ') + '.' });
 
       return { ok: true, issues: issues, result: { noop: false, deviceId: id, baseId: baseId, version: version, supersedesId: supersedesId, perDataset: perDataset, drift: drift } };
     }
@@ -2124,6 +2269,151 @@
       return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Imported ' + added + ' control(s)' + (Object.keys(newTypes).length ? '; new types: ' + Object.keys(newTypes).join(', ') : '') + '.' }], count: added };
     }
 
+    // ---- v1.2 per-config & group overrides (spec §19.3) -----------------------
+    function errNoProject() { return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] }; }
+    function err(msg, loc) { return { ok: false, issues: [{ category: msg && /applicable/.test(msg) ? 'validation' : 'state', severity: 'error', message: msg, location: loc }] }; }
+    var stableStr = function (v) { return App.util.stable.stableStringify(v); };
+
+    function adapterFor(dsId) { return App.registry.getDataset(_project.platformProfileId, dsId); }
+    /** The DeviceConfig for deviceId, but only if it is the latest version of its baseId. */
+    function latestConfigById(deviceId) {
+      var dc = _project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      if (!dc) return null;
+      return getLatestConfigs(_project).some(function (c) { return c.id === deviceId; }) ? dc : null;
+    }
+    function snapshotKeySet(dc, dsId) {
+      var sn = dc.snapshots && dc.snapshots[dsId], set = {};
+      if (sn && Array.isArray(sn.keys)) sn.keys.forEach(function (k) { set[k] = true; });
+      return set;
+    }
+    /** Union of applicable keys across a group's member latest configs for a dataset. */
+    function groupApplicableKeySet(g, dsId) {
+      var set = {}, latest = getLatestConfigs(_project);
+      (g.deviceBaseIds || []).forEach(function (b) {
+        var c = latest.filter(function (x) { return x.baseId === b; })[0];
+        var sn = c && c.snapshots[dsId];
+        if (sn && Array.isArray(sn.keys)) sn.keys.forEach(function (k) { set[k] = true; });
+      });
+      return set;
+    }
+    function itemDefault(dsId, key) {
+      var it = (_project.items[dsId] || []).filter(function (x) { return x.key === key; })[0];
+      return it && it.decision != null ? it.decision : null;
+    }
+    /** The value a device would inherit WITHOUT its own override (group-or-default). */
+    function groupOrDefaultFor(dsId, key, deviceId) {
+      var g = App.overrides.groupForDevice(_project, deviceId);
+      if (g && g.overrides && g.overrides[dsId] && Object.prototype.hasOwnProperty.call(g.overrides[dsId], key)) return g.overrides[dsId][key];
+      return itemDefault(dsId, key);
+    }
+    function validateOverrideDecision(adapter, key, decision) {
+      return (adapter.validateDecision({ key: key, decision: decision, controlRefs: [] }) || []).filter(function (i) { return i.severity === 'error'; });
+    }
+
+    /** Set a device override (value-only, OVR-2/OVR-8). No-op vs inherited clears it. */
+    function setDeviceOverride(deviceId, datasetId, key, decision) {
+      if (!_project) return errNoProject();
+      var dc = latestConfigById(deviceId);
+      if (!dc) return err('Overrides can only be set on the latest version of a device.');
+      var adapter = adapterFor(datasetId);
+      if (!adapter) return err('Unknown dataset "' + datasetId + '".');
+      if (!snapshotKeySet(dc, datasetId)[key]) return err('Key "' + key + '" is not applicable to this device.', key);
+      var verr = validateOverrideDecision(adapter, key, decision);
+      if (verr.length) return { ok: false, issues: verr };
+      if (stableStr(decision) === stableStr(groupOrDefaultFor(datasetId, key, deviceId))) return clearDeviceOverride(deviceId, datasetId, key);
+      commit(function (p) {
+        var c = p.deviceConfigs.filter(function (x) { return x.id === deviceId; })[0];
+        if (!c.overrides) c.overrides = {};
+        if (!c.overrides[datasetId]) c.overrides[datasetId] = {};
+        c.overrides[datasetId][key] = decision;
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Set device override for "' + key + '".' }] };
+    }
+    function clearDeviceOverride(deviceId, datasetId, key) {
+      if (!_project) return errNoProject();
+      var dc = latestConfigById(deviceId);
+      if (!dc) return err('Overrides can only be cleared on the latest version of a device.');
+      if (!(dc.overrides && dc.overrides[datasetId] && Object.prototype.hasOwnProperty.call(dc.overrides[datasetId], key))) return { ok: true, issues: [] };
+      commit(function (p) {
+        var c = p.deviceConfigs.filter(function (x) { return x.id === deviceId; })[0];
+        delete c.overrides[datasetId][key];
+        if (!Object.keys(c.overrides[datasetId]).length) delete c.overrides[datasetId];
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Reverted "' + key + '" to inherited.' }] };
+    }
+    /** Set a group override (value-only). No-op vs the DEFAULT value clears it. */
+    function setGroupOverride(groupId, datasetId, key, decision) {
+      if (!_project) return errNoProject();
+      var g = (_project.groups || []).filter(function (x) { return x.id === groupId; })[0];
+      if (!g) return err('Unknown group "' + groupId + '".');
+      var adapter = adapterFor(datasetId);
+      if (!adapter) return err('Unknown dataset "' + datasetId + '".');
+      if (!groupApplicableKeySet(g, datasetId)[key]) return err('Key "' + key + '" is not applicable to any device in this group.', key);
+      var verr = validateOverrideDecision(adapter, key, decision);
+      if (verr.length) return { ok: false, issues: verr };
+      if (stableStr(decision) === stableStr(itemDefault(datasetId, key))) return clearGroupOverride(groupId, datasetId, key);
+      commit(function (p) {
+        var gg = p.groups.filter(function (x) { return x.id === groupId; })[0];
+        if (!gg.overrides) gg.overrides = {};
+        if (!gg.overrides[datasetId]) gg.overrides[datasetId] = {};
+        gg.overrides[datasetId][key] = decision;
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Set group override for "' + key + '".' }] };
+    }
+    function clearGroupOverride(groupId, datasetId, key) {
+      if (!_project) return errNoProject();
+      var g = (_project.groups || []).filter(function (x) { return x.id === groupId; })[0];
+      if (!g) return err('Unknown group "' + groupId + '".');
+      if (!(g.overrides && g.overrides[datasetId] && Object.prototype.hasOwnProperty.call(g.overrides[datasetId], key))) return { ok: true, issues: [] };
+      commit(function (p) {
+        var gg = p.groups.filter(function (x) { return x.id === groupId; })[0];
+        delete gg.overrides[datasetId][key];
+        if (!Object.keys(gg.overrides[datasetId]).length) delete gg.overrides[datasetId];
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Cleared group override for "' + key + '".' }] };
+    }
+    function uniqueGroupId(name) {
+      var base = slugify(name) || 'group', id = base, n = 2, used = {};
+      (_project.groups || []).forEach(function (g) { used[g.id] = true; });
+      while (used[id]) { id = base + '-' + n; n++; }
+      return id;
+    }
+    /** Create a device group; member baseIds are MOVED out of any prior group (single-group rule). */
+    function addGroup(input) {
+      if (!_project) return errNoProject();
+      var name = ((input && input.name) || '').trim();
+      if (!name) return err('Group name is required.', 'name');
+      var baseIds = ((input && input.deviceBaseIds) || []).slice();
+      var id = uniqueGroupId(name);
+      commit(function (p) {
+        if (!Array.isArray(p.groups)) p.groups = [];
+        p.groups.forEach(function (g) { g.deviceBaseIds = (g.deviceBaseIds || []).filter(function (b) { return baseIds.indexOf(b) === -1; }); });
+        p.groups.push({ id: id, name: name, deviceBaseIds: baseIds, overrides: {} });
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Added group "' + name + '".' }], id: id };
+    }
+    function updateGroup(id, patch) {
+      if (!_project) return errNoProject();
+      if (!(_project.groups || []).some(function (g) { return g.id === id; })) return err('Unknown group "' + id + '".');
+      patch = patch || {};
+      commit(function (p) {
+        var g = p.groups.filter(function (x) { return x.id === id; })[0]; if (!g) return;
+        if ('name' in patch && String(patch.name).trim()) g.name = String(patch.name).trim();
+        if ('deviceBaseIds' in patch) {
+          var ids = (patch.deviceBaseIds || []).slice();
+          p.groups.forEach(function (o) { if (o.id !== id) o.deviceBaseIds = (o.deviceBaseIds || []).filter(function (b) { return ids.indexOf(b) === -1; }); });
+          g.deviceBaseIds = ids;
+        }
+      });
+      return { ok: true, issues: [] };
+    }
+    function removeGroup(id) {
+      if (!_project) return errNoProject();
+      if (!(_project.groups || []).some(function (g) { return g.id === id; })) return err('Unknown group "' + id + '".');
+      commit(function (p) { p.groups = (p.groups || []).filter(function (g) { return g.id !== id; }); });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Removed group; members fall back to default.' }] };
+    }
+
     App.store = {
       empty: empty, init: init, getProject: getProject,
       onChange: onChange, isDirty: isDirty, markSaved: markSaved, markDirty: markDirty,
@@ -2132,6 +2422,9 @@
       setDecision: setDecision, setItemFields: setItemFields, applyDeviceAssignment: applyDeviceAssignment,
       addControl: addControl, updateControl: updateControl, removeControl: removeControl,
       addControlType: addControlType, knownControlTypes: knownControlTypes, importControls: importControls,
+      setDeviceOverride: setDeviceOverride, clearDeviceOverride: clearDeviceOverride,
+      setGroupOverride: setGroupOverride, clearGroupOverride: clearGroupOverride,
+      addGroup: addGroup, updateGroup: updateGroup, removeGroup: removeGroup,
       applicableItems: applicableItems, undecidedCount: undecidedCount,
       slugify: slugify, getLatestConfigs: getLatestConfigs,
       // exposed for later-phase mutation modules within this file:
@@ -2168,9 +2461,10 @@
     function sampleProject() {
       ensureST();
       return {
-        schemaVersion: 2,
+        schemaVersion: 3,
         platformProfileId: ST_PLATFORM_ID,
         meta: { createdUtc: ISO, modifiedUtc: '2026-01-02T00:00:00.000Z', appVersion: '1.0' },
+        groups: [],
         controls: [{ id: 'ism-1', title: 'ISM-1', type: 'ISM', description: '', assignedDeviceIds: [] }],
         deviceConfigs: [
           {
@@ -2245,7 +2539,7 @@
         T.assert(r.issues.some(function (i) { return /Unknown top-level/.test(i.message); }));
       });
       s.test('unknown schemaVersion rejected', function () {
-        var p = sampleProject(); p.schemaVersion = 3;
+        var p = sampleProject(); p.schemaVersion = 99;
         T.assertEqual(App.projectIo.parseProject(JSON.stringify(p)).ok, false);
       });
       s.test('unregistered platform id rejected', function () {
@@ -2313,27 +2607,163 @@
         shuffled.deviceConfigs.reverse();
         T.assertEqual(App.projectIo.serializeProject(p), App.projectIo.serializeProject(shuffled));
       });
-      s.test('migrate v2 is identity', function () {
+      s.test('migrate v3 is identity', function () {
         var p = sampleProject();
         T.assert(App.projectIo.migrate(p) === p);
       });
-      s.test('migrate v1 -> v2 builds controls from legacy ismRefs (lossless)', function () {
+      s.test('migrate v1 -> v3 builds controls from legacy ismRefs + adds groups/overrides (lossless)', function () {
         ensureST();
         var v1 = {
           schemaVersion: 1, platformProfileId: ST_PLATFORM_ID,
           meta: { createdUtc: ISO, modifiedUtc: ISO, appVersion: '1.0' }, deviceConfigs: [],
           items: { 'selftest.a': [{ key: 'k1', decision: null, ismRefs: ['ISM-1', 'AHG-2', 'misc'], status: 'undecided' }], 'selftest.b': [], 'selftest.c': [] }
         };
-        var v2 = App.projectIo.migrate(v1);
-        T.assertEqual(v2.schemaVersion, 2);
-        T.assertEqual(v2.controls.length, 3);
-        var types = {}; v2.controls.forEach(function (c) { types[c.title] = c.type; });
+        var v3 = App.projectIo.migrate(v1); // chains v1 -> v2 -> v3
+        T.assertEqual(v3.schemaVersion, 3);
+        T.assert(Array.isArray(v3.groups), 'groups not added by v2->v3');
+        T.assertEqual(v3.controls.length, 3);
+        var types = {}; v3.controls.forEach(function (c) { types[c.title] = c.type; });
         T.assertEqual(types['ISM-1'], 'ISM'); T.assertEqual(types['AHG-2'], 'AHG'); T.assertEqual(types['misc'], 'Custom');
-        var item = v2.items['selftest.a'][0];
+        var item = v3.items['selftest.a'][0];
         T.assertEqual(item.ismRefs, undefined, 'legacy ismRefs not removed');
         T.assertEqual(item.controlRefs.length, 3);
         // controlRefs point at real control ids; passes schema validation.
-        T.assertEqual(App.projectIo.validateSchema(v2).filter(function (i) { return i.severity === 'error'; }).length, 0);
+        T.assertEqual(App.projectIo.validateSchema(v3).filter(function (i) { return i.severity === 'error'; }).length, 0);
+      });
+    });
+
+    T.suite('T10.1 schema v3 (groups, overrides, migrate, prune)', function (s) {
+      // A v3 sample carrying a group (with a group override) + a device override.
+      function v3Sample() {
+        var p = sampleProject();          // schemaVersion 3, selftest platform
+        p.groups = [{ id: 'rugged', name: 'Rugged', deviceBaseIds: ['tab-active-5'], overrides: { 'selftest.a': { k1: { action: 'disable' } } } }];
+        p.deviceConfigs[0].overrides = { 'selftest.a': { k1: { action: 'remove' } } };  // device beats group
+        return p;
+      }
+      s.test('v2 -> v3 migrate adds groups + per-config overrides and validates', function () {
+        var v2 = sampleProject(); v2.schemaVersion = 2; delete v2.groups; delete v2.deviceConfigs[0].overrides;
+        var v3 = App.projectIo.migrate(v2);
+        T.assertEqual(v3.schemaVersion, 3);
+        T.assert(Array.isArray(v3.groups) && v3.groups.length === 0, 'groups not initialised');
+        T.assert(v3.deviceConfigs.every(function (dc) { return typeof dc.overrides === 'object'; }), 'overrides not initialised on configs');
+        T.assertEqual(App.projectIo.validateSchema(v3).filter(function (i) { return i.severity === 'error'; }).length, 0);
+      });
+      s.test('round-trip identity with a group + device override', function () {
+        var s1 = App.projectIo.serializeProject(v3Sample());
+        var r = App.projectIo.parseProject(s1);
+        T.assertEqual(r.ok, true, 'reparse failed: ' + JSON.stringify(r.issues));
+        var s2 = App.projectIo.serializeProject(r.value);
+        T.assertEqual(s1, s2, 'v3 round-trip not byte-identical');
+        // The override survived the round-trip.
+        T.assertDeepEqual(r.value.deviceConfigs.filter(function (c) { return c.id === 'tab-active-5'; })[0].overrides, { 'selftest.a': { k1: { action: 'remove' } } });
+      });
+      s.test('empty override maps are dropped from serialized output', function () {
+        var p = sampleProject(); p.deviceConfigs[0].overrides = { 'selftest.a': {} };
+        T.assert(App.projectIo.serializeProject(p).indexOf('"overrides"') === -1, 'empty overrides should not serialize');
+      });
+      s.test('a non-applicable device override is pruned on load with a warning', function () {
+        var p = sampleProject();
+        p.deviceConfigs[0].overrides = { 'selftest.a': { k1: { action: 'x' }, zzz: { action: 'y' } } }; // zzz not in snapshot keys
+        var r = App.projectIo.parseProject(JSON.stringify(p));
+        T.assertEqual(r.ok, true);
+        var ov = r.value.deviceConfigs.filter(function (c) { return c.id === 'tab-active-5'; })[0].overrides;
+        T.assert(ov['selftest.a'].k1 && !('zzz' in ov['selftest.a']), 'non-applicable override not pruned');
+        T.assert(r.issues.some(function (i) { return i.severity === 'warning' && /zzz.*not applicable/.test(i.message); }), 'no prune warning');
+      });
+      s.test('a baseId in two groups is removed from one, with a warning', function () {
+        var p = sampleProject();
+        p.groups = [
+          { id: 'g1', name: 'G1', deviceBaseIds: ['tab-active-5'], overrides: {} },
+          { id: 'g2', name: 'G2', deviceBaseIds: ['tab-active-5', 's23'], overrides: {} }
+        ];
+        var r = App.projectIo.parseProject(JSON.stringify(p));
+        T.assertEqual(r.ok, true);
+        var g1 = r.value.groups.filter(function (g) { return g.id === 'g1'; })[0];
+        var g2 = r.value.groups.filter(function (g) { return g.id === 'g2'; })[0];
+        var inG1 = g1.deviceBaseIds.indexOf('tab-active-5') !== -1;
+        var inG2 = g2.deviceBaseIds.indexOf('tab-active-5') !== -1;
+        T.assert(inG1 !== inG2, 'tab-active-5 must be in exactly one group after prune');
+        T.assert(r.issues.some(function (i) { return i.severity === 'warning' && /already in another group/.test(i.message); }), 'no single-group warning');
+      });
+      s.test('serialization deterministic across two calls (groups + overrides)', function () {
+        var p = v3Sample();
+        T.assertEqual(App.projectIo.serializeProject(p), App.projectIo.serializeProject(v3Sample()));
+      });
+    });
+
+    T.suite('T10.2 App.overrides resolver', function (s) {
+      // tab-active-5: selftest.a default k1={action:keep}; group 'rugged' override
+      // k1={action:disable}; device override k1={action:remove}. k2 has no overrides.
+      function proj(opts) {
+        opts = opts || {};
+        var p = sampleProject();
+        p.groups = [{ id: 'rugged', name: 'Rugged', deviceBaseIds: ['tab-active-5'], overrides: {} }];
+        if (opts.group) p.groups[0].overrides = { 'selftest.a': { k1: opts.group } };
+        if (opts.device) p.deviceConfigs[0].overrides = { 'selftest.a': { k1: opts.device } };
+        return p;
+      }
+      function k1(p) { return p.items['selftest.a'].filter(function (it) { return it.key === 'k1'; })[0]; }
+      // NB: resolve App.overrides INSIDE each test — this suite is registered before
+      // the overrides module loads, so capturing it at registration would be undefined.
+
+      s.test('groupForDevice resolves by baseId', function () {
+        var O = App.overrides;
+        var p = proj();
+        T.assertEqual(O.groupForDevice(p, 'tab-active-5').id, 'rugged');
+        T.assertEqual(O.groupForDevice(p, 's23'), null);
+      });
+      s.test('precedence device > group > default', function () {
+        var O = App.overrides;
+        var p = proj({ group: { action: 'disable' }, device: { action: 'remove' } });
+        var e = O.effectiveDecision(p, 'selftest.a', k1(p), 'tab-active-5');
+        T.assertDeepEqual(e.decision, { action: 'remove' }); T.assertEqual(e.source, 'device');
+        // drop the device override -> group wins
+        delete p.deviceConfigs[0].overrides;
+        var g = O.effectiveDecision(p, 'selftest.a', k1(p), 'tab-active-5');
+        T.assertDeepEqual(g.decision, { action: 'disable' }); T.assertEqual(g.source, 'group');
+        // drop the group override -> default wins
+        p.groups[0].overrides = {};
+        var d = O.effectiveDecision(p, 'selftest.a', k1(p), 'tab-active-5');
+        T.assertDeepEqual(d.decision, { action: 'keep' }); T.assertEqual(d.source, 'default');
+      });
+      s.test('effectiveItem replaces decision; adapters stay override-blind', function () {
+        var O = App.overrides;
+        var p = proj({ device: { action: 'remove' } });
+        var ei = O.effectiveItem(p, 'selftest.a', k1(p), 'tab-active-5');
+        T.assertDeepEqual(ei.decision, { action: 'remove' });
+        T.assertEqual(ei.key, 'k1', 'other fields preserved');
+      });
+      s.test('classify is value-based (a device override equal to group is NOT device)', function () {
+        var O = App.overrides;
+        var p = proj({ group: { action: 'disable' }, device: { action: 'remove' } });
+        T.assertEqual(O.classify(p, 'selftest.a', k1(p), 'tab-active-5'), 'device');
+        // device override equal to the group value => classify group (value comparison, OVR-8)
+        p.deviceConfigs[0].overrides = { 'selftest.a': { k1: { action: 'disable' } } };
+        T.assertEqual(O.classify(p, 'selftest.a', k1(p), 'tab-active-5'), 'group');
+        // group-only override => group
+        delete p.deviceConfigs[0].overrides;
+        T.assertEqual(O.classify(p, 'selftest.a', k1(p), 'tab-active-5'), 'group');
+        // no overrides => default
+        p.groups[0].overrides = {};
+        T.assertEqual(O.classify(p, 'selftest.a', k1(p), 'tab-active-5'), 'default');
+      });
+      s.test('deviceDeviations lists diverging applicable items with all three layers', function () {
+        var O = App.overrides;
+        var p = proj({ group: { action: 'disable' }, device: { action: 'remove' } });
+        var devs = O.deviceDeviations(p, 'tab-active-5');
+        T.assertEqual(devs.length, 1);
+        T.assertEqual(devs[0].key, 'k1'); T.assertEqual(devs[0].source, 'device');
+        T.assertDeepEqual(devs[0].defaultValue, { action: 'keep' });
+        T.assertDeepEqual(devs[0].groupValue, { action: 'disable' });
+        T.assertDeepEqual(devs[0].deviceValue, { action: 'remove' });
+      });
+      s.test('groupDeviations lists group overrides that differ from default', function () {
+        var O = App.overrides;
+        var p = proj({ group: { action: 'disable' } });
+        var gd = O.groupDeviations(p, 'rugged');
+        T.assertEqual(gd.length, 1);
+        T.assertEqual(gd[0].key, 'k1'); T.assertEqual(gd[0].source, 'group');
+        T.assertDeepEqual(gd[0].groupValue, { action: 'disable' });
       });
     });
 
@@ -3374,6 +3804,144 @@
       REQUIRE_CONTROL_REF: false
     };
     App.completeness = mod;
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.overrides
+   * PURPOSE: The single choke point (spec §19.2.3, OVR-3) that resolves the
+   *          default → group → device decision chain for an (item, device) pair,
+   *          classifies value divergence for highlighting, and lists deviations.
+   *          Adapters stay override-blind: callers use effectiveItem(...) and pass
+   *          the resulting item to adapters unchanged.
+   * PURITY:  pure
+   * DEPENDS: App.registry, App.util.stable
+   * INVARIANTS:
+   *   * Precedence device > group > default; classification is by VALUE (stableStringify),
+   *     so a redundant override never mis-colours (OVR-8).
+   *   * Overrides are value-only — applicability is unchanged (callers filter by snapshot).
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+    var stable = App.util.stable.stableStringify;
+
+    function deviceById(project, deviceId) {
+      return (project.deviceConfigs || []).filter(function (c) { return c.id === deviceId; })[0] || null;
+    }
+
+    /** The group whose deviceBaseIds includes this device's baseId, or null. */
+    function groupForDevice(project, deviceId) {
+      var dc = deviceById(project, deviceId);
+      if (!dc) return null;
+      var groups = project.groups || [];
+      for (var i = 0; i < groups.length; i++) {
+        if ((groups[i].deviceBaseIds || []).indexOf(dc.baseId) !== -1) return groups[i];
+      }
+      return null;
+    }
+
+    /** Read an override value (or undefined) from an overrides map. */
+    function ovOf(map, dsId, key) {
+      if (!map || !map[dsId] || !Object.prototype.hasOwnProperty.call(map[dsId], key)) return undefined;
+      return map[dsId][key];
+    }
+
+    /** The default/group/device layered values for one (item, device). */
+    function layers(project, datasetId, item, deviceId) {
+      var dc = deviceById(project, deviceId);
+      var dV = (item.decision != null) ? item.decision : null;
+      var group = groupForDevice(project, deviceId);
+      var gV = dV, hasGroup = false;
+      if (group) { var go = ovOf(group.overrides, datasetId, item.key); if (go !== undefined) { gV = go; hasGroup = true; } }
+      var eV = gV, hasDevice = false;
+      if (dc) { var dov = ovOf(dc.overrides, datasetId, item.key); if (dov !== undefined) { eV = dov; hasDevice = true; } }
+      return { dV: dV, gV: gV, eV: eV, hasGroup: hasGroup, hasDevice: hasDevice, group: group };
+    }
+
+    /**
+     * Effective decision + provenance for one (item, device) (spec §19.2).
+     * @returns {{decision:Object|null, source:'default'|'group'|'device'}}
+     */
+    function effectiveDecision(project, datasetId, item, deviceId) {
+      var L = layers(project, datasetId, item, deviceId);
+      return { decision: L.eV, source: L.hasDevice ? 'device' : (L.hasGroup ? 'group' : 'default') };
+    }
+
+    /** The item shallow-cloned with its decision replaced by the effective value. */
+    function effectiveItem(project, datasetId, item, deviceId) {
+      var eff = effectiveDecision(project, datasetId, item, deviceId);
+      var out = {};
+      for (var k in item) if (Object.prototype.hasOwnProperty.call(item, k)) out[k] = item[k];
+      out.decision = eff.decision;
+      return out;
+    }
+
+    /** Value-based divergence class for highlighting (OVR-4/OVR-8). */
+    function classify(project, datasetId, item, deviceId) {
+      var L = layers(project, datasetId, item, deviceId);
+      if (stable(L.eV) !== stable(L.gV)) return 'device';
+      if (stable(L.gV) !== stable(L.dV)) return 'group';
+      return 'default';
+    }
+
+    function byDsKey(a, b) {
+      if (a.datasetId !== b.datasetId) return a.datasetId < b.datasetId ? -1 : 1;
+      return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+    }
+
+    /** Every applicable item whose effective value diverges from default, for a device (§19.6). */
+    function deviceDeviations(project, deviceId) {
+      var dc = deviceById(project, deviceId);
+      if (!dc) return [];
+      var pid = project.platformProfileId, out = [];
+      App.registry.datasetIds(pid).forEach(function (dsId) {
+        var adapter = App.registry.getDataset(pid, dsId);
+        var snap = dc.snapshots[dsId];
+        if (!adapter || !snap) return;
+        var keySet = {}; snap.keys.forEach(function (k) { keySet[k] = true; });
+        var dispKey = adapter.displayKey || function (k) { return k; };
+        (project.items[dsId] || []).forEach(function (it) {
+          if (!keySet[it.key]) return;
+          var cls = classify(project, dsId, it, deviceId);
+          if (cls === 'default') return;
+          var L = layers(project, dsId, it, deviceId);
+          out.push({ datasetId: dsId, key: it.key, displayKey: dispKey(it.key), source: cls, defaultValue: L.dV, groupValue: L.gV, deviceValue: L.eV });
+        });
+      });
+      out.sort(byDsKey);
+      return out;
+    }
+
+    /** Every group override that diverges from default, for a group (§19.4/§19.6). */
+    function groupDeviations(project, groupId) {
+      var group = (project.groups || []).filter(function (g) { return g.id === groupId; })[0];
+      if (!group) return [];
+      var pid = project.platformProfileId, out = [];
+      Object.keys(group.overrides || {}).forEach(function (dsId) {
+        var adapter = App.registry.getDataset(pid, dsId);
+        var dispKey = (adapter && adapter.displayKey) || function (k) { return k; };
+        var itemsByKey = {}; (project.items[dsId] || []).forEach(function (it) { itemsByKey[it.key] = it; });
+        Object.keys(group.overrides[dsId]).forEach(function (key) {
+          var it = itemsByKey[key];
+          var dV = (it && it.decision != null) ? it.decision : null;
+          var gV = group.overrides[dsId][key];
+          if (stable(gV) === stable(dV)) return; // redundant, not a real deviation
+          out.push({ datasetId: dsId, key: key, displayKey: dispKey(key), source: 'group', defaultValue: dV, groupValue: gV, deviceValue: gV });
+        });
+      });
+      out.sort(byDsKey);
+      return out;
+    }
+
+    App.overrides = {
+      groupForDevice: groupForDevice,
+      effectiveDecision: effectiveDecision,
+      effectiveItem: effectiveItem,
+      classify: classify,
+      deviceDeviations: deviceDeviations,
+      groupDeviations: groupDeviations
+    };
   })(App);
   </script>
 
@@ -6261,6 +6829,75 @@
         T.assertEqual(App.store.addControl({ title: '' }).ok, false);
         var a = App.store.addControl({ title: 'Same' }), b = App.store.addControl({ title: 'Same' });
         T.assert(a.id !== b.id, 'ids should be unique');
+      });
+    });
+
+    T.suite('T10.3 store override + group mutators', function (s) {
+      function dev() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        return 'dev-m1';
+      }
+      function devOv(id) { return (App.store.getProject().deviceConfigs.filter(function (c) { return c.id === id; })[0].overrides) || {}; }
+
+      s.test('device override on a non-applicable key is rejected', function () {
+        var id = dev();
+        T.assertEqual(App.store.setDeviceOverride(id, 'android.packages', 'com.zzz', { action: 'disable' }).ok, false);
+      });
+      s.test('invalid override value is rejected', function () {
+        var id = dev();
+        T.assertEqual(App.store.setDeviceOverride(id, 'android.packages', 'com.a', { action: 'bogus' }).ok, false);
+      });
+      s.test('a no-op override (equal to inherited) clears instead of persisting', function () {
+        var id = dev();
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' }); // default
+        var r = App.store.setDeviceOverride(id, 'android.packages', 'com.a', { action: 'keep' });
+        T.assertEqual(r.ok, true);
+        T.assert(!(devOv(id)['android.packages'] && devOv(id)['android.packages']['com.a']), 'no-op override should not persist');
+        // a differing value DOES persist
+        App.store.setDeviceOverride(id, 'android.packages', 'com.a', { action: 'remove' });
+        T.assertDeepEqual(devOv(id)['android.packages']['com.a'], { action: 'remove' });
+        // setting it back to the default clears it again
+        App.store.setDeviceOverride(id, 'android.packages', 'com.a', { action: 'keep' });
+        T.assert(!(devOv(id)['android.packages'] && devOv(id)['android.packages']['com.a']), 'override not cleared on revert-to-default');
+      });
+      s.test('group override applied then cleared', function () {
+        var id = dev();
+        var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['dev-m1'] });
+        T.assertEqual(g.ok, true);
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' });
+        var gov = App.store.getProject().groups.filter(function (x) { return x.id === g.id; })[0].overrides;
+        T.assertDeepEqual(gov['android.packages']['com.a'], { action: 'disable' });
+        App.store.clearGroupOverride(g.id, 'android.packages', 'com.a');
+        var gov2 = App.store.getProject().groups.filter(function (x) { return x.id === g.id; })[0].overrides;
+        T.assert(!(gov2['android.packages']), 'group override bucket should be cleared');
+      });
+      s.test('addGroup moves a baseId out of its old group (single-group rule)', function () {
+        dev();
+        var g1 = App.store.addGroup({ name: 'G1', deviceBaseIds: ['dev-m1'] });
+        var g2 = App.store.addGroup({ name: 'G2', deviceBaseIds: ['dev-m1'] });
+        var groups = App.store.getProject().groups;
+        var inG1 = groups.filter(function (x) { return x.id === g1.id; })[0].deviceBaseIds.indexOf('dev-m1') !== -1;
+        var inG2 = groups.filter(function (x) { return x.id === g2.id; })[0].deviceBaseIds.indexOf('dev-m1') !== -1;
+        T.assert(!inG1 && inG2, 'baseId should have moved to G2');
+      });
+      s.test('re-onboard carries forward applicable overrides and prunes departed keys', function () {
+        var id = dev();
+        App.store.setDeviceOverride(id, 'android.packages', 'com.a', { action: 'remove' });
+        App.store.setDeviceOverride(id, 'android.packages', 'com.b', { action: 'disable' });
+        // Re-onboard with a differing snapshot that drops com.a (keeps com.b, adds com.d).
+        var res = App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.b\ncom.d'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        T.assertEqual(res.ok, true);
+        var v2 = App.store.getLatestConfigs(App.store.getProject()).filter(function (c) { return c.baseId === 'dev-m1'; })[0];
+        T.assertEqual(v2.version, 2);
+        T.assertDeepEqual(v2.overrides['android.packages'], { 'com.b': { action: 'disable' } }, 'com.b carried, com.a pruned');
+        T.assert(res.issues.some(function (i) { return /pruned/.test(i.message) && /com\.a/.test(i.message); }), 'no prune-info logged');
       });
     });
 
