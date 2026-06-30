@@ -59,11 +59,37 @@
     --c-error: #b3261e;
     --c-undecided-border: #d99100;
     --c-badge-bg: #e7ecf3;
+    /* Status tint backgrounds as variables so the dark theme overrides VARIABLES
+       only (spec §18.1 DM-1) — no per-component restyle. */
+    --c-ok-bg: #e7f5ec;
+    --c-warn-bg: #fff5e0;
+    --c-error-bg: #fdecea;
     --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;  --sp-5: 24px;
     --radius: 6px;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
+  /* Dark theme (spec §18.1): re-defines palette VARIABLES only; applied via the
+     data-theme="dark" attribute on <html>. UI-only — never affects generated output. */
+  :root[data-theme="dark"] {
+    --c-bg: #14171c;
+    --c-surface: #1d222b;
+    --c-surface-alt: #262c37;
+    --c-border: #3a414d;
+    --c-text: #e6e9ee;
+    --c-text-muted: #9aa4b2;
+    --c-accent: #4f9bff;
+    --c-accent-text: #0b1220;
+    --c-ok: #4ec98a;
+    --c-warn: #e0a64b;
+    --c-error: #ff6b61;
+    --c-undecided-border: #e0a64b;
+    --c-badge-bg: #2a313c;
+    --c-ok-bg: #16301f;
+    --c-warn-bg: #3a2e16;
+    --c-error-bg: #3a1f1d;
+  }
+  html { color-scheme: light dark; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
@@ -129,9 +155,9 @@
   table.data tbody tr.undecided { border-left: 3px solid var(--c-undecided-border); }
   table.data tbody tr:nth-child(even) { background: var(--c-surface-alt); }
   .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--c-border); }
-  .badge.undecided { background: #fff5e0; color: var(--c-warn); border-color: var(--c-undecided-border); }
-  .badge.decided { background: #e7f5ec; color: var(--c-ok); border-color: var(--c-ok); }
-  .badge.superseded { background: #eee; color: var(--c-text-muted); }
+  .badge.undecided { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
+  .badge.decided { background: var(--c-ok-bg); color: var(--c-ok); border-color: var(--c-ok); }
+  .badge.superseded { background: var(--c-surface-alt); color: var(--c-text-muted); }
 
   /* Activity / Errors drawer */
   .drawer { border-top: 1px solid var(--c-border); background: var(--c-surface); max-height: 30vh; display: flex; flex-direction: column; }
@@ -148,7 +174,7 @@
   /* Inline decision editors */
   table.data td.dcell select, table.data td.dcell input, table.data td input.edit { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); }
   table.data td.dcell select { margin-right: 4px; }
-  table.data td.dcell.invalid { background: #fdecea; }
+  table.data td.dcell.invalid { background: var(--c-error-bg); }
   table.data .expand-btn { border: none; background: transparent; padding: 0 4px; cursor: pointer; color: var(--c-text-muted); }
   table.data tr.detail-row > td { background: var(--c-surface-alt); }
   .detail-form { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; align-items: start; padding: 6px 2px; max-width: 900px; }
@@ -178,7 +204,7 @@
   .dev-row .counts { font-size: 12px; color: var(--c-text-muted); }
   .dev-row .spacer { flex: 1; }
   .dev-detail-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
-  .superseded-banner { background: #fff5e0; border: 1px solid var(--c-undecided-border); color: var(--c-warn); padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
+  .superseded-banner { background: var(--c-warn-bg); border: 1px solid var(--c-undecided-border); color: var(--c-warn); padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
   .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
   .panel { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-surface); display: flex; flex-direction: column; }
   .panel > h3 { margin: 0; padding: 8px 12px; background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border); font-size: 14px; }
@@ -187,8 +213,23 @@
   .panel th, .panel td { border-bottom: 1px solid var(--c-surface-alt); padding: 4px 8px; text-align: left; vertical-align: top; }
   .panel .empty { padding: 10px 12px; color: var(--c-text-muted); }
 
+  /* Set-decisions-from-files section (Devices view) */
+  .assign-section { margin-top: 16px; border-top: 1px solid var(--c-border); padding-top: 12px; }
+  .assign-section h3 { margin: 0 0 4px; font-size: 15px; }
+  .assign-block { border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); padding: 10px; margin: 8px 0; max-width: 760px; }
+  .assign-result { margin-top: 6px; font-size: 12px; font-family: var(--mono); }
+  .assign-result .error { color: var(--c-error); }
+  .assign-result .success, .assign-result .info { color: var(--c-ok); }
+
+  /* Control Manager */
+  .ctl-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 16px; padding: 10px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
+  .ctl-add input, .ctl-add select, .ctl-row input, .ctl-row select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .ctl-row { border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); padding: 10px; margin-bottom: 8px; }
+  .ctl-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .ctl-devices { margin-top: 6px; }
+
   /* Draft restore banner */
-  .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: #fff5e0; border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
+  .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
   .restore-banner .spacer { flex: 1; }
 
   /* Accessibility: visible keyboard focus (colour is never the sole signal). */
@@ -253,7 +294,7 @@
      * @property {string} key
      * @property {string} [description]
      * @property {Object|null} decision      Shape per adapter.decisionSchema; null = undecided.
-     * @property {string[]} ismRefs
+     * @property {string[]} controlRefs
      * @property {string} [rationale]
      * @property {string} [rollback]
      * @property {'undecided'|'decided'} status   Derived (recompute on load).
@@ -1218,15 +1259,15 @@
    *          degraded when the platform is not registered)
    * INVARIANTS:
    *   * serializeProject is canonical: deviceConfigs sorted by (baseId,version),
-   *     items arrays sorted by key, ismRefs sorted, object keys sorted, snapshot
+   *     items arrays sorted by key, controlRefs sorted, object keys sorted, snapshot
    *     keys sorted. => serialize(parse(serialize(p))) === serialize(p).
    *   * parseProject NEVER throws for bad input; it returns located Issues.
    * ============================================================================= */
   (function (App) {
     'use strict';
 
-    var SCHEMA_VERSION = 1;
-    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'items'];
+    var SCHEMA_VERSION = 2; // v2 (spec §18.3): adds top-level `controls`; ismRefs→controlRefs
+    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'items', 'controls'];
     var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
     var SHA_RE = /^[0-9a-f]{64}$/;
@@ -1275,6 +1316,26 @@
         validDs = App.registry.datasetIds(p.platformProfileId);
       }
 
+      // controls (spec §18.3 CTL-1). Build the id set for controlRefs integrity.
+      var controlIds = {};
+      if (p.controls === undefined || !Array.isArray(p.controls)) {
+        issues.push(issue('error', 'controls must be an array (schemaVersion 2).', 'controls', 'Add a top-level "controls": [].'));
+      } else {
+        p.controls.forEach(function (c, i) {
+          var loc = 'controls[' + i + ']';
+          if (!isPlainObject(c)) { issues.push(issue('error', 'Control must be an object.', loc)); return; }
+          if (typeof c.id !== 'string' || !SLUG_RE.test(c.id)) issues.push(issue('error', 'Control.id must be a slug.', loc + '.id'));
+          if (typeof c.title !== 'string' || !c.title) issues.push(issue('error', 'Control.title must be a non-empty string.', loc + '.title'));
+          if (typeof c.type !== 'string' || !c.type) issues.push(issue('error', 'Control.type must be a non-empty string.', loc + '.type'));
+          if (c.description !== undefined && typeof c.description !== 'string') issues.push(issue('error', 'Control.description must be a string.', loc + '.description'));
+          if (c.assignedDeviceIds !== undefined && !isStringArray(c.assignedDeviceIds)) issues.push(issue('error', 'Control.assignedDeviceIds must be an array of strings.', loc + '.assignedDeviceIds'));
+          if (typeof c.id === 'string') {
+            if (controlIds[c.id]) issues.push(issue('error', 'Duplicate Control id "' + c.id + '".', loc));
+            controlIds[c.id] = true;
+          }
+        });
+      }
+
       // items
       if (!isPlainObject(p.items)) {
         issues.push(issue('error', 'items must be an object keyed by dataset id.', 'items'));
@@ -1293,6 +1354,10 @@
               if (seen[it.key]) issues.push(issue('error', 'Duplicate item key "' + it.key + '" in dataset "' + dsId + '".', loc));
               seen[it.key] = true;
             }
+            // controlRefs integrity (CTL-2): dangling refs warn (non-blocking, lossless).
+            if (it && Array.isArray(it.controlRefs)) it.controlRefs.forEach(function (ref) {
+              if (!controlIds[ref]) issues.push(issue('warning', 'controlRef "' + ref + '" does not match any control.', loc + '.controlRefs'));
+            });
           });
         });
       }
@@ -1320,7 +1385,7 @@
       if (!isPlainObject(it)) { issues.push(issue('error', 'RegisterItem must be an object.', loc)); return; }
       if (typeof it.key !== 'string' || !it.key) issues.push(issue('error', 'RegisterItem.key must be a non-empty string.', loc + '.key'));
       if (!(it.decision === null || isPlainObject(it.decision))) issues.push(issue('error', 'RegisterItem.decision must be an object or null.', loc + '.decision'));
-      if (!isStringArray(it.ismRefs)) issues.push(issue('error', 'RegisterItem.ismRefs must be an array of strings.', loc + '.ismRefs'));
+      if (!isStringArray(it.controlRefs)) issues.push(issue('error', 'RegisterItem.controlRefs must be an array of strings.', loc + '.controlRefs'));
       if (it.status !== 'undecided' && it.status !== 'decided') issues.push(issue('error', 'RegisterItem.status must be "undecided" or "decided".', loc + '.status'));
       ['description', 'rationale', 'rollback'].forEach(function (f) {
         if (it[f] !== undefined && typeof it[f] !== 'string') issues.push(issue('error', 'RegisterItem.' + f + ' must be a string when present.', loc + '.' + f));
@@ -1407,15 +1472,50 @@
       });
     }
 
+    function slugifyControl(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); }
+
     /**
-     * Migrate a project forward to the current schema version. Identity for v1.
+     * Migrate a v1 project to v2 (spec §18.3 CTL-3): create `controls`, convert each
+     * item's legacy free-text `ismRefs` into find-or-created controls (type inferred),
+     * and replace with `controlRefs` of those control ids. Lossless.
+     * @param {Project} v1
+     * @returns {Project} v2
+     */
+    function migrateV1toV2(v1) {
+      var out = JSON.parse(JSON.stringify(v1));
+      out.schemaVersion = 2;
+      if (!Array.isArray(out.controls)) out.controls = [];
+      var byTitle = {}, usedIds = {};
+      out.controls.forEach(function (c) { byTitle[c.title] = c; usedIds[c.id] = true; });
+      function ensureControl(title) {
+        if (byTitle[title]) return byTitle[title].id;
+        var type = /^ISM/i.test(title) ? 'ISM' : (/^AHG/i.test(title) ? 'AHG' : 'Custom');
+        var base = slugifyControl(title) || ('control-' + (out.controls.length + 1)), id = base, n = 2;
+        while (usedIds[id]) { id = base + '-' + n; n++; }
+        usedIds[id] = true;
+        var c = { id: id, title: title, type: type, description: '', assignedDeviceIds: [] };
+        out.controls.push(c); byTitle[title] = c; return id;
+      }
+      Object.keys(out.items || {}).forEach(function (dsId) {
+        (out.items[dsId] || []).forEach(function (it) {
+          var legacy = Array.isArray(it.ismRefs) ? it.ismRefs : [];
+          it.controlRefs = legacy.map(ensureControl);
+          delete it.ismRefs;
+        });
+      });
+      return out;
+    }
+
+    /**
+     * Migrate a project forward to the current schema version (spec §17.A, §18.3).
      * @param {Project} project
      * @returns {Project}
      */
     function migrate(project) {
       switch (project && project.schemaVersion) {
-        case 1: return project;          // current
-        default: return project;          // unknown -> pass through; schema check will flag it
+        case 1: return migrateV1toV2(project);
+        case 2: return project;          // current
+        default: return project;          // unknown -> pass through; schema check flags it
       }
     }
 
@@ -1448,11 +1548,11 @@
     function serializeProject(project) {
       var p = clone(project);
 
-      // Canonical item ordering: sort items arrays by key; sort ismRefs.
+      // Canonical item ordering: sort items arrays by key; sort controlRefs.
       if (isPlainObject(p.items)) {
         Object.keys(p.items).forEach(function (dsId) {
           if (Array.isArray(p.items[dsId])) {
-            p.items[dsId].forEach(function (it) { if (Array.isArray(it.ismRefs)) it.ismRefs.sort(); });
+            p.items[dsId].forEach(function (it) { if (Array.isArray(it.controlRefs)) it.controlRefs.sort(); });
             p.items[dsId].sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; });
           }
         });
@@ -1469,6 +1569,11 @@
             if (Array.isArray(dc.snapshots[dsId].keys)) dc.snapshots[dsId].keys.sort();
           });
         });
+      }
+      // Canonical control ordering: by id; sort assignedDeviceIds.
+      if (Array.isArray(p.controls)) {
+        p.controls.forEach(function (c) { if (Array.isArray(c.assignedDeviceIds)) c.assignedDeviceIds.sort(); });
+        p.controls.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
       }
       // stableStringify sorts all object keys.
       return App.util.stable.stableStringify(p);
@@ -1524,6 +1629,7 @@
         platformProfileId: platformProfileId,
         meta: { createdUtc: now, modifiedUtc: now, appVersion: APP_VERSION },
         deviceConfigs: [],
+        controls: [],
         items: items
       };
     }
@@ -1551,7 +1657,7 @@
         var adapter = App.registry.getDataset(pid, dsId);
         _project.items[dsId].forEach(function (it) {
           if (adapter && typeof adapter.isComplete === 'function') {
-            // Use completeness.itemComplete so the REQUIRE_ISM_REF policy (§6.5)
+            // Use completeness.itemComplete so the REQUIRE_CONTROL_REF policy (§6.5)
             // folds into the derived status; fall back to the raw adapter check.
             var complete = App.completeness ? App.completeness.itemComplete(adapter, it) : adapter.isComplete(it);
             it.status = complete ? 'decided' : 'undecided';
@@ -1656,7 +1762,7 @@
         var registerKeys = (_project.items[dsId] || []).map(function (it) { return it.key; });
         var tri = App.diff.triage(parsedKeys, registerKeys);
         perDataset[dsId] = { newCount: tri.newKeys.length, existingCount: tri.existingKeys.length };
-        newItemsByDs[dsId] = tri.newKeys.map(function (k) { return { key: k, decision: null, ismRefs: [], status: 'undecided' }; });
+        newItemsByDs[dsId] = tri.newKeys.map(function (k) { return { key: k, decision: null, controlRefs: [], status: 'undecided' }; });
         // Settings default-drift (spec §8.4): compare existing keys' capture values
         // against other devices' recorded values. Informational only.
         if (snap && snap.values) {
@@ -1747,7 +1853,7 @@
       var item = items.filter(function (i) { return i.key === key; })[0];
       if (!item) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown item "' + key + '".', location: datasetId }] };
       var adapter = App.registry.getDataset(_project.platformProfileId, datasetId);
-      var issues = (decision === null || !adapter) ? [] : (adapter.validateDecision({ key: key, decision: decision, ismRefs: item.ismRefs }) || []);
+      var issues = (decision === null || !adapter) ? [] : (adapter.validateDecision({ key: key, decision: decision, controlRefs: item.controlRefs }) || []);
       commit(function (p) {
         var it = p.items[datasetId].filter(function (i) { return i.key === key; })[0];
         it.decision = decision;
@@ -1759,7 +1865,7 @@
      * Set human-authored item fields (spec §7.1). Only provided keys are changed.
      * @param {string} datasetId
      * @param {string} key
-     * @param {{description?:string, ismRefs?:string[], rationale?:string, rollback?:string}} fields
+     * @param {{description?:string, controlRefs?:string[], rationale?:string, rollback?:string}} fields
      * @returns {{ok:boolean, issues:Issue[]}}
      */
     function setItemFields(datasetId, key, fields) {
@@ -1772,9 +1878,109 @@
         if ('description' in fields) it.description = fields.description;
         if ('rationale' in fields) it.rationale = fields.rationale;
         if ('rollback' in fields) it.rollback = fields.rollback;
-        if ('ismRefs' in fields) it.ismRefs = (fields.ismRefs || []).slice();
+        if ('controlRefs' in fields) it.controlRefs = (fields.controlRefs || []).slice();
       });
       return { ok: true, issues: [] };
+    }
+
+    /**
+     * Bulk-apply a parsed assignment file to a device's decisions (spec §18.2).
+     * Validates that the file's keys EXACTLY equal the device's applicable keys for
+     * the dataset (refusing with deltas otherwise), validates each decision, then
+     * applies all in one transaction. NOTE (§8.4): decisions are unified, so this
+     * updates the shared decisions for the device's applicable keys.
+     * @param {string} deviceId  MUST be a latest config
+     * @param {string} datasetId
+     * @param {{assignments:Array,errors:Issue[],warnings:Issue[]}} parsed
+     * @returns {{ok:boolean, issues:Issue[]}}
+     */
+    function applyDeviceAssignment(deviceId, datasetId, parsed) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var dc = _project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      if (!dc) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown device "' + deviceId + '".' }] };
+      if (!getLatestConfigs(_project).some(function (c) { return c.id === deviceId; })) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Bulk assignment applies to the latest device version only.' }] };
+      var adapter = App.registry.getDataset(_project.platformProfileId, datasetId);
+      if (!adapter) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown dataset "' + datasetId + '".' }] };
+      if (parsed.errors && parsed.errors.length) return { ok: false, issues: parsed.errors.slice() };
+
+      // Exact key-set equality (ASG-2): no more, no less than the device's applicable keys.
+      var snap = dc.snapshots[datasetId], applicable = {};
+      (snap && snap.keys ? snap.keys : []).forEach(function (k) { applicable[k] = true; });
+      var asg = {}; parsed.assignments.forEach(function (a) { asg[a.key] = true; });
+      var missing = Object.keys(applicable).filter(function (k) { return !asg[k]; }).sort();
+      var extra = parsed.assignments.map(function (a) { return a.key; }).filter(function (k) { return !applicable[k]; }).sort();
+      if (missing.length || extra.length) {
+        var issues = [{ category: 'validation', severity: 'error', message: 'File keys must exactly match this device\'s applicable ' + adapter.label + ' keys (no more, no less).', location: datasetId }];
+        function trunc(a) { return a.slice(0, 25).join(', ') + (a.length > 25 ? ' … (' + a.length + ' total)' : ''); }
+        if (missing.length) issues.push({ category: 'validation', severity: 'error', message: missing.length + ' applicable key(s) missing from the file: ' + trunc(missing), location: datasetId });
+        if (extra.length) issues.push({ category: 'validation', severity: 'error', message: extra.length + ' key(s) in the file are not applicable to this device: ' + trunc(extra), location: datasetId });
+        return { ok: false, issues: issues };
+      }
+
+      // Validate each decision (ASG-3).
+      var decErrors = [];
+      parsed.assignments.forEach(function (a) {
+        (adapter.validateDecision({ key: a.key, decision: a.decision, controlRefs: [] }) || []).forEach(function (i) {
+          if (i.severity === 'error') decErrors.push({ category: 'validation', severity: 'error', message: i.message, location: datasetId + ' / ' + a.key });
+        });
+      });
+      if (decErrors.length) return { ok: false, issues: decErrors };
+
+      // Apply atomically (ASG-5).
+      commit(function (p) {
+        var byKey = {}; p.items[datasetId].forEach(function (it) { byKey[it.key] = it; });
+        parsed.assignments.forEach(function (a) {
+          var it = byKey[a.key]; if (!it) return;
+          it.decision = a.decision;
+          if (a.fields && 'description' in a.fields) it.description = a.fields.description;
+        });
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Applied ' + parsed.assignments.length + ' ' + adapter.label + ' decision(s) to ' + dc.name + '.' }] };
+    }
+
+    // ---- Control catalogue CRUD (spec §18.3 CTL-6) ----
+    function findControl(p, id) { return (p.controls || []).filter(function (c) { return c.id === id; })[0]; }
+    function uniqueControlId(p, title) {
+      var base = slugify(title) || 'control', ids = {}; (p.controls || []).forEach(function (c) { ids[c.id] = true; });
+      var id = base, n = 2; while (ids[id]) { id = base + '-' + n; n++; } return id;
+    }
+    /** @returns {{ok:boolean, issues:Issue[], id?:string}} */
+    function addControl(input) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var title = ((input && input.title) || '').trim();
+      if (!title) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Control title is required.', location: 'title' }] };
+      var id = uniqueControlId(_project, title);
+      var ctl = { id: id, title: title, type: (input.type || 'Custom'), description: (input.description || ''), assignedDeviceIds: (input.assignedDeviceIds || []).slice() };
+      commit(function (p) { if (!Array.isArray(p.controls)) p.controls = []; p.controls.push(ctl); });
+      return { ok: true, issues: [], id: id };
+    }
+    /** @returns {{ok:boolean, issues:Issue[]}} */
+    function updateControl(id, patch) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      if (!findControl(_project, id)) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown control "' + id + '".' }] };
+      commit(function (p) {
+        var c = findControl(p, id); if (!c) return;
+        if ('title' in patch) c.title = patch.title;
+        if ('type' in patch) c.type = patch.type;
+        if ('description' in patch) c.description = patch.description;
+        if ('assignedDeviceIds' in patch) c.assignedDeviceIds = (patch.assignedDeviceIds || []).slice();
+      });
+      return { ok: true, issues: [] };
+    }
+    /** Remove a control and strip its id from every item's controlRefs (CTL-6). */
+    function removeControl(id) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      if (!findControl(_project, id)) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown control "' + id + '".' }] };
+      var affected = 0;
+      commit(function (p) {
+        p.controls = (p.controls || []).filter(function (c) { return c.id !== id; });
+        Object.keys(p.items || {}).forEach(function (dsId) {
+          (p.items[dsId] || []).forEach(function (it) {
+            if (Array.isArray(it.controlRefs) && it.controlRefs.indexOf(id) >= 0) { it.controlRefs = it.controlRefs.filter(function (r) { return r !== id; }); affected++; }
+          });
+        });
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Removed control; cleared from ' + affected + ' item(s).' }] };
     }
 
     App.store = {
@@ -1782,7 +1988,8 @@
       onChange: onChange, isDirty: isDirty, markSaved: markSaved, markDirty: markDirty,
       recomputeStatus: recomputeStatus,
       onboardDevice: onboardDevice, reonboardDevice: reonboardDevice,
-      setDecision: setDecision, setItemFields: setItemFields,
+      setDecision: setDecision, setItemFields: setItemFields, applyDeviceAssignment: applyDeviceAssignment,
+      addControl: addControl, updateControl: updateControl, removeControl: removeControl,
       applicableItems: applicableItems, undecidedCount: undecidedCount,
       slugify: slugify, getLatestConfigs: getLatestConfigs,
       // exposed for later-phase mutation modules within this file:
@@ -1819,9 +2026,10 @@
     function sampleProject() {
       ensureST();
       return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         platformProfileId: ST_PLATFORM_ID,
         meta: { createdUtc: ISO, modifiedUtc: '2026-01-02T00:00:00.000Z', appVersion: '1.0' },
+        controls: [{ id: 'ism-1', title: 'ISM-1', type: 'ISM', description: '', assignedDeviceIds: [] }],
         deviceConfigs: [
           {
             id: 'tab-active-5', baseId: 'tab-active-5', version: 1, supersedesId: null,
@@ -1844,16 +2052,16 @@
         ],
         items: {
           'selftest.a': [
-            { key: 'k1', description: 'pkg one', decision: { action: 'keep' }, ismRefs: ['ISM-1'], status: 'decided' },
-            { key: 'k2', decision: null, ismRefs: [], status: 'undecided' },
-            { key: 'k3', decision: null, ismRefs: [], status: 'undecided' }
+            { key: 'k1', description: 'pkg one', decision: { action: 'keep' }, controlRefs: ['ism-1'], status: 'decided' },
+            { key: 'k2', decision: null, controlRefs: [], status: 'undecided' },
+            { key: 'k3', decision: null, controlRefs: [], status: 'undecided' }
           ],
           'selftest.b': [
-            { key: 's1', decision: { value: '0', type: 'int' }, ismRefs: [], status: 'decided' },
-            { key: 's2', decision: null, ismRefs: [], status: 'undecided' }
+            { key: 's1', decision: { value: '0', type: 'int' }, controlRefs: [], status: 'decided' },
+            { key: 's2', decision: null, controlRefs: [], status: 'undecided' }
           ],
           'selftest.c': [
-            { key: 't1', decision: { value: true, type: 'bool' }, ismRefs: [], status: 'decided' }
+            { key: 't1', decision: { value: true, type: 'bool' }, controlRefs: [], status: 'decided' }
           ]
         }
       };
@@ -1894,8 +2102,8 @@
         T.assertEqual(r.ok, false);
         T.assert(r.issues.some(function (i) { return /Unknown top-level/.test(i.message); }));
       });
-      s.test('bad schemaVersion rejected', function () {
-        var p = sampleProject(); p.schemaVersion = 2;
+      s.test('unknown schemaVersion rejected', function () {
+        var p = sampleProject(); p.schemaVersion = 3;
         T.assertEqual(App.projectIo.parseProject(JSON.stringify(p)).ok, false);
       });
       s.test('unregistered platform id rejected', function () {
@@ -1920,7 +2128,7 @@
         T.assert(r.issues.some(function (i) { return /sorted ascending/.test(i.message); }));
       });
       s.test('duplicate item key rejected', function () {
-        var p = sampleProject(); p.items['selftest.a'].push({ key: 'k1', decision: null, ismRefs: [], status: 'undecided' });
+        var p = sampleProject(); p.items['selftest.a'].push({ key: 'k1', decision: null, controlRefs: [], status: 'undecided' });
         var r = App.projectIo.parseProject(JSON.stringify(p));
         T.assert(r.issues.some(function (i) { return /Duplicate item key/.test(i.message); }));
       });
@@ -1963,9 +2171,27 @@
         shuffled.deviceConfigs.reverse();
         T.assertEqual(App.projectIo.serializeProject(p), App.projectIo.serializeProject(shuffled));
       });
-      s.test('migrate v1 is identity', function () {
+      s.test('migrate v2 is identity', function () {
         var p = sampleProject();
         T.assert(App.projectIo.migrate(p) === p);
+      });
+      s.test('migrate v1 -> v2 builds controls from legacy ismRefs (lossless)', function () {
+        ensureST();
+        var v1 = {
+          schemaVersion: 1, platformProfileId: ST_PLATFORM_ID,
+          meta: { createdUtc: ISO, modifiedUtc: ISO, appVersion: '1.0' }, deviceConfigs: [],
+          items: { 'selftest.a': [{ key: 'k1', decision: null, ismRefs: ['ISM-1', 'AHG-2', 'misc'], status: 'undecided' }], 'selftest.b': [], 'selftest.c': [] }
+        };
+        var v2 = App.projectIo.migrate(v1);
+        T.assertEqual(v2.schemaVersion, 2);
+        T.assertEqual(v2.controls.length, 3);
+        var types = {}; v2.controls.forEach(function (c) { types[c.title] = c.type; });
+        T.assertEqual(types['ISM-1'], 'ISM'); T.assertEqual(types['AHG-2'], 'AHG'); T.assertEqual(types['misc'], 'Custom');
+        var item = v2.items['selftest.a'][0];
+        T.assertEqual(item.ismRefs, undefined, 'legacy ismRefs not removed');
+        T.assertEqual(item.controlRefs.length, 3);
+        // controlRefs point at real control ids; passes schema validation.
+        T.assertEqual(App.projectIo.validateSchema(v2).filter(function (i) { return i.severity === 'error'; }).length, 0);
       });
     });
 
@@ -2027,6 +2253,12 @@
 
     var esc = App.util.html.esc;
     var stableStringify = App.util.stable.stableStringify;
+
+    /** Resolve an item's control ids to control titles via ctx.project.controls (§18.3). */
+    function controlTitles(refs, ctx) {
+      var by = {}; ((ctx && ctx.project && ctx.project.controls) || []).forEach(function (c) { by[c.id] = c.title; });
+      return (refs || []).map(function (r) { return by[r] || r; }).join(', ');
+    }
 
     // ---- Injection-safety: two-layer shell quoting (spec Appendix B, MUST) -----
     /**
@@ -2176,7 +2408,7 @@
         { key: 'key', label: 'Package', get: function (it) { return it.key; } },
         { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
         { key: 'decision', label: 'Action', get: function (it) { return it.decision ? it.decision.action : ''; } },
-        { key: 'ism', label: 'ISM Refs', get: function (it) { return (it.ismRefs || []).join(', '); } }
+        { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
       ],
 
       generateImplementation: function (items, ctx) {
@@ -2208,9 +2440,35 @@
       renderReportSection: function (items, ctx) {
         var rows = items.slice().sort(byKey).map(function (it) {
           return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? it.decision.action : '') +
-            '</td><td>' + esc((it.ismRefs || []).join(', ')) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
+            '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
-        return '<h2>Packages</h2><table><thead><tr><th>Package</th><th>Action</th><th>ISM</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        return '<h2>Packages</h2><table><thead><tr><th>Package</th><th>Action</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      },
+      // ---- bulk assignment (spec §18.2): a CSV of package,action,description ----
+      assignmentHint: 'CSV with a header row exactly "package,action,description". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas).',
+      /** @param {string} raw @returns {{assignments:Array,warnings:Issue[],errors:Issue[]}} */
+      parseAssignment: function (raw) {
+        var rows = parseCsv(raw), errors = [], warnings = [], assignments = [], seen = {};
+        if (!rows.length) { return { assignments: [], warnings: [], errors: [{ category: 'parse', severity: 'error', message: 'Empty CSV.', location: 'file' }] }; }
+        var header = rows[0].map(function (h) { return String(h).trim(); });
+        if (header.length !== 3 || header[0] !== 'package' || header[1] !== 'action' || header[2] !== 'description') {
+          return { assignments: [], warnings: [], errors: [{ category: 'parse', severity: 'error', message: 'Header row must be exactly "package,action,description".', location: 'line 1', fix: 'Set the first row to: package,action,description' }] };
+        }
+        for (var i = 1; i < rows.length; i++) {
+          var r = rows[i], loc = 'line ' + (i + 1);
+          if (r.length === 1 && String(r[0]).trim() === '') continue; // blank line
+          if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected 3 columns.', location: loc }); continue; }
+          var pkg = String(r[0]).trim();
+          if (pkg.indexOf('package:') === 0) pkg = pkg.slice('package:'.length).trim();
+          var action = String(r[1]).trim().toLowerCase(), desc = String(r[2]);
+          if (!PKG_TOKEN_RE.test(pkg)) { errors.push({ category: 'parse', severity: 'error', message: 'Invalid package token "' + pkg + '".', location: loc }); continue; }
+          if (['keep', 'disable', 'remove'].indexOf(action) === -1) { errors.push({ category: 'parse', severity: 'error', message: 'Invalid action "' + r[1] + '" (keep|disable|remove).', location: loc }); continue; }
+          if (seen[pkg]) { errors.push({ category: 'parse', severity: 'error', message: 'Duplicate package "' + pkg + '".', location: loc }); continue; }
+          seen[pkg] = true;
+          assignments.push({ key: pkg, decision: { action: action }, fields: { description: desc } });
+        }
+        if (!assignments.length && !errors.length) errors.push({ category: 'parse', severity: 'error', message: 'No package rows found.', location: 'file' });
+        return { assignments: assignments, warnings: warnings, errors: errors };
       }
     };
 
@@ -2303,7 +2561,7 @@
         { key: 'key', label: 'Key', get: function (it) { return it.key; } },
         { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
         { key: 'decision', label: 'Value (type)', get: function (it) { return it.decision ? (it.decision.value + ' (' + it.decision.type + ')') : ''; } },
-        { key: 'ism', label: 'ISM Refs', get: function (it) { return (it.ismRefs || []).join(', '); } }
+        { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
       ],
 
       generateImplementation: function (items, ctx) {
@@ -2334,15 +2592,21 @@
       renderReportSection: function (items, ctx) {
         var rows = items.slice().sort(byKey).map(function (it) {
           return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? (it.decision.value + ' (' + it.decision.type + ')') : '') +
-            '</td><td>' + esc((it.ismRefs || []).join(', ')) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
+            '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
-        return '<h2>Settings</h2><table><thead><tr><th>Key</th><th>Value</th><th>ISM</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        return '<h2>Settings</h2><table><thead><tr><th>Key</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
       },
       /** Captured value/type per key, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
         var out = {};
         if (snap && snap.values) Object.keys(snap.values).forEach(function (k) { out[k] = { value: snap.values[k], type: 'string' }; });
         return out;
+      },
+      // ---- bulk assignment (spec §18.2): reuse the capture parser; value verbatim, type defaults to string ----
+      assignmentHint: 'Settings capture format: "<namespace>:" header lines (system/secure/global) followed by key=value lines. Values are applied verbatim (type defaults to string).',
+      parseAssignment: function (raw) {
+        var pr = this.parse(raw);
+        return { assignments: pr.keys.map(function (k) { return { key: k, decision: { value: pr.values[k], type: 'string' } }; }), warnings: pr.warnings, errors: pr.errors };
       }
     };
 
@@ -2409,7 +2673,7 @@
         { key: 'key', label: 'Path', get: function (it) { return it.key; } },
         { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
         { key: 'decision', label: 'Value', get: function (it) { return it.decision ? stableStringify(it.decision.value) : ''; } },
-        { key: 'ism', label: 'ISM Refs', get: function (it) { return (it.ismRefs || []).join(', '); } }
+        { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
       ],
 
       /** Rebuild the tactical.json artifact from a retained template (spec §5.1). */
@@ -2439,19 +2703,45 @@
       renderReportSection: function (items, ctx) {
         var rows = items.slice().sort(byKey).map(function (it) {
           return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? stableStringify(it.decision.value) : '') +
-            '</td><td>' + esc((it.ismRefs || []).join(', ')) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
+            '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
-        return '<h2>Tactical</h2><table><thead><tr><th>Path</th><th>Value</th><th>ISM</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        return '<h2>Tactical</h2><table><thead><tr><th>Path</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
       },
       /** Captured value/type per leaf path, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
         var out = {};
         if (snap && snap.template !== undefined) flattenTactical(snap.template).forEach(function (l) { out[l.key] = { value: l.value, type: l.type }; });
         return out;
+      },
+      // ---- bulk assignment (spec §18.2): reuse the JSON parser; value/type per leaf ----
+      assignmentHint: 'Tactical/Knox JSON document (same object format as captured). Each leaf value/type is applied.',
+      parseAssignment: function (raw) {
+        var pr = this.parse(raw);
+        if (pr.errors.length) return { assignments: [], warnings: pr.warnings, errors: pr.errors };
+        return { assignments: pr.items.map(function (it) { return { key: it.key, decision: { value: it.defaultValue, type: it.valueType } }; }), warnings: pr.warnings, errors: pr.errors };
       }
     };
 
     function byKey(a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; }
+
+    /** Minimal RFC-4180 CSV parser (quotes, escaped "", embedded commas/newlines). */
+    function parseCsv(text) {
+      var s = String(text), rows = [], row = [], field = '', i = 0, inQ = false, started = false;
+      while (i < s.length) {
+        var c = s[i];
+        if (inQ) {
+          if (c === '"') { if (s[i + 1] === '"') { field += '"'; i += 2; continue; } inQ = false; i++; continue; }
+          field += c; i++; continue;
+        }
+        if (c === '"') { inQ = true; started = true; i++; continue; }
+        if (c === ',') { row.push(field); field = ''; started = true; i++; continue; }
+        if (c === '\r') { i++; continue; }
+        if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; started = false; i++; continue; }
+        field += c; started = true; i++;
+      }
+      if (started || field !== '' || row.length) { row.push(field); rows.push(row); }
+      return rows;
+    }
 
     App.adapters = App.adapters || {};
     App.adapters.android = {
@@ -2626,12 +2916,12 @@
       });
       s.test('rebuild from decided values round-trips to original', function () {
         var leaves = A.flattenTactical(doc);
-        var items = leaves.map(function (l) { return { key: l.key, decision: { value: l.value, type: l.type }, ismRefs: [], status: 'decided' }; });
+        var items = leaves.map(function (l) { return { key: l.key, decision: { value: l.value, type: l.type }, controlRefs: [], status: 'decided' }; });
         var rebuilt = A.rebuildTacticalDoc(doc, items);
         T.assertEqual(App.util.stable.stableStringify(rebuilt), App.util.stable.stableStringify(doc));
       });
       s.test('rebuild preserves untouched keys (partial decisions)', function () {
-        var rebuilt = A.rebuildTacticalDoc(doc, [{ key: 'count', decision: { value: 9, type: 'int' }, ismRefs: [], status: 'decided' }]);
+        var rebuilt = A.rebuildTacticalDoc(doc, [{ key: 'count', decision: { value: 9, type: 'int' }, controlRefs: [], status: 'decided' }]);
         T.assertEqual(rebuilt.count, 9);
         T.assertEqual(rebuilt.enabled, true); // untouched
         T.assertEqual(rebuilt.nested.deep.flag, false);
@@ -2647,7 +2937,7 @@
       });
       s.test('type fidelity: bool/number preserved as JSON types', function () {
         var r = A.tactical.parse('{"a":true,"b":2}');
-        var item = { key: 'a', decision: { value: true, type: 'bool' }, ismRefs: [], status: 'decided' };
+        var item = { key: 'a', decision: { value: true, type: 'bool' }, controlRefs: [], status: 'decided' };
         var out = A.rebuildTacticalDoc(r.template, [item]);
         T.assertEqual(out.a, true);
         T.assert(JSON.stringify(out).indexOf('"a":true') !== -1, 'bool serialized as string');
@@ -2656,9 +2946,9 @@
 
     T.suite('decisionSchema / isComplete / validateDecision', function (s) {
       s.test('packages isComplete only when action valid', function () {
-        T.assertEqual(A.packages.isComplete({ key: 'x', decision: null, ismRefs: [] }), false);
-        T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'disable' }, ismRefs: [] }), true);
-        T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'nope' }, ismRefs: [] }), false);
+        T.assertEqual(A.packages.isComplete({ key: 'x', decision: null, controlRefs: [] }), false);
+        T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'disable' }, controlRefs: [] }), true);
+        T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'nope' }, controlRefs: [] }), false);
       });
       s.test('settings validateDecision type checks', function () {
         T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 'abc', type: 'int' } }).length, 1);
@@ -2667,8 +2957,8 @@
         T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 'true', type: 'bool' } }).length, 0);
       });
       s.test('tactical isComplete with falsey value', function () {
-        T.assertEqual(A.tactical.isComplete({ key: 't', decision: { value: false, type: 'bool' }, ismRefs: [] }), true);
-        T.assertEqual(A.tactical.isComplete({ key: 't', decision: null, ismRefs: [] }), false);
+        T.assertEqual(A.tactical.isComplete({ key: 't', decision: { value: false, type: 'bool' }, controlRefs: [] }), true);
+        T.assertEqual(A.tactical.isComplete({ key: 't', decision: null, controlRefs: [] }), false);
       });
     });
 
@@ -2696,7 +2986,7 @@
       s.test('generated settings line embeds the doubly-quoted value', function () {
         var v = "x'y";
         var line = A.settings.generateImplementation(
-          [{ key: 'secure/foo', decision: { value: v, type: 'string' }, ismRefs: [], status: 'decided' }], {})[0].content;
+          [{ key: 'secure/foo', decision: { value: v, type: 'string' }, controlRefs: [], status: 'decided' }], {})[0].content;
         // The PowerShell arg must begin and end with single quotes (one PS token).
         T.assert(/adb -s \$Serial shell '.*'$/m.test(line.split('\n').pop()), 'value not a single PS-quoted arg');
       });
@@ -2711,7 +3001,7 @@
       s.test('tactical generateImplementation emits ONLY the rebuilt JSON (Knox upload; no script)', function () {
         var tac = App.platforms.androidAdb.datasets[2];
         var files = tac.generateImplementation(
-          [{ key: 'enabled', decision: { value: false, type: 'bool' }, ismRefs: [], status: 'decided' }],
+          [{ key: 'enabled', decision: { value: false, type: 'bool' }, controlRefs: [], status: 'decided' }],
           { device: { snapshots: { 'android.tactical': { template: { enabled: true, mode: 'x' } } } } });
         T.assertEqual(files.length, 1, 'tactical impl should emit exactly one file');
         T.assertEqual(files[0].name, 'tactical.json');
@@ -2814,7 +3104,7 @@
   /* =============================================================================
    * MODULE: App.completeness
    * PURPOSE: Item completeness & device readiness (spec §6.5, §8.3). Wraps the
-   *          adapter's isComplete with the optional REQUIRE_ISM_REF policy fold,
+   *          adapter's isComplete with the optional REQUIRE_CONTROL_REF policy fold,
    *          and computes per-device readiness with reasons for generate-gating.
    * PURITY:  pure
    * DEPENDS: App.registry
@@ -2832,7 +3122,7 @@
      */
     function itemComplete(adapter, item) {
       if (!adapter || !adapter.isComplete(item)) return false;
-      if (mod.REQUIRE_ISM_REF && !(item.ismRefs && item.ismRefs.length)) return false;
+      if (mod.REQUIRE_CONTROL_REF && !(item.controlRefs && item.controlRefs.length)) return false;
       return true;
     }
 
@@ -2864,9 +3154,9 @@
 
     var mod = {
       itemComplete: itemComplete, deviceReady: deviceReady, deviceReadiness: deviceReadiness,
-      // Config flag (spec §6.5): when true, completeness also requires >=1 ISM ref.
+      // Config flag (spec §6.5 / §18.3 CTL-8): when true, completeness also requires >=1 control ref.
       // A single switch so the team can tighten traceability without code surgery.
-      REQUIRE_ISM_REF: false
+      REQUIRE_CONTROL_REF: false
     };
     App.completeness = mod;
   })(App);
@@ -3014,26 +3304,31 @@
     /** @returns {{blob:Blob,name:string,issues:Issue[],files?:Object[]}} */
     function buildVerification(project, deviceId) { return buildScripts(project, deviceId, 'verification'); }
 
-    /** Build the ISM-coverage section: every item grouped by ISM ref, sub-grouped by dataset. */
-    function buildIsmSection(project, deviceId, platform) {
+    /** Build the Control-coverage section (spec §18.3 CTL-7): items grouped by
+     *  control (title + type), sub-grouped by dataset. Unreferenced → "(no control)". */
+    function buildControlSection(project, deviceId, platform) {
       var esc = App.util.html.esc;
-      var byIsm = {};
+      var byCtl = {}; var ctlLabel = {};
+      var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
       platform.datasets.forEach(function (ds) {
         gather(project, deviceId, ds.id).forEach(function (it) {
-          var refs = (it.ismRefs && it.ismRefs.length) ? it.ismRefs : ['(no ISM ref)'];
+          var refs = (it.controlRefs && it.controlRefs.length) ? it.controlRefs : ['__none__'];
           refs.forEach(function (ref) {
-            byIsm[ref] = byIsm[ref] || {};
-            (byIsm[ref][ds.label] = byIsm[ref][ds.label] || []).push(it.key);
+            var c = controlsById[ref];
+            ctlLabel[ref] = ref === '__none__' ? '(no control)' : (c ? (c.title + ' (' + c.type + ')') : ref);
+            byCtl[ref] = byCtl[ref] || {};
+            (byCtl[ref][ds.label] = byCtl[ref][ds.label] || []).push(it.key);
           });
         });
       });
-      var rows = Object.keys(byIsm).sort().map(function (ref) {
-        var parts = Object.keys(byIsm[ref]).sort().map(function (dl) {
-          return esc(dl) + ': ' + byIsm[ref][dl].slice().sort().map(esc).join(', ');
+      // Sort by displayed label for stable, human-friendly ordering.
+      var rows = Object.keys(byCtl).sort(function (a, b) { return ctlLabel[a] < ctlLabel[b] ? -1 : ctlLabel[a] > ctlLabel[b] ? 1 : 0; }).map(function (ref) {
+        var parts = Object.keys(byCtl[ref]).sort().map(function (dl) {
+          return esc(dl) + ': ' + byCtl[ref][dl].slice().sort().map(esc).join(', ');
         }).join('<br>');
-        return '<tr><td>' + esc(ref) + '</td><td>' + parts + '</td></tr>';
+        return '<tr><td>' + esc(ctlLabel[ref]) + '</td><td>' + parts + '</td></tr>';
       }).join('');
-      return '<h2>ISM coverage</h2><table><thead><tr><th>ISM ref</th><th>Items (by dataset)</th></tr></thead><tbody>' +
+      return '<h2>Control coverage</h2><table><thead><tr><th>Control</th><th>Items (by dataset)</th></tr></thead><tbody>' +
         (rows || '<tr><td colspan="2" class="muted">No decided items.</td></tr>') + '</tbody></table>';
     }
 
@@ -3045,7 +3340,7 @@
       var generatedUtc = App.util.clock.nowIso();
       var ctx = ctxFor(project, dc, generatedUtc);
       var sections = platform.datasets.map(function (ds) { return ds.renderReportSection(gather(project, deviceId, ds.id), ctx); });
-      sections.push(buildIsmSection(project, deviceId, platform));
+      sections.push(buildControlSection(project, deviceId, platform));
       var meta = [
         { label: 'Project platform', value: project.platformProfileId },
         { label: 'Device', value: dc.name }, { label: 'Model', value: dc.model },
@@ -3279,7 +3574,16 @@
     }
 
     /** Render the expanded detail editor row (description/ISM/rationale/rollback + issues). */
-    function renderDetailRow(dsId, item, colspan, issues) {
+    /** Multi-select over the control catalogue (spec §18.3 CTL-5) — no free text. */
+    function controlSelect(dsId, key, refs, controls) {
+      if (!controls.length) return '<span class="muted" style="font-size:12px">No controls yet — add them in Control Manager.</span>';
+      var sel = {}; (refs || []).forEach(function (r) { sel[r] = true; });
+      var opts = controls.slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; })
+        .map(function (c) { return '<option value="' + esc(c.id) + '"' + (sel[c.id] ? ' selected' : '') + '>' + esc(c.title + ' (' + c.type + ')') + '</option>'; }).join('');
+      return '<select multiple data-field-edit="controlRefs" data-ds="' + esc(dsId) + '" data-key="' + esc(key) + '" size="4" aria-label="Control refs">' + opts + '</select>';
+    }
+
+    function renderDetailRow(dsId, item, colspan, issues, controls) {
       var key = item.key;
       var iss = (issues && issues[dsId + '|' + key]) || [];
       var issHtml = iss.length ? '<div class="detail-issues">' + iss.map(function (i) {
@@ -3293,7 +3597,7 @@
       };
       return '<tr class="detail-row"><td colspan="' + colspan + '"><div class="detail-form">' +
         fld('description', 'Description', true, item.description) +
-        fld('ismRefs', 'ISM refs', false, (item.ismRefs || []).join(', ')) +
+        '<label>Control Refs</label>' + controlSelect(dsId, key, item.controlRefs, controls || []) +
         fld('rationale', 'Rationale', true, item.rationale) +
         fld('rollback', 'Rollback', true, item.rollback) +
         issHtml +
@@ -3315,6 +3619,8 @@
       var adapter = App.registry.getDataset(project.platformProfileId, dsId);
       if (!adapter) return '<div class="empty-state">No adapter for ' + esc(dsId) + '.</div>';
       var captured = buildCapturedMap(project, dsId, adapter);
+      var controls = project.controls || [];
+      var controlsById = {}; controls.forEach(function (c) { controlsById[c.id] = c; });
       var cols = adapter.columns.map(function (c) { return { key: c.key, label: c.label }; })
         .concat([{ key: 'appliesTo', label: 'Applies to' }, { key: 'status', label: 'Status' }]);
       var rows = App.ui.model.filterSortRows(project, dsId, adapter, ui);
@@ -3335,12 +3641,17 @@
             var invalid = iss.some(function (i) { return i.severity === 'error'; });
             return '<td class="dcell' + (invalid ? ' invalid' : '') + '" data-ds="' + esc(dsId) + '" data-key="' + esc(r.item.key) + '">' + renderDecisionControl(adapter, dsId, r.item, captured) + '</td>';
           }
+          if (c.key === 'controlRefs') {
+            // Resolve control ids to titles for display (spec §18.3 CTL-5).
+            var titles = (r.item.controlRefs || []).map(function (id) { return controlsById[id] ? controlsById[id].title : id; });
+            return '<td>' + esc(titles.join(', ')) + '</td>';
+          }
           return '<td>' + esc(r.cells[c.key] == null ? '' : r.cells[c.key]) + '</td>';
         }).join('');
         tds += '<td>' + esc(r.appliesTo.join(', ')) + '</td>';
         tds += '<td>' + (r.status === 'decided' ? '<span class="badge decided">decided</span>' : '<span class="badge undecided">undecided</span>') + '</td>';
         var rowHtml = '<tr class="' + (r.status === 'decided' ? '' : 'undecided') + '">' + lead + tds + '</tr>';
-        if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues);
+        if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues, controls);
         return rowHtml;
       }).join('');
 
@@ -3631,7 +3942,7 @@
   (function (App) {
     'use strict';
     var esc = App.util.html.esc;
-    var _dev = { selectedId: null };
+    var _dev = { selectedId: null, assignResults: {} };
     var _ctx = null;
 
     /** Register items applicable to a device for a dataset (pure, from the snapshot). */
@@ -3700,16 +4011,18 @@
       if (!dc) return '<div class="empty-state">Device not found. <button data-device-back>Back</button></div>';
       var isLatest = App.ui.model.getLatestConfigs(project).some(function (c) { return c.id === deviceId; });
 
+      var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
       var panels = datasets(project).map(function (d) {
         var adapter = App.registry.getDataset(project.platformProfileId, d.id);
         var ap = applicable(project, deviceId, d.id);
         var decided = ap.filter(function (it) { return it.status === 'decided'; });
         var get = decisionGet(adapter);
         var rows = decided.slice().sort(function (a, b) { return a.key < b.key ? -1 : 1; }).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(get(it)) + '</td><td>' + esc((it.ismRefs || []).join(', ')) + '</td></tr>';
+          var titles = (it.controlRefs || []).map(function (id) { return controlsById[id] ? controlsById[id].title : id; }).join(', ');
+          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(get(it)) + '</td><td>' + esc(titles) + '</td></tr>';
         }).join('');
         var body = decided.length
-          ? '<table><thead><tr><th>Key</th><th>Decision</th><th>ISM</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          ? '<table><thead><tr><th>Key</th><th>Decision</th><th>Control Refs</th></tr></thead><tbody>' + rows + '</tbody></table>'
           : '<div class="empty">No decided items.</div>';
         var undec = ap.length - decided.length;
         var note = '<div class="panel-note">' + decided.length + ' decided of ' + ap.length + ' applicable' +
@@ -3727,6 +4040,33 @@
         '</div>' +
         banner +
         '<div class="panels">' + panels + '</div>' +
+        (isLatest ? renderAssignSection(project, deviceId) : '') +
+        '</div>';
+    }
+
+    /** "Set decisions from files" controls — one per dataset (spec §18.2). */
+    function renderAssignSection(project, deviceId) {
+      var blocks = datasets(project).map(function (d) {
+        var adapter = App.registry.getDataset(project.platformProfileId, d.id);
+        if (!adapter || typeof adapter.parseAssignment !== 'function') return '';
+        var res = _dev.assignResults[d.id];
+        var resHtml = '';
+        if (res) {
+          resHtml = '<div class="assign-result ' + (res.ok ? 'success' : 'error') + '">' +
+            res.issues.map(function (i) { return '<div class="' + esc(i.severity) + '">' + esc(i.message) + (i.location ? ' [' + esc(i.location) + ']' : '') + '</div>'; }).join('') + '</div>';
+        }
+        return '<div class="assign-block">' +
+          '<strong>' + esc(d.label) + '</strong>' +
+          '<div class="muted" style="font-size:12px;margin:2px 0 4px">' + esc(adapter.assignmentHint || '') + '</div>' +
+          '<input type="file" data-assign-file="' + esc(d.id) + '" aria-label="Set ' + esc(d.label) + ' decisions from file">' +
+          resHtml +
+          '</div>';
+      }).join('');
+      if (!blocks) return '';
+      return '<div class="assign-section">' +
+        '<h3>Set decisions from files</h3>' +
+        '<p class="muted" style="font-size:12px">Applies decisions for this device\'s applicable keys. The file must contain <strong>exactly</strong> those keys (no more, no less) or it is refused with the differences listed. Note: decisions are shared across all devices that have a given key (unified-decision model).</p>' +
+        blocks +
         '</div>';
     }
 
@@ -3739,13 +4079,128 @@
 
     function wire(ctx) {
       _ctx = ctx;
-      App.util.dom.on(ctx.root, 'click', '[data-device-view]', function (e, el) { _dev.selectedId = el.getAttribute('data-device-view'); ctx.refreshMain(); });
-      App.util.dom.on(ctx.root, 'click', '[data-device-back]', function () { _dev.selectedId = null; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'click', '[data-device-view]', function (e, el) { _dev.selectedId = el.getAttribute('data-device-view'); _dev.assignResults = {}; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'click', '[data-device-back]', function () { _dev.selectedId = null; _dev.assignResults = {}; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'change', '[data-assign-file]', function (e, el) {
+        var dsId = el.getAttribute('data-assign-file'), file = el.files[0], deviceId = _dev.selectedId;
+        if (!file || !deviceId) return;
+        var project = App.store.getProject();
+        var adapter = App.registry.getDataset(project.platformProfileId, dsId);
+        App.util.dom.readFileText(file).then(function (text) {
+          var parsed = adapter.parseAssignment(text);
+          var res = App.store.applyDeviceAssignment(deviceId, dsId, parsed);
+          _dev.assignResults[dsId] = res;
+          App.ui.activity.logIssues(res.issues, res.ok ? null : 'Set-from-files (' + dsId + ')');
+          ctx.refreshMain();
+        }).catch(function (err) {
+          _dev.assignResults[dsId] = { ok: false, issues: [{ severity: 'error', message: 'Read failed: ' + (err && err.message) }] };
+          ctx.refreshMain();
+        });
+      });
     }
 
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
     App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.ui.views.controls
+   * PURPOSE: The Control Manager tab (spec §18.3 CTL-1/CTL-4): view/add/edit/remove
+   *          controls (title, type, description, assigned device configs). Decision
+   *          assignment stays in the data tabs (CTL-5); this is the catalogue.
+   * PURITY:  UI/DOM
+   * DEPENDS: App.store, App.ui.model, App.util.{html,dom}
+   * INVARIANTS: edits go through store CRUD; assignments reference device baseIds.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+    var esc = App.util.html.esc;
+    var TYPE_SEED = ['ISM', 'AHG', 'Custom'];
+    var _add = { title: '', type: 'ISM', description: '' };
+    var _ctx = null;
+
+    function typeOptions(cur) {
+      var opts = TYPE_SEED.slice();
+      if (cur && opts.indexOf(cur) === -1) opts.push(cur); // tolerate extended types
+      return opts.map(function (t) { return '<option value="' + esc(t) + '"' + (t === cur ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('');
+    }
+
+    function deviceCheckboxes(project, ctlId, assigned) {
+      var set = {}; (assigned || []).forEach(function (b) { set[b] = true; });
+      // One checkbox per distinct device baseId (latest config name shown).
+      var latest = App.ui.model.getLatestConfigs(project), seen = {};
+      return latest.map(function (c) {
+        if (seen[c.baseId]) return ''; seen[c.baseId] = true;
+        return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:12px">' +
+          '<input type="checkbox" data-ctl-device="' + esc(ctlId) + '" data-baseid="' + esc(c.baseId) + '"' + (set[c.baseId] ? ' checked' : '') + '> ' + esc(c.name) + '</label>';
+      }).join('') || '<span class="muted">No devices onboarded.</span>';
+    }
+
+    function render(project) {
+      if (!project) return '<div class="empty-state"><h2>Control Manager</h2><p>Load a project or onboard a device first.</p></div>';
+      var controls = (project.controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
+
+      var addForm = '<div class="ctl-add">' +
+        '<h3>Add control</h3>' +
+        '<input type="text" data-ctl-add="title" placeholder="Title" value="' + esc(_add.title) + '" style="min-width:220px">' +
+        '<select data-ctl-add="type">' + typeOptions(_add.type) + '</select>' +
+        '<input type="text" data-ctl-add="description" placeholder="Description" value="' + esc(_add.description) + '" style="min-width:260px">' +
+        '<button class="primary" data-action="ctl-add">Add</button>' +
+        '</div>';
+
+      var rows = controls.map(function (c) {
+        return '<div class="ctl-row">' +
+          '<div class="ctl-line">' +
+            '<input type="text" data-ctl-field="title" data-ctl-id="' + esc(c.id) + '" value="' + esc(c.title) + '" aria-label="title">' +
+            '<select data-ctl-field="type" data-ctl-id="' + esc(c.id) + '" aria-label="type">' + typeOptions(c.type) + '</select>' +
+            '<input type="text" data-ctl-field="description" data-ctl-id="' + esc(c.id) + '" value="' + esc(c.description || '') + '" placeholder="Description" aria-label="description" style="flex:1;min-width:200px">' +
+            '<button data-ctl-remove="' + esc(c.id) + '">Remove</button>' +
+          '</div>' +
+          '<div class="ctl-devices"><span class="muted" style="font-size:12px">Applies to: </span>' + deviceCheckboxes(project, c.id, c.assignedDeviceIds) + '</div>' +
+          '</div>';
+      }).join('') || '<p class="muted">No controls yet — add one above, or they are created automatically when migrating a v1 project.</p>';
+
+      return '<div style="max-width:900px"><h2>Control Manager</h2>' +
+        '<p class="muted">Controls (ISM/AHG/Custom) are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs).</p>' +
+        addForm +
+        '<div class="ctl-list">' + rows + '</div>' +
+        '</div>';
+    }
+
+    function wire(ctx) {
+      _ctx = ctx;
+      var dom = App.util.dom;
+      dom.on(ctx.root, 'input', '[data-ctl-add]', function (e, el) { _add[el.getAttribute('data-ctl-add')] = el.value; });
+      dom.on(ctx.root, 'change', 'select[data-ctl-add="type"]', function (e, el) { _add.type = el.value; });
+      dom.on(ctx.root, 'click', '[data-action="ctl-add"]', function () {
+        var res = App.store.addControl({ title: _add.title, type: _add.type, description: _add.description });
+        if (res.ok) { _add = { title: '', type: 'ISM', description: '' }; } else { App.ui.activity.logIssues(res.issues, 'Add control'); }
+        ctx.refreshMain();
+      });
+      dom.on(ctx.root, 'change', '[data-ctl-field]', function (e, el) {
+        var patch = {}; patch[el.getAttribute('data-ctl-field')] = el.value;
+        App.store.updateControl(el.getAttribute('data-ctl-id'), patch);
+      });
+      dom.on(ctx.root, 'change', '[data-ctl-device]', function (e, el) {
+        var id = el.getAttribute('data-ctl-device'), baseId = el.getAttribute('data-baseid');
+        var project = App.store.getProject();
+        var c = (project.controls || []).filter(function (x) { return x.id === id; })[0]; if (!c) return;
+        var set = (c.assignedDeviceIds || []).filter(function (b) { return b !== baseId; });
+        if (el.checked) set.push(baseId);
+        App.store.updateControl(id, { assignedDeviceIds: set });
+      });
+      dom.on(ctx.root, 'click', '[data-ctl-remove]', function (e, el) {
+        var res = App.store.removeControl(el.getAttribute('data-ctl-remove'));
+        App.ui.activity.logIssues(res.issues);
+        ctx.refreshMain();
+      });
+    }
+
+    App.ui = App.ui || {}; App.ui.views = App.ui.views || {};
+    App.ui.views.controls = { render: render, wire: wire };
   })(App);
   </script>
 
@@ -3810,7 +4265,31 @@
     var _root = null;
     var _state = { activeTab: null, ui: {}, drawerCollapsed: false, draftDismissed: false };
     var DRAFT_KEY = 'ch-config-draft-v1';
+    var THEME_KEY = 'ch-config-theme';
     var _draftTimer = null;
+
+    // ---- Dark-mode theme (spec §18.1). UI-only: sets a data-theme attribute on
+    // <html>; the palette swap is pure CSS. Never read by engine/generators. ----
+    /** @param {string} cur @returns {'light'|'dark'} the opposite theme */
+    function nextTheme(cur) { return cur === 'dark' ? 'light' : 'dark'; }
+    function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; }
+    function applyTheme(t) { document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light'); }
+    function loadThemePref() { try { return window.localStorage.getItem(THEME_KEY); } catch (e) { return null; } }
+    function saveThemePref(t) { try { window.localStorage.setItem(THEME_KEY, t); } catch (e) {} }
+    function initialTheme() {
+      var stored = loadThemePref();
+      if (stored === 'dark' || stored === 'light') return stored;
+      try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; } catch (e) {}
+      return 'light';
+    }
+    function toggleTheme() { var t = nextTheme(currentTheme()); applyTheme(t); saveThemePref(t); updateThemeButton(); }
+    function updateThemeButton() {
+      var btn = _root && _root.querySelector('[data-action="toggle-theme"]');
+      if (!btn) return;
+      var dark = currentTheme() === 'dark';
+      btn.setAttribute('aria-pressed', String(dark));
+      btn.textContent = dark ? '☀ Light' : '🌙 Dark';
+    }
     var _searchTimer = null;
     var _editIssues = {}; // transient decision-validation issues, keyed "dsId|key"
 
@@ -3833,6 +4312,7 @@
       _root.innerHTML = renderShell();
       renderMain();
       renderDrawer();
+      updateThemeButton(); // reflect current theme on the freshly-rendered toggle
     }
 
     function renderShell() {
@@ -3854,6 +4334,7 @@
       if (project) {
         activeDatasets().forEach(function (ds) { tabs += tabBtn(ds.id, ds.label, App.ui.model.countIncomplete(project, ds.id)); });
         ['devices', 'onboard', 'generate'].forEach(function (t) { tabs += tabBtn(t, t.charAt(0).toUpperCase() + t.slice(1)); });
+        tabs += tabBtn('controls', 'Control Manager');
       } else {
         tabs += tabBtn('onboard', 'Onboard');
       }
@@ -3870,6 +4351,7 @@
           '<button data-action="save"' + (project ? '' : ' disabled') + '>Save project</button>' +
           '<button data-action="export-csv"' + (project ? '' : ' disabled') + '>Export CSV</button>' +
           '<label class="platform">Platform <select data-action="platform" aria-label="Active platform">' + platformOpts + '</select></label>' +
+          '<button data-action="toggle-theme" aria-pressed="false" title="Toggle dark mode">🌙 Dark</button>' +
           '<a href="#selftest" target="_blank" rel="noopener">Self-tests</a>' +
           '<input type="file" id="file-load" class="visually-hidden" aria-hidden="true">' +
         '</header>' +
@@ -3983,8 +4465,10 @@
       dom.on(_root, 'change', '[data-field-edit]', function (e, el) {
         var field = el.getAttribute('data-field-edit'), dsId = el.getAttribute('data-ds'), key = el.getAttribute('data-key');
         var fields = {};
-        if (field === 'ismRefs') fields.ismRefs = el.value.split(/[\s,]+/).filter(Boolean);
-        else fields[field] = el.value;
+        if (field === 'controlRefs') {
+          // Multi-select of control ids (spec §18.3 CTL-5).
+          fields.controlRefs = Array.prototype.map.call(el.selectedOptions || [], function (o) { return o.value; });
+        } else fields[field] = el.value;
         App.store.setItemFields(dsId, key, fields);
       });
       dom.on(_root, 'click', '[data-action="toggle-drawer"]', function () { _state.drawerCollapsed = !_state.drawerCollapsed; render(); });
@@ -3995,6 +4479,7 @@
       dom.on(_root, 'change', '[data-action="platform"]', function (e, el) {
         try { App.registry.setActivePlatform(el.value); _state.activeTab = defaultTab(); render(); } catch (err) { logErr(err); }
       });
+      dom.on(_root, 'click', '[data-action="toggle-theme"]', function () { toggleTheme(); });
       dom.on(_root, 'click', '[data-action="restore-draft"]', function () { restoreDraft(); });
       dom.on(_root, 'click', '[data-action="discard-draft"]', function () { clearDraft(); _state.draftDismissed = true; render(); App.ui.activity.log({ severity: 'info', message: 'Discarded local draft autosave.' }); });
       // file input change (not delegated — direct)
@@ -4165,6 +4650,7 @@
 
     function mount(root) {
       _root = root;
+      applyTheme(initialTheme()); // honour stored/OS preference before first paint (§18.1)
       _state.activeTab = App.store.getProject() ? defaultTab() : 'onboard';
       render();
       wire();
@@ -4187,7 +4673,7 @@
     }
 
     App.ui = App.ui || {};
-    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state };
+    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme };
   })(App);
   </script>
 
@@ -4223,12 +4709,12 @@
         ],
         items: {
           'android.packages': [
-            { key: 'com.a', description: 'alpha', decision: { action: 'keep' }, ismRefs: ['ISM-1'], status: 'decided' },
-            { key: 'com.b', description: 'beta', decision: null, ismRefs: [], status: 'undecided' },
-            { key: 'com.c', description: 'gamma', decision: { action: 'remove' }, ismRefs: [], status: 'decided' }
+            { key: 'com.a', description: 'alpha', decision: { action: 'keep' }, controlRefs: ['ISM-1'], status: 'decided' },
+            { key: 'com.b', description: 'beta', decision: null, controlRefs: [], status: 'undecided' },
+            { key: 'com.c', description: 'gamma', decision: { action: 'remove' }, controlRefs: [], status: 'decided' }
           ],
-          'android.settings': [{ key: 'secure/x', decision: null, ismRefs: [], status: 'undecided' }],
-          'android.tactical': [{ key: 'enabled', decision: { value: true, type: 'bool' }, ismRefs: [], status: 'decided' }]
+          'android.settings': [{ key: 'secure/x', decision: null, controlRefs: [], status: 'undecided' }],
+          'android.tactical': [{ key: 'enabled', decision: { value: true, type: 'bool' }, controlRefs: [], status: 'decided' }]
         }
       };
     }
@@ -4291,7 +4777,7 @@
       s.test('large dataset (1500 rows) renders without error', function () {
         var p = androidSample();
         var big = [];
-        for (var i = 0; i < 1500; i++) big.push({ key: 'pkg.' + ('0000' + i).slice(-4), decision: null, ismRefs: [], status: 'undecided' });
+        for (var i = 0; i < 1500; i++) big.push({ key: 'pkg.' + ('0000' + i).slice(-4), decision: null, controlRefs: [], status: 'undecided' });
         p.items['android.packages'] = big;
         var html = App.ui.tables.renderTableHtml(p, 'android.packages', {});
         T.assert(html.length > 1000);
@@ -4472,15 +4958,15 @@
     T.suite('completeness', function (s) {
       s.test('itemComplete reflects adapter.isComplete', function () {
         var a = App.registry.getDataset('android-adb', 'android.packages');
-        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: { action: 'keep' }, ismRefs: [] }), true);
-        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: null, ismRefs: [] }), false);
+        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: { action: 'keep' }, controlRefs: [] }), true);
+        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: null, controlRefs: [] }), false);
       });
-      s.test('REQUIRE_ISM_REF folds into completeness', function () {
+      s.test('REQUIRE_CONTROL_REF folds into completeness', function () {
         var a = App.registry.getDataset('android-adb', 'android.packages');
-        App.completeness.REQUIRE_ISM_REF = true;
-        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: { action: 'keep' }, ismRefs: [] }), false);
-        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: { action: 'keep' }, ismRefs: ['ISM-1'] }), true);
-        App.completeness.REQUIRE_ISM_REF = false; // restore
+        App.completeness.REQUIRE_CONTROL_REF = true;
+        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: { action: 'keep' }, controlRefs: [] }), false);
+        T.assertEqual(App.completeness.itemComplete(a, { key: 'x', decision: { action: 'keep' }, controlRefs: ['ISM-1'] }), true);
+        App.completeness.REQUIRE_CONTROL_REF = false; // restore
       });
       s.test('deviceReadiness: undecided -> not ready with reasons; decided -> ready', function () {
         var id = deviceProject();
@@ -4525,12 +5011,12 @@
         deviceProject();
         T.assertEqual(App.store.setDecision('android.packages', 'no.such', { action: 'keep' }).ok, false);
       });
-      s.test('setItemFields updates description/ismRefs/rationale/rollback', function () {
+      s.test('setItemFields updates description/controlRefs/rationale/rollback', function () {
         deviceProject();
-        App.store.setItemFields('android.packages', 'com.a', { description: 'desc', ismRefs: ['ISM-9'], rationale: 'why', rollback: 'undo' });
+        App.store.setItemFields('android.packages', 'com.a', { description: 'desc', controlRefs: ['ISM-9'], rationale: 'why', rollback: 'undo' });
         var it = App.store.getProject().items['android.packages'].filter(function (i) { return i.key === 'com.a'; })[0];
         T.assertEqual(it.description, 'desc');
-        T.assertDeepEqual(it.ismRefs, ['ISM-9']);
+        T.assertDeepEqual(it.controlRefs, ['ISM-9']);
         T.assertEqual(it.rationale, 'why');
         T.assertEqual(it.rollback, 'undo');
       });
@@ -4696,7 +5182,7 @@
       App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
       App.store.setDecision('android.packages', 'com.b', { action: 'disable' });
       App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
-      App.store.setItemFields('android.settings', 'secure/x', { ismRefs: ['ISM-1234'] });
+      App.store.setItemFields('android.settings', 'secure/x', { controlRefs: ['ISM-1234'] });
       App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
       App.store.setDecision('android.tactical', 'count', { value: 5, type: 'int' });
       return App.store.getProject();
@@ -4759,12 +5245,12 @@
         T.assert(names.indexOf('packages.verify.ps1') !== -1 && names.indexOf('manifest.json') !== -1);
         T.assert(/Set-StrictMode/.test(fileNamed(r.files, 'settings.verify.ps1').content));
       });
-      s.test('report emits a Word-HTML report + manifest; includes ISM coverage', function () {
+      s.test('report emits a Word-HTML report + manifest; includes Control coverage', function () {
         var r = App.generate.buildReport(readyProject(), 'dev-m1');
         T.assert(/^dev-m1-reporting-/.test(r.name));
         var html = fileNamed(r.files, 'report.html').content;
         T.assert(/<!DOCTYPE html>/.test(html) && /<h1>/.test(html) && /<table/.test(html));
-        T.assert(/ISM coverage/.test(html) && /ISM-1234/.test(html), 'ISM coverage missing');
+        T.assert(/Control coverage/.test(html) && /ISM-1234/.test(html), 'Control coverage missing');
         T.assert(fileNamed(r.files, 'manifest.json') != null);
       });
     });
@@ -4826,7 +5312,7 @@
         { key: 'key', label: 'Key', get: function (it) { return it.key; } },
         { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
         { key: 'decision', label: 'Value', get: function (it) { return it.decision ? it.decision.value : ''; } },
-        { key: 'ism', label: 'ISM', get: function (it) { return (it.ismRefs || []).join(', '); } }
+        { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
       ],
       generateImplementation: function (items, ctx) { return [{ name: 'mock.impl.txt', content: items.slice().sort(function (a, b) { return a.key < b.key ? -1 : 1; }).map(function (it) { return it.decision ? (it.key + '=' + it.decision.value) : ''; }).filter(Boolean).join('\n') }]; },
       generateVerification: function (items, ctx) { return [{ name: 'mock.verify.txt', content: 'verify ' + items.length + ' items' }]; },
@@ -4900,6 +5386,164 @@
       });
       s.test('DOD-12: every module file-block present & self-test suite passes (this run)', function () {
         T.assert(!!(App.store && App.registry && App.diff && App.validation && App.completeness && App.generate && App.report && App.projectIo));
+      });
+    });
+
+  })(App);
+  </script>
+
+  <!-- ===== PHASE-9 SELF-TEST SUITES (v1.1: dark mode · set-from-files · controls) ===== -->
+  <script>
+  (function (App) {
+    'use strict';
+    var T = App.test;
+
+    T.suite('T9.1 dark mode (UI-only, determinism-safe)', function (s) {
+      s.test('nextTheme flips light<->dark', function () {
+        T.assertEqual(App.ui.app.nextTheme('light'), 'dark');
+        T.assertEqual(App.ui.app.nextTheme('dark'), 'light');
+      });
+      s.test('theme never leaks into generated output (DM-3)', function () {
+        if (!App.registry.hasPlatform('android-adb')) App.registry.registerPlatform(App.platforms.androidAdb);
+        function snap(d, r) { var a = App.registry.getDataset('android-adb', d), pr = a.parse(r); var o = { capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: d, sha256: App.util.hash.sha256Hex(r), keys: pr.keys }; if (pr.values) o.values = pr.values; if (pr.template !== undefined) o.template = pr.template; return o; }
+        App.util.clock.setClock(function () { return new Date('2026-02-02T02:02:02.000Z'); });
+        App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: { 'android.packages': snap('android.packages', 'com.a'), 'android.settings': snap('android.settings', 'secure:\nx=0'), 'android.tactical': snap('android.tactical', '{"enabled":true}') } });
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
+        App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
+        var rep = App.generate.buildReport(App.store.getProject(), 'dev-m1');
+        // generate/report read no DOM/theme; output is a pure function of the project.
+        var html = rep.files.filter(function (f) { return f.name === 'report.html'; })[0].content;
+        T.assert(html.indexOf('data-theme') === -1, 'theme attribute leaked into report');
+        App.util.clock.resetClock();
+      });
+    });
+
+    // ---- Track B: set decisions from files ----
+    function ensureA() { if (!App.registry.hasPlatform('android-adb')) App.registry.registerPlatform(App.platforms.androidAdb); }
+    function snapB(d, r) { ensureA(); var a = App.registry.getDataset('android-adb', d), pr = a.parse(r); var o = { capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: d, sha256: App.util.hash.sha256Hex(r), keys: pr.keys }; if (pr.values) o.values = pr.values; if (pr.template !== undefined) o.template = pr.template; return o; }
+
+    T.suite('T9.2 adapter parseAssignment', function (s) {
+      s.test('packages CSV: header + package: prefix tolerance + quoted description', function () {
+        var a = App.registry.getDataset('android-adb', 'android.packages'); ensureA();
+        var csv = 'package,action,description\npackage:com.a,disable,"turn off, please"\ncom.b,keep,ok';
+        var r = a.parseAssignment(csv);
+        T.assertEqual(r.errors.length, 0);
+        T.assertEqual(r.assignments.length, 2);
+        T.assertDeepEqual(r.assignments[0], { key: 'com.a', decision: { action: 'disable' }, fields: { description: 'turn off, please' } });
+      });
+      s.test('packages CSV: wrong header / bad action rejected', function () {
+        var a = App.registry.getDataset('android-adb', 'android.packages'); ensureA();
+        T.assert(a.parseAssignment('pkg,action,description\ncom.a,keep,x').errors.length >= 1);
+        T.assert(a.parseAssignment('package,action,description\ncom.a,nuke,x').errors.some(function (e) { return /Invalid action/.test(e.message); }));
+      });
+      s.test('settings/tactical parseAssignment map to decisions', function () {
+        ensureA();
+        var st = App.registry.getDataset('android-adb', 'android.settings').parseAssignment('secure:\nx=5');
+        T.assertDeepEqual(st.assignments[0], { key: 'secure/x', decision: { value: '5', type: 'string' } });
+        var tc = App.registry.getDataset('android-adb', 'android.tactical').parseAssignment('{"enabled":false}');
+        T.assertDeepEqual(tc.assignments[0], { key: 'enabled', decision: { value: false, type: 'bool' } });
+      });
+    });
+
+    T.suite('T9.3 store.applyDeviceAssignment (exact-set + atomic)', function (s) {
+      s.test('exact match applies decisions + descriptions', function () {
+        ensureA();
+        App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        var res = App.store.applyDeviceAssignment('asg-m1', 'android.packages', a.parseAssignment('package,action,description\ncom.a,disable,why-a\ncom.b,keep,why-b'));
+        T.assertEqual(res.ok, true);
+        var items = App.store.getProject().items['android.packages'];
+        var ca = items.filter(function (i) { return i.key === 'com.a'; })[0];
+        T.assertDeepEqual(ca.decision, { action: 'disable' });
+        T.assertEqual(ca.description, 'why-a');
+        T.assertEqual(ca.status, 'decided');
+      });
+      s.test('missing key -> refused with delta, no mutation', function () {
+        ensureA();
+        App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var before = App.projectIo.serializeProject(App.store.getProject());
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        var res = App.store.applyDeviceAssignment('asg-m1', 'android.packages', a.parseAssignment('package,action,description\ncom.a,keep,x'));
+        T.assertEqual(res.ok, false);
+        T.assert(res.issues.some(function (i) { return /missing from the file/.test(i.message) && /com\.b/.test(i.message); }));
+        T.assertEqual(App.projectIo.serializeProject(App.store.getProject()), before, 'refused apply mutated state');
+      });
+      s.test('extra key -> refused with delta', function () {
+        ensureA();
+        App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        var res = App.store.applyDeviceAssignment('asg-m1', 'android.packages', a.parseAssignment('package,action,description\ncom.a,keep,x\ncom.z,keep,y'));
+        T.assertEqual(res.ok, false);
+        T.assert(res.issues.some(function (i) { return /not applicable/.test(i.message) && /com\.z/.test(i.message); }));
+      });
+    });
+
+    // ---- Track C: Control Manager + controlRefs ----
+    T.suite('T9.6 store control CRUD', function (s) {
+      s.test('add/update/remove + controlRef cleanup', function () {
+        ensureA();
+        App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var add = App.store.addControl({ title: 'Disable BT', type: 'ISM', description: 'd' });
+        T.assertEqual(add.ok, true);
+        T.assert(/^[a-z0-9-]+$/.test(add.id));
+        // reference it on an item, then remove the control -> ref cleared
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [add.id] });
+        T.assertDeepEqual(App.store.getProject().items['android.packages'][0].controlRefs, [add.id]);
+        App.store.updateControl(add.id, { title: 'Disable Bluetooth' });
+        T.assertEqual(App.store.getProject().controls.filter(function (c) { return c.id === add.id; })[0].title, 'Disable Bluetooth');
+        var rm = App.store.removeControl(add.id);
+        T.assertEqual(rm.ok, true);
+        T.assertEqual(App.store.getProject().controls.length, 0);
+        T.assertDeepEqual(App.store.getProject().items['android.packages'][0].controlRefs, [], 'ref not cleared on remove');
+      });
+      s.test('add requires a title; duplicate titles get unique ids', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        T.assertEqual(App.store.addControl({ title: '' }).ok, false);
+        var a = App.store.addControl({ title: 'Same' }), b = App.store.addControl({ title: 'Same' });
+        T.assert(a.id !== b.id, 'ids should be unique');
+      });
+    });
+
+    T.suite('T9.8/T9.9 control refs in tables & report', function (s) {
+      function withControl() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
+        App.store.setDecision('android.packages', 'com.a', { action: 'disable' });
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
+        return { id: id, project: App.store.getProject() };
+      }
+      s.test('table column shows control TITLES, expander has a multi-select', function () {
+        var w = withControl();
+        var html = App.ui.tables.renderTableHtml(w.project, 'android.packages', { expanded: { 'com.a': true } }, {});
+        T.assert(/Control Refs/.test(html), 'column not renamed');
+        T.assert(html.indexOf('No Bluetooth') !== -1, 'title not shown in column');
+        T.assert(/<select multiple data-field-edit="controlRefs"/.test(html), 'no multi-select editor');
+      });
+      s.test('report Control coverage groups by control title/type', function () {
+        var w = withControl();
+        // settings/tactical still undecided -> decide them so device is ready for a fuller report
+        App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
+        App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
+        var r = App.generate.buildReport(App.store.getProject(), 'ctl-m1');
+        var html = r.files.filter(function (f) { return f.name === 'report.html'; })[0].content;
+        T.assert(/Control coverage/.test(html));
+        T.assert(html.indexOf('No Bluetooth (ISM)') !== -1, 'control label missing in coverage');
       });
     });
 

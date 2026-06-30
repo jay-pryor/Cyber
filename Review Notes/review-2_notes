@@ -1,1 +1,4 @@
 1. A draft message pops up sometimes, and the time is in UTC, can you convert that to AEST
+2. On the settings tab, get rid fo the type drop down menus (e.g. the string, int, boolean, etc bit, that was meant for the global/secure/system types but you've captured that satisfactorily with the keys I think)
+3. Can you make the actual value box for the value type fill the width of that entire column and wrap text where it still doesn't fit, some of those values can be very long and should be visible regardless.
+4. Can you make the column widths manually adjustable, with a minimum column width in-place obviously. Apply this to all 3 of the tables.

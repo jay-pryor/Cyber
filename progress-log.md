@@ -21,13 +21,49 @@ Process per task (build phase): **build → review → devise tests → log defe
 | 6 | Device view | ✅ complete | per-device read-only panels |
 | 7 | Generators | ✅ complete | valid zip; deterministic; Word HTML |
 | 8 | Hardening & polish | ✅ complete | all DOD verified |
+| 9 | v1.1: dark mode · set-from-files · Control Manager | ✅ complete | theme UI-only; exact-set assign; controls + schema v2 |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**ALL 9 PHASES COMPLETE (0–8).** 123/123 embedded self-tests pass. Validated end-to-end against the
-real reference captures. Remaining: two manual checks only — open `ch-config-tool.html` in Chrome/Edge/
-Firefox (DOD-1), and open a generated `report.html` in Microsoft Word (DOD-8). Defect register: 8
-defects found during review, all FIXED.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE.** 136/136 embedded self-tests pass. Validated
+end-to-end against the real reference captures (incl. v1→v2 migration). Remaining: two manual checks
+only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html`
+in Microsoft Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
+
+### 2026-06-30 — Phase 9 (v1.1): dark mode · set-from-files · Control Manager — ✅ COMPLETE
+
+Built per spec §18 / task breakdown Phase 9.
+
+**Track A — Dark mode (T9.1):** status-tint backgrounds refactored into CSS variables, then a
+`:root[data-theme="dark"]` palette override; top-bar toggle (`aria-pressed`), preference persisted in
+localStorage (guarded) with `prefers-color-scheme` default. UI-only — verified the report is
+byte-identical regardless of theme (DM-3). Pure `nextTheme` helper unit-tested.
+
+**Track B — Set decisions from files (T9.2–T9.4):** adapter `parseAssignment` + `assignmentHint`
+(packages = RFC-4180 CSV `package,action,description` tolerant of `package:`; settings/tactical reuse
+their parsers); `store.applyDeviceAssignment` does exact key-set equality validation (refuses with
+missing/extra deltas, no mutation), validates decisions, applies atomically; Devices-view UI with
+three file controls + inline format help + delta/error surfacing. Honours the unified-decision
+consequence (§8.4 / ASG-7).
+
+**Track C — Control Manager + controlRefs (T9.5–T9.9):** **schemaVersion → 2** with a lossless
+`migrate(v1→v2)` (legacy `ismRefs` strings become find-or-created controls; refs become control ids).
+Top-level `controls` entity (id/title/type/description/assignedDeviceIds-by-baseId); `controls`
+validation + dangling-ref warnings. `store.addControl/updateControl/removeControl` (remove strips
+refs from items). New **Control Manager** tab (add/edit/remove + per-device assignment). Data tabs:
+"ISM Refs" → "Control Refs" (titles in the column; **multi-select over the catalogue** in the
+expander, no free text). Report "ISM coverage" → **"Control coverage"** grouped by control title/type;
+adapter report sections show control titles. `REQUIRE_ISM_REF` → `REQUIRE_CONTROL_REF`.
+
+**Review & tests:** 14 new self-tests (theme; CSV/settings/tactical assignment parse; apply exact-set
++ refusal deltas + atomicity; control CRUD + ref cleanup; control-refs column titles + multi-select;
+Control-coverage report; v1→v2 migration). Updated v1.0 fixtures to schemaVersion 2.
+
+**Defects:** none in the product — the only test breakages were expected schema-v2 fixture updates
+(3 Phase-1 + 1 Phase-7 assertions), corrected. Verified: v1 files migrate on load (2 controls from
+2 legacy refs); real-data generation stays byte-deterministic; clean boot with all 5 views.
+
+**Result:** 136/136 self-tests pass.
 
 ---
 
