@@ -1027,9 +1027,15 @@ project schema to **version 2**.
   state only (never in the project file).
 - **RV4-3 Control Manager tools placement.** The "Add type" and "Import controls (CSV)" tools MUST sit
   to the **right of the "Control Manager" title** (a header row), not stacked beneath it.
-- **RV4-4 Control description box.** In the Control Manager control list, the per-control description
-  editor MUST be a **full-width** control that **wraps** long text (a `textarea`, not a single-line
-  `<input>`), and be vertically resizable.
+- **RV4-4 Control Manager as a searchable table.** The Control Manager MUST present controls as a
+  **table** (not stacked cards), mirroring the data tables (§11.2):
+  - One **row per control** with Title and Type editable inline and an **Applies-to** and a
+    **Description** column; the Description column MUST be wide enough and **wrap** long text.
+  - A **per-row expander/dropdown** (like the data tables) that reveals the editable, full-width
+    **wrapping description** `textarea`, the device-assignment multi-select, and the **Remove** button —
+    i.e. the Remove action lives **inside the dropdown**, not on the row.
+  - A **search/filter** box (filtering by title/type/description) consistent with the other tables; it
+    re-renders only the table body so the box keeps focus, and shows an "N of M shown" count.
 
 ### 18.7 Review-5 amendments (v1.1)
 
@@ -1060,3 +1066,312 @@ project schema to **version 2**.
   format is detected by the header; any other input is parsed as the existing §9 sectioned capture
   format. Malformed keys / duplicates REFUSE with located issues; the §ASG-2 exact-set validation and
   transactional apply are unchanged.
+
+---
+
+# 19. v1.2 feature set — per-config decision overrides (schemaVersion 3)
+
+Adds the ability for individual device configurations to **diverge from the fleet baseline** on a
+per-item basis, with an optional intermediate **device-group** layer, while preserving the v1.0 core
+value of *decide once, inherit everywhere* (§1, spec line 41–42). A baseline decision in the register
+remains the default for every device; an override is an **opt-in exception**. Overrides are
+**value-only** — they change the *decision value* for an item, never whether the item is *applicable*
+(applicability stays defined solely by snapshot keys, §6.5). It raises the project `schemaVersion` to
+**3** (§19.7) with a forward migration.
+
+All v1.0/v1.1 invariants — single file (§14), `file://` (§3), purity/layering (§4.1), determinism
+(§2 C-6, §8.6, §10.4), and **portability (DOD-11)** — continue to bind. The override mechanism is
+**generic**: it lives entirely in the store, a new `App.overrides` resolver, completeness, generate,
+report and UI — it MUST NOT require edits to any `DatasetAdapter`. The portability self-test (§15)
+MUST still pass unchanged with the mock platform.
+
+> **Terminology note (naming collision).** The v1.0 Devices tab already "groups" the *version stack*
+> of one physical device by `baseId` (§6.2, §11.3). The new entity in this section is a **Device
+> Group**: a named set of *distinct devices* that share an override profile. Wherever ambiguous, this
+> section says **device group** for the new entity and **version stack** for the per-`baseId`
+> grouping. They are orthogonal and both render in the Devices tab (§19.4).
+
+## 19.1 Definition of done (acceptance criteria — additive)
+
+- **OVR-1 (MUST)** Three resolution layers, lowest to highest precedence: **default** (the register
+  `RegisterItem.decision`) → **group** (a device group's override) → **device** (a device config's
+  override). The *effective* decision for an (item, device) pair is the highest-precedence layer that
+  supplies a value (§19.2).
+- **OVR-2 (MUST)** Overrides are **value-only**. An override may only target an item that is
+  *applicable* to the device/group (its key ∈ the relevant snapshot key set, §6.5). An override never
+  adds or removes applicability. An override value MUST satisfy the dataset adapter's
+  `decisionSchema`/`validateDecision`; an invalid or non-applicable override is a load-time validation
+  error, auto-pruned with a logged warning (§19.7).
+- **OVR-3 (MUST)** Every consumer of a decision — completeness/readiness (§6.5), generators (§10.1–
+  §10.2), report (§10.3), device-view panels (§11.3), and the manifest (§10.4) — MUST read the
+  **effective** decision via the single resolver (§19.2). No override logic may exist outside the
+  resolver, the store mutators, and the UI that calls them.
+- **OVR-4 (MUST)** A device config view highlights divergence: an item whose effective value differs
+  from the default **because of a group override** is shown **group-coloured (yellow)**; an item whose
+  effective value differs from the group-or-default value **because of this device's own override** is
+  shown **device-coloured (orange)**; otherwise it renders normally. A **legend** sits to the right of
+  the device-config title (§19.5). Colour is never the sole signal (§11.7): each diverging row also
+  carries a text/`title` marker.
+- **OVR-5 (MUST)** The device-config panels gain a **"Deviations first"** toggle that pins diverging
+  rows (device-orange first, then group-yellow) to the top; default OFF = the existing alphabetical
+  order (§19.5). The toggle is UI-state only (never persisted to the project file).
+- **OVR-6 (MUST)** A device group exposes a **"Deviations (N)"** control in the Devices tab that opens
+  a view of every group-level override (its divergences from default) and is also the **editor** for
+  group overrides — add / edit / remove (§19.4).
+- **OVR-7 (MUST)** The generated report (§10.3) gains a per-device **"Deviations from default"**
+  section listing each item whose effective decision differs from the default, with the default value,
+  the group value (if any), the device value, and the resolved **source** (§19.6). The manifest
+  (§10.4) records the effective decision and its source per item.
+- **OVR-8 (MUST)** Setting an override equal to the value it would otherwise inherit **clears** it
+  instead of persisting a no-op (§19.3). Divergence highlighting (OVR-4) is computed by **value
+  comparison**, not mere presence, so a redundant stored override never mis-colours a row.
+- **OVR-9 (MUST)** `schemaVersion` becomes **3**; `projectIo.migrate` converts v2 → v3 losslessly
+  (§19.7). Determinism (DOD-7) and load→save→load identity (DOD-2) hold for projects with overrides
+  and groups.
+
+## 19.2 Data model
+
+### 19.2.1 `DeviceConfig.overrides` (per-version, value-only)
+
+`DeviceConfig` (§6.2) gains an `overrides` member: a map keyed by dataset id, then by item key, to a
+decision value of the shape the adapter's `decisionSchema` defines (§6.4):
+
+```jsonc
+// DeviceConfig (additive)
+"overrides": {
+  "android.settings": { "secure/location_mode": { "value": "0" } },
+  "android.packages": { "com.x.y": { "action": "remove" } }
+}
+```
+
+- Overrides live on the **device config (version)** object, co-located with that version's snapshots.
+  Every key in an override map MUST be in that version's snapshot `keys` for the same dataset
+  (applicability, OVR-2).
+- Only the **latest** version (§6.2) is editable/active; superseded versions retain their overrides
+  read-only as history.
+- **Re-onboard carry-forward (amends §8.7).** When `onboardDevice`/`reonboardDevice` creates a new
+  version, it MUST copy the prior latest version's `overrides`, **pruning** any key no longer present
+  in the new version's snapshot for that dataset (the key left the device). Pruned overrides are
+  logged as info. New versions start from the carried-forward set; no override is invented.
+
+### 19.2.2 `DeviceGroup` (top-level `groups`)
+
+A new top-level project array `groups: [DeviceGroup, …]`:
+
+```jsonc
+DeviceGroup = {
+  "id":   "slug",                          // stable, unique within the project
+  "name": "Rugged tablets",                // human label
+  "deviceBaseIds": ["tab-active-5"],       // device baseIds (stable identity, survive re-onboard §8.7)
+  "overrides": {                           // same shape as DeviceConfig.overrides, value-only
+    "android.settings": { "secure/location_mode": { "value": "2" } }
+  }
+}
+```
+
+- `deviceBaseIds` reference device **`baseId`s** (like `Control.assignedDeviceIds`, CTL-1), so group
+  membership survives re-onboard versioning.
+- **A `baseId` belongs to at most one group** (the default→group→device chain assumes a single group
+  per device). Membership in two groups is a validation error (§19.7); `updateGroup`/`addGroup` MUST
+  *move* a baseId rather than duplicate it.
+- A group override key MUST be in the **union** of the applicable keys of its member devices' latest
+  snapshots for that dataset; otherwise it is pruned on load with a warning (OVR-2).
+
+### 19.2.3 The resolver — `App.overrides` (new pure module)
+
+A new pure module is the **single choke point** for override resolution (OVR-3). Depends on
+`App.registry` and `App.util.stable` only.
+
+```text
+App.overrides = {
+  // The group whose deviceBaseIds includes this device's baseId, or null.
+  groupForDevice(project, deviceId) -> DeviceGroup|null,
+
+  // Effective decision + provenance for one (item, device).
+  effectiveDecision(project, datasetId, item, deviceId)
+     -> { decision: Decision|null, source: 'default'|'group'|'device' },
+
+  // The item cloned with its decision replaced by the effective one (adapters stay override-blind).
+  effectiveItem(project, datasetId, item, deviceId) -> RegisterItem,
+
+  // Value-based divergence class for highlighting (OVR-4/OVR-8).
+  classify(project, datasetId, item, deviceId) -> 'default'|'group'|'device',
+
+  // All items whose effective value diverges from default, for a device or a group.
+  deviceDeviations(project, deviceId) -> Deviation[],   // see §19.6
+  groupDeviations(project, groupId)   -> Deviation[]
+}
+```
+
+**Resolution (precedence).** For `(datasetId, item, deviceId)`:
+1. `dV = item.decision` (default).
+2. `gV = group override[datasetId][item.key]` if the device's group has one, else `dV`.
+3. `eV = device latest-config override[datasetId][item.key]` if present, else `gV`.
+`effectiveDecision` returns `eV` with `source = 'device'` if a device override exists, else `'group'`
+if a group override exists, else `'default'`.
+
+**Classification (value comparison, OVR-8).** Using `stableStringify` equality:
+```
+if stable(eV) !== stable(gV) -> 'device'   // orange
+if stable(gV) !== stable(dV) -> 'group'    // yellow
+otherwise                     -> 'default'
+```
+`classify` is value-based so a redundant override (one equal to what it would inherit) never
+mis-colours; combined with the edit-time no-op clearing (OVR-8), redundant overrides should not occur
+in practice, but the classifier is robust if one does.
+
+## 19.3 Override editing (store mutators)
+
+The decision **defaults** are still edited in the data-table tabs (§11.2) and via "set from files"
+(§18.2) exactly as today — **those write the register default, not overrides** (unchanged
+semantics; backward-compatible). Overrides are edited only through the new mutators below and the UI
+in §19.4–§19.5.
+
+New `App.store` mutators (transactional, validated, returning the §12.1 `Result` shape; each emits an
+Activity-drawer entry and triggers a single change event):
+
+- `setDeviceOverride(deviceId, datasetId, key, decision)` — `deviceId` MUST be the latest version of
+  its baseId (reject otherwise, like §18.2). Validates: dataset exists; `key` is applicable to the
+  device (snapshot membership, OVR-2); `decision` passes the adapter's `validateDecision`. **No-op
+  normalization (OVR-8):** if `decision` equals the value the item would inherit without this device
+  override (the group-or-default value, by `stableStringify`), the override is **cleared** instead of
+  stored. Persists into the latest config's `overrides[datasetId][key]`.
+- `clearDeviceOverride(deviceId, datasetId, key)` — removes the entry (and prunes now-empty maps).
+- `setGroupOverride(groupId, datasetId, key, decision)` — validates: group exists; `key` is in the
+  union of member devices' applicable keys; `decision` valid. No-op normalization vs the **default**
+  value clears it. Persists into `groups[…].overrides`.
+- `clearGroupOverride(groupId, datasetId, key)`.
+- `addGroup({name, deviceBaseIds})` → `{ok, id}` — derives a slug id (unique); each baseId must exist
+  and is **moved** out of any other group it was in.
+- `updateGroup(id, patch)` — patch may set `name` and/or `deviceBaseIds` (re-applying the
+  at-most-one-group rule). Membership changes never touch override values.
+- `removeGroup(id)` — drops the group; its member devices fall back to default (their own device
+  overrides are untouched). Logs the change.
+
+Empty override maps MUST be normalized away on write (no empty `{}` dataset buckets persisted) so
+serialization stays canonical (§8.6).
+
+## 19.4 Device groups & the Devices tab (§11.3 amended)
+
+The Devices tab (`renderList`, §11.3) is restructured to a **two-level** layout:
+
+- **Top level: device groups.** One section per `DeviceGroup`, ordered by `name`, followed by a
+  final **"Ungrouped"** pseudo-section for devices whose `baseId` is in no group. Each group section
+  header shows the group `name`, member count, group-management controls (**rename**, **delete**, and
+  an **add/remove members** multi-select over device `baseId`s by name — mirroring the Control
+  Manager device multi-select, CTL-4), and a **"Deviations (N)"** button (OVR-6) where N = the count
+  of group overrides.
+- **Add group.** A control at the top of the tab creates a new empty group (`addGroup`).
+- **Within a group section: the existing version stacks** (§11.3) render unchanged for each member
+  device (latest active; superseded read-only). The per-row counts/badges are unchanged except that
+  decided/undecided counts and readiness now use **effective** completeness (§19.2 via §6.5).
+
+**Group deviations view/editor (OVR-6).** The "Deviations (N)" button opens a modal (closable via ×
+and backdrop click, consistent with the per-control modal, RV5-1) that, per dataset, lists the
+group's current overrides — each row showing the key (via `adapter.displayKey`), the **default**
+value, the **group** value, and **edit/remove** controls — plus an **"Add override"** affordance: a
+dataset selector, a searchable key select over the union of member devices' applicable keys, and the
+schema-driven decision editor (reuse the data-table decision control, §19.5). Edits call
+`setGroupOverride`/`clearGroupOverride`.
+
+## 19.5 Device-config view: divergence display (§11.3 / DOD-9 amended)
+
+**DOD-9 amendment.** The device-configuration view stays read-only with respect to the **register and
+defaults**, but the **latest** version's panels gain a per-item **override editor** (the only writable
+surface here). Superseded versions remain fully read-only.
+
+In `renderPanels` (§11.3) the three panels now, for the latest version:
+
+- Render the **effective** decision (via `App.overrides.effectiveItem`) for each *applicable* item —
+  note the panels now list applicable items (not only globally-decided ones) so an override can be set
+  on any applicable key; an item with no effective decision shows an "undecided" marker.
+- Apply a CSS class per row from `App.overrides.classify`: `dev-diverge-group` (yellow) for `'group'`
+  and `dev-diverge-device` (orange) for `'device'`; none for `'default'`. Each diverging row also
+  carries a `title`/text marker (e.g. "group override" / "device override") so colour is not the sole
+  signal (OVR-4, §11.7).
+- Provide a per-row **override control**: an **Inherit / Override** affordance; choosing *Override*
+  reveals the adapter's schema-driven decision editor (the same control component as §11.2, seeded
+  with the current effective value) writing via `store.setDeviceOverride`; a **"Revert to inherited"**
+  action calls `clearDeviceOverride`. Setting a value equal to the inherited one is normalized to a
+  clear (OVR-8).
+- A panel-level (or view-level) **"Deviations first"** toggle (OVR-5) re-sorts rows: when ON, device
+  (orange) rows first, then group (yellow) rows, then the remainder — each band alphabetical by key;
+  when OFF (default), pure alphabetical (current behaviour). UI-state only.
+
+**Legend (OVR-4).** A small legend sits to the **right of the device-config title** (`renderDetail`,
+§11.3 head) with two swatches: **yellow = "Group override"**, **orange = "Device override"**.
+
+The existing device-detail search (RV3-7), collapsible panels and per-control modal (RV5-1) continue
+to work; search/filter operate on the effective decision text.
+
+## 19.6 Reporting & deviation surfacing (§10.3 amended)
+
+A `Deviation` record (used by the resolver and report):
+
+```jsonc
+Deviation = {
+  "datasetId": "android.settings",
+  "key":       "secure/location_mode",
+  "displayKey":"secure/location_mode",   // via adapter.displayKey
+  "source":    "device",                  // 'group' | 'device'
+  "defaultValue": { "value": "1" },       // RegisterItem.decision (or null)
+  "groupValue":   { "value": "2" },       // group-effective (== default when no group override)
+  "deviceValue":  { "value": "0" }        // device-effective (== group when no device override)
+}
+```
+
+- **In-app.** The device view highlights + legend (§19.5) and the group "Deviations (N)" modal
+  (§19.4) are the interactive deviation surfaces.
+- **Generated report (§10.3).** `buildReport` gains a **"Deviations from default"** section for the
+  device, built from `App.overrides.deviceDeviations(project, deviceId)`: a table of
+  `displayKey · dataset · source · default → group → device`. When the device is in a group, the
+  section header names the group. If there are no deviations, render a "No deviations from default"
+  note. The existing per-dataset sections and Control coverage (CTL-7) already consume `gather`, which
+  now yields **effective** items (§19.2), so they reflect overrides automatically.
+- **Manifest (§10.4).** Per decided item, the manifest's `decisions[dsId]` entries gain a `source`
+  field (`'default'|'group'|'device'`); the `decision` value recorded is the **effective** one. The
+  manifest stays deterministic (stable key order, injected clock).
+
+## 19.7 Schema, migration & determinism (§6.1, §8.6, §17.A amended)
+
+- **`schemaVersion: 3`.** `App.projectIo.SCHEMA_VERSION = 3`. `migrate` adds `case 2: return
+  migrateV2toV3(project)` and `case 3: return project` (identity). `migrateV2toV3` losslessly: sets
+  top-level `groups: []` if absent; sets `overrides: {}` on every `DeviceConfig` if absent; otherwise
+  identity. Reject unknown `schemaVersion` with a located issue (§17.A).
+- **Top-level key order (§8.6).** Add `groups` to `TOP_KEYS` (after `deviceConfigs`, before `items`,
+  matching the load/serialize ordering). `serializeProject` MUST sort `groups` by `id`,
+  `DeviceGroup.deviceBaseIds` ascending, and emit all `overrides` maps with sorted keys (handled by
+  `stableStringify`). DeviceConfig serialization includes `overrides` in canonical key order.
+- **Validation (Appendix A, §17.A).** Validate: `groups` is an array; each `DeviceGroup` has a slug
+  `id` (unique), a string `name`, a `deviceBaseIds` array of existing baseIds with **no baseId in two
+  groups**, and an `overrides` map whose dataset ids are registered, whose keys are within the member
+  devices' applicable union, and whose values pass `validateDecision`. Validate each
+  `DeviceConfig.overrides` likewise against that **version's** snapshot keys. Dangling /
+  non-applicable / invalid overrides and unknown-baseId memberships are **auto-pruned on load with a
+  logged warning** (consistent with CTL-2 ref pruning), never a hard failure.
+- **Determinism / identity.** A project carrying groups and overrides MUST satisfy load→save→load
+  identity (DOD-2) and byte-stable serialization (DOD-7). No-op overrides are never persisted (OVR-8),
+  so equivalent states serialize identically.
+
+## 19.8 Amendments to earlier clauses (quick index)
+
+- **§6.1** project file: add top-level `groups` array; `schemaVersion` const becomes **3**.
+- **§6.2** `DeviceConfig`: add `overrides` map (value-only, per-version). §8.7 re-onboard carries
+  overrides forward, pruning non-applicable keys.
+- **§6.5** completeness/readiness now evaluate the **effective** decision (`App.overrides`); the
+  register's global `RegisterItem.status` continues to reflect the **default** only (data tabs
+  unchanged). A device may be ready via overrides even where a default is undecided; overrides are
+  always valid, so they can only **add** completeness, never remove it.
+- **§7.1** store API: add `setDeviceOverride`, `clearDeviceOverride`, `setGroupOverride`,
+  `clearGroupOverride`, `addGroup`, `updateGroup`, `removeGroup`.
+- **§8.7** re-onboard: copy + prune `overrides` into the new version.
+- **§10.3** report: add per-device "Deviations from default" section; existing sections consume
+  effective items. **§10.4** manifest: add `source`, record effective decisions.
+- **§11.1/§11.3** Devices tab: device-group sections with management + "Deviations (N)"; device view
+  gains override editing (latest only), divergence highlighting, legend, and "Deviations first" toggle.
+- **§17.A** schema: validate `groups`, `DeviceConfig.overrides`, group/device override applicability +
+  validity, single-group membership; `schemaVersion === 3`.
+- **New module** `App.overrides` (pure) added to the §7 module catalogue and §14 load order
+  (after `App.completeness`/before `App.generate`, since both depend on it).
+- **DOD-11 (portability).** No `DatasetAdapter` edits are required; the mock-platform portability
+  self-test (§15) MUST still pass.

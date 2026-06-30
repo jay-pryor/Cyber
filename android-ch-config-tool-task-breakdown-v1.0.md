@@ -702,15 +702,27 @@ Small post-Phase-9 changes from `Review Notes/review-4_notes`; spec §18.6. All 
   form and the control list.
 - **Definition of done:** tools sit to the right of the title (wrapping under on narrow widths).
 
-#### T-RV4.4 · Wider, wrapping control description box
+#### T-RV4.4 · Control Manager as a searchable table with per-row dropdown
 - **Spec:** §18.6 RV4-4
-- **Objective:** Make the per-control description box wide enough and wrap long text.
-- **Build:** Replace the control-list description `<input>` with a full-width `.ctl-desc` `<textarea>`
-  (`width:100%; white-space:pre-wrap; overflow-wrap:anywhere; resize:vertical`) on its own row; the
-  existing `[data-ctl-field]` change handler reads `el.value` unchanged.
-- **Self-tests to add:** the description renders as a `ctl-desc` textarea (and no longer as an
-  `<input data-ctl-field="description">`), with the description text inside it.
-- **Definition of done:** descriptions are full-width and wrap; edits still persist via `updateControl`.
+- **Objective:** Replace the stacked control "cards" with a searchable table whose rows have a dropdown
+  expander; move Remove into the dropdown; keep the description wide + wrapping.
+- **Build (`App.ui.views.controls`):**
+  - Module UI state `_cm = {search:'', expanded:{}}`. `renderTable(project)` builds a `table.data.ctl-table`
+    with columns `[expander] · Title · Type · Applies to · Description`. Title is an inline `<input
+    data-ctl-field="title">`, Type an inline `<select data-ctl-field="type">`, Applies-to shows the
+    assigned device names, Description is a wrapping read-only `.ctl-desc-cell`. The per-row expander
+    `[data-ctl-expand]` opens a `detail-row` with the editable `.ctl-desc` `<textarea>`, the
+    `deviceCheckboxes` multi-select, and the **Remove** button (`[data-ctl-remove]`).
+  - `render` keeps the header tools (RV4-3) + add form, then a search toolbar (`[data-ctl-search]`)
+    OUTSIDE a `#ctl-table-host` wrapper, then `renderTable`. Wire `input[data-ctl-search]` (debounced)
+    and `click[data-ctl-expand]` to re-render ONLY `#ctl-table-host` (box keeps focus). Existing
+    `[data-ctl-field]`/`[data-ctl-device]`/`[data-ctl-remove]` handlers are unchanged.
+- **Self-tests to add:** controls render as `table.data.ctl-table` with a `[data-ctl-search]` box and a
+  wrapping `.ctl-desc-cell`; the Remove button and the editable description textarea appear only inside
+  the expanded `detail-row` (never inline); search filters by title/type/description with a correct
+  "N of M shown" count.
+- **Definition of done:** Control Manager is a searchable table; Remove lives in the per-row dropdown;
+  the description wraps; edits/removes still persist via `updateControl`/`removeControl`.
 
 ## Review-5 follow-ups (per-control device view + multi-select + settings CSV)
 
@@ -772,3 +784,183 @@ Post-review-4 changes from `Review Notes/review-5_notes`; spec §18.7. All land 
   applies end-to-end via `applyDeviceAssignment`.
 - **Definition of done:** both formats accepted; malformed CSV refused with located issues; description +
   value applied; exact-set validation intact.
+
+## Phase 10 — Per-config decision overrides (v1.2, schemaVersion 3)
+
+> Companion spec: **§19** (added v1.2). Builds on the completed v1.0/v1.1 (Phases 0–9 + review
+> follow-ups) in the single `ch-config-tool.html` per A-1/A-9 load order. Core principle: *decide once,
+> inherit everywhere* is preserved — the register default still drives every device; an override is an
+> opt-in, value-only exception resolved through **one** choke point (`App.overrides`). No
+> `DatasetAdapter` may be edited (DOD-11). Build order: T10.1 → T10.2 → (T10.3, T10.4) → (T10.5, T10.6,
+> T10.7) → T10.8.
+
+### T10.1 · Schema v3 — `groups`, `DeviceConfig.overrides`, migration, validation, serialize
+- **Depends on:** Phase 9 (schemaVersion 2 baseline)
+- **Spec:** §19.2, §19.7, §17.A, §8.6
+- **Objective:** Raise the project schema to 3, add the `groups` top-level array and per-config
+  `overrides`, and keep load/serialize canonical and self-healing.
+- **Build (`App.projectIo`):**
+  - `SCHEMA_VERSION = 3` (update the comment). `migrate`: add `case 2: return migrateV2toV3(project)`;
+    `case 3: return project`. `migrateV2toV3(v2)` clones, sets `schemaVersion=3`, adds top-level
+    `groups: []` if absent and `overrides: {}` on every `deviceConfig` if absent; identity otherwise.
+  - `TOP_KEYS`: insert `'groups'` immediately after `'deviceConfigs'`.
+  - Validation: `groups` must be an array; per `DeviceGroup` validate slug `id` (unique), string
+    `name`, `deviceBaseIds` (array of **existing** baseIds, **no baseId in two groups**), and an
+    `overrides` map (registered dataset ids; keys in the member devices' applicable **union**; values
+    pass the adapter `validateDecision`). Validate each `DeviceConfig.overrides` against **that
+    version's** snapshot keys + adapter validity. Dangling/non-applicable/invalid overrides and
+    unknown-baseId memberships are **auto-pruned with a logged warning** (mirror the CTL-2 controlRefs
+    pruning path), never a hard error.
+  - `serializeProject`: sort `groups` by `id`, each `deviceBaseIds` ascending; `overrides` maps emit
+    via `stableStringify` (sorted keys); drop empty `overrides`/dataset buckets so output stays
+    canonical.
+- **Self-tests to add:** v2→v3 migrate adds `groups`/`overrides` and is lossless; load→save→load
+  identity for a project carrying a group + device + group overrides; a non-applicable device override
+  and a baseId-in-two-groups membership are pruned with warnings; serialized bytes are stable across two
+  serializations.
+- **Definition of done:** v2 projects open as v3; v3 round-trips byte-identically; invalid overrides
+  self-heal with warnings.
+
+### T10.2 · `App.overrides` — the resolver (new pure module)
+- **Depends on:** T10.1
+- **Spec:** §19.2.3, §19.6, OVR-1/OVR-3/OVR-8
+- **Objective:** One pure module that resolves the default→group→device chain and computes divergence;
+  the **only** override-aware logic outside the store mutators and UI.
+- **Build (`App.overrides`, pure; DEPENDS `App.registry`, `App.util.stable`):** insert a new
+  `<script>` IIFE in load order **after `App.completeness`, before `App.generate`**.
+  - `groupForDevice(project, deviceId)` → the `DeviceGroup` whose `deviceBaseIds` includes the device's
+    `baseId`, else `null`.
+  - `effectiveDecision(project, datasetId, item, deviceId)` → `{decision, source}` per the §19.2
+    precedence (device latest-config override → group override → `item.decision`). Only the **latest**
+    config's overrides count for a device.
+  - `effectiveItem(...)` → shallow clone of `item` with `decision` replaced by the effective value
+    (adapters stay override-blind).
+  - `classify(...)` → `'default'|'group'|'device'` by **value comparison** using
+    `stableStringify` (§19.2.3 rules), robust to redundant overrides.
+  - `deviceDeviations(project, deviceId)` / `groupDeviations(project, groupId)` → `Deviation[]`
+    (§19.6 shape, using `adapter.displayKey` for `displayKey`), sorted by `(datasetId, key)`.
+- **Self-tests to add:** precedence (device beats group beats default); `source` correctness;
+  `classify` value-based (a device override equal to the group value classifies as `group`/`default`,
+  not `device`); `effectiveItem.decision` equals the resolved value; deviations list contents + order.
+- **Definition of done:** resolver returns correct effective values + sources for all three layers; all
+  classification edge cases pass.
+
+### T10.3 · Store mutators + re-onboard carry-forward
+- **Depends on:** T10.2
+- **Spec:** §19.3, §19.2.1 (carry-forward), §8.7, OVR-2/OVR-8
+- **Objective:** Transactional, validated override + group editing, and override survival across
+  re-onboard.
+- **Build (`App.store`):**
+  - `setDeviceOverride(deviceId, datasetId, key, decision)`: reject if `deviceId` is not the latest
+    version of its baseId; validate dataset, applicability (snapshot membership), and
+    `adapter.validateDecision`. **No-op clear (OVR-8):** if `stableStringify(decision)` equals the
+    value inherited without this device override (group-or-default), call the clear path instead.
+    Persist into the latest config `overrides[datasetId][key]`; normalize empty maps away.
+  - `clearDeviceOverride(deviceId, datasetId, key)`.
+  - `setGroupOverride(groupId, datasetId, key, decision)` / `clearGroupOverride(...)`: validate group,
+    applicability against the member-device applicable union, validity; no-op clears vs the **default**.
+  - `addGroup({name, deviceBaseIds})` (slug id, unique; **move** baseIds out of any prior group),
+    `updateGroup(id, {name?, deviceBaseIds?})` (re-apply single-group rule), `removeGroup(id)`.
+  - In `onboardDevice` (the shared re-onboard path): when creating a new version, copy the prior latest
+    config's `overrides`, pruning keys absent from the new snapshot for each dataset; log pruned keys as
+    info. New configs initialise `overrides: {}`.
+  - Export all new mutators on the `store` public object.
+- **Self-tests to add:** device override on a non-applicable key is rejected; an invalid value is
+  rejected; a no-op set clears; group override applied/cleared; `addGroup` moves a baseId out of its
+  old group; re-onboard carries forward applicable overrides and prunes departed keys.
+- **Definition of done:** all mutators validate + behave per spec; overrides survive re-onboard;
+  serialized state stays canonical.
+
+### T10.4 · Effective completeness, generate & manifest
+- **Depends on:** T10.2
+- **Spec:** §19.2 (OVR-3), §6.5, §10.1–§10.4
+- **Objective:** Route readiness, generation and the manifest through effective decisions without
+  touching adapters.
+- **Build:**
+  - `App.completeness`: `deviceReadiness` evaluates each applicable item via
+    `App.overrides.effectiveItem` before `itemComplete` (so a device/group override can satisfy
+    completeness even when the default is undecided). `recomputeStatus` and the global
+    `RegisterItem.status` stay **default-only** (data tabs unchanged).
+  - `App.generate` `gather(project, deviceId, dsId)`: build from **applicable** items, map each through
+    `effectiveItem`, then **filter by effective completeness** (replacing the `it.status === 'decided'`
+    test), then sort by key. Adapters/`buildScripts`/`buildControlSection`/`renderReportSection` need no
+    change (they read `item.decision` = effective).
+  - `buildManifest`: each `decisions[dsId]` entry gains `source` (from `effectiveDecision`); `decision`
+    is the effective value.
+- **Self-tests to add:** a device with a default-undecided item but a valid device override is **ready**
+  and generates that item; a group override flows into the generated script/data + manifest with
+  `source:'group'`; manifest decisions reflect effective values; the mock-platform portability self-test
+  (DOD-11) still passes.
+- **Definition of done:** readiness/generation/report/manifest all reflect overrides; no adapter edited;
+  portability suite green.
+
+### T10.5 · Devices tab — device-group sections, management & group deviations editor
+- **Depends on:** T10.3
+- **Spec:** §19.4, OVR-6, §11.3
+- **Objective:** Restructure the Devices tab into device-group sections with management and a group
+  override view/editor.
+- **Build (`App.ui` devices view):** in `renderList`, wrap the existing per-`baseId` version stacks in
+  **device-group** sections ordered by `name`, plus a trailing **"Ungrouped"** section. Each group
+  header: name, member count, **rename**, **delete**, an **add/remove members** multi-select over device
+  baseIds by name (reuse the Control-Manager device multi-select pattern), and a **"Deviations (N)"**
+  button (N = group override count). A top-of-tab **"Add group"** control calls `addGroup`. The
+  "Deviations" button opens a modal (× + backdrop close, like the per-control modal): per dataset, list
+  current group overrides (displayKey · default → group · edit/remove) plus an **"Add override"** row
+  (dataset select + searchable key select over the member applicable union + the schema-driven decision
+  control) wired to `setGroupOverride`/`clearGroupOverride`. Per-row counts/readiness use effective
+  completeness (T10.4).
+- **Self-tests to add (DOM-light where feasible):** groups render as sections with an Ungrouped bucket;
+  the deviations button count matches override count; adding/removing a group override updates the list;
+  member multi-select moves a baseId between groups.
+- **Definition of done:** groups are creatable/editable/removable from the tab; group overrides are
+  viewable and editable; layout keeps version stacks intact.
+
+### T10.6 · Device-config view — override editing, divergence highlighting, legend, pin toggle
+- **Depends on:** T10.3
+- **Spec:** §19.5, OVR-4/OVR-5/OVR-8, DOD-9 amendment, §11.7
+- **Objective:** Make the latest device view the place to set device overrides and to see divergence.
+- **Build (`App.ui` device detail / `renderPanels` / `renderDetail`):**
+  - Panels (latest version) list **applicable** items showing the **effective** decision
+    (`effectiveItem`); each row gets a class from `App.overrides.classify`:
+    `dev-diverge-group` (yellow) / `dev-diverge-device` (orange) / none, plus a text/`title` marker so
+    colour is not the sole signal. Add the CSS for both classes (light + dark themes).
+  - Per-row **Inherit / Override** affordance: *Override* reveals the adapter's schema-driven decision
+    control (reuse `App.ui.tables.renderDecisionControl` or an equivalent) seeded with the effective
+    value, persisting via `store.setDeviceOverride`; a **"Revert to inherited"** action calls
+    `clearDeviceOverride`. Superseded versions stay fully read-only.
+  - A **"Deviations first"** toggle (OVR-5, UI-state only on `_dev`) re-sorts rows: device-orange, then
+    group-yellow, then the rest, each band alphabetical; OFF = alphabetical (current behaviour).
+  - A **legend** to the right of the device title in `renderDetail` head: yellow "Group override",
+    orange "Device override".
+  - Device-detail search (RV3-7) operates on the effective decision text.
+- **Self-tests to add:** a group-overridden item renders `dev-diverge-group`; a device-overridden item
+  renders `dev-diverge-device`; a device override equal to the group value renders as group (not device);
+  setting an override equal to inherited clears it; "Deviations first" ordering.
+- **Definition of done:** overrides are editable on the latest device view; highlighting + legend + pin
+  toggle behave per spec; superseded versions stay read-only.
+
+### T10.7 · Report — "Deviations from default" section + manifest source
+- **Depends on:** T10.4
+- **Spec:** §19.6, §10.3, OVR-7
+- **Objective:** Surface per-device divergences in the generated report.
+- **Build (`App.generate.buildReport`):** add a **"Deviations from default"** section built from
+  `App.overrides.deviceDeviations(project, deviceId)` — a table of `displayKey · dataset · source ·
+  default → group → device`; name the device's group in the header when present; render a
+  "No deviations from default" note when empty. Existing per-dataset + Control-coverage sections already
+  reflect overrides via the effective `gather` (T10.4); the manifest `source` field lands in T10.4.
+- **Self-tests to add:** the report HTML contains the deviations section with the expected rows for a
+  device carrying group + device overrides; an override-free device shows the empty note; report bytes
+  are deterministic for a fixed clock.
+- **Definition of done:** report shows accurate, deterministic deviations; no regression to existing
+  sections.
+
+### T10.8 · v1.2 acceptance suite & DOD pass
+- **Depends on:** T10.4, T10.5, T10.6, T10.7
+- **Spec:** §19.1 (OVR-1…OVR-9), DOD-2/DOD-7/DOD-11
+- **Objective:** Lock the feature behind self-tests and confirm invariants.
+- **Build:** an end-to-end suite: default→group→device precedence; value-only (a non-applicable override
+  is impossible to set and is pruned on load); overrides rescue completeness/readiness; generation +
+  manifest + report reflect effective values and sources; highlighting/legend/pin (DOM-light);
+  round-trip identity + byte-determinism with overrides/groups; mock-platform portability still green.
+- **Definition of done:** all OVR-1…OVR-9 covered green; no adapter edited; existing Phase 0–9 suites
+  remain green.
