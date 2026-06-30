@@ -127,6 +127,96 @@ for the type-removal and note-text changes.
 clean boot (5 views, types seeded ISM/AHG/Custom); real-data generation byte-deterministic with the
 new policyList parsing.
 
+### 2026-06-30 — Review-4 changes — ✅ COMPLETE
+
+Actioned the four review-4 notes (spec §18.6 / task breakdown T-RV4.1–T-RV4.4):
+1. **policyList names display without the prefix (RV4-1).** Policies now DISPLAY by name alone (e.g.
+   `Disable Bluetooth`) while the STORED/routed key keeps the `policyList.` segment. Added
+   `stripPolicyPrefix(key)` (exposed as `tactical.displayKey`) and applied it at every key-display
+   site: the tactical "Path" column, the device-view panels, and both report sections (per-dataset +
+   Control coverage). `flattenTactical`/`rebuildTacticalDoc` are unchanged from review-3, so there are
+   no key collisions and already-saved projects keep routing (no migration). **Reworked from a first
+   cut** that baked the bare name into the key — a high-effort workflow review flagged that as causing
+   (a) misrouting when a sibling key shares a policy name and (b) broken routing for review-3 saves;
+   the display-only strip resolves both. Verified on the real capture: 100 policies, every display key
+   prefix-free, **byte-identical round-trip**, targeted flip touches only the one policy, and a
+   sibling/`policy` name collision is no longer misrouted (regression test added).
+2. **Incomplete-only defaults OFF (RV4-2).** Post-onboard now calls `switchTab` instead of the old
+   `openDatasetIncomplete` (which force-ticked the filter); removed that now-dead ctx method. Default
+   per-dataset UI state was already `incompleteOnly:false`, so tables land showing the full list.
+3. **Control Manager tools beside the title (RV4-3).** The "Add type" + "Import controls (CSV)" tools
+   render in a new `.ctl-header` flex row to the **right** of the "Control Manager" title (wrapping
+   under on narrow widths), no longer stacked beneath it.
+4. **Wider, wrapping control description (RV4-4).** The control-list description editor is now a
+   full-width `.ctl-desc` `<textarea>` (`white-space:pre-wrap; overflow-wrap:anywhere; resize:vertical`)
+   on its own row, replacing the cramped single-line `<input>`. The existing `[data-ctl-field]` change
+   handler reads `el.value` unchanged, so edits still persist via `updateControl`.
+
+**Tests:** +6 self-tests (displayKey/stripPolicyPrefix incl. nested + non-policy untouched; Path
+column shows bare name; rebuild round-trip + flip via prefixed key; sibling-name collision NOT
+misrouted; toolbar Incomplete-only default unticked + reflects state; control tools render in-header
+before the add form/list; description is a wrapping ctl-desc textarea, not an input). The ctl-desc
+textarea gets a sacrificial leading `\n` so a description's own leading newline survives re-render
+(review finding #3).
+
+**Review:** a high-effort workflow code-review (15 agents) ran on the diff. Its findings drove the
+RV4-1 rework from bake-the-bare-name-in to display-only stripping, which resolves the two confirmed
+correctness findings (sibling-key collision; broken routing for review-3 saves), the duplicate-walker
+cleanup (policyLookup removed), and the dotted-name `parsePath` fallthrough — plus the textarea
+leading-newline fix. The other multiline value/rationale textareas share the same latent newline
+class but are pre-existing (review-2/Phase-5), out of the review-4 diff, and left unchanged.
+
+A second (focused) verification pass confirmed all six original findings RESOLVED and flagged two
+LOW display-only items: (a) the tactical `verify.txt` evidence file still printed the raw
+`policyList.` prefix — **fixed** (now uses `stripPolicyPrefix`, consistent with the report); (b)
+`stripPolicyPrefix` would also strip a hypothetical non-policy object field literally named
+`policyList` — display-only ambiguity with **no routing impact** (rebuild still falls through to
+`setAtPath`), real-world impossible for Knox captures, accepted as-is.
+
+**Defects:** none remaining in the product. **151/151 self-tests pass**; real-data tactical round-trip
+stays byte-identical and review-3-saved projects keep routing.
+
+### 2026-06-30 — Review-5 changes — ✅ COMPLETE
+
+Actioned the three review-5 notes (spec §18.7 / task breakdown T-RV5.1–T-RV5.3):
+1. **Per-control device view (RV5-1).** In the device-configuration view the three dataset panels are
+   now **collapsible** (per-panel header toggle, default expanded; toggling re-renders only `#dev-panels`)
+   and the **"Control Refs" column is removed from those panels** (data-table tabs keep theirs). Added a
+   **"Controls applying to this device"** section listing controls whose `assignedDeviceIds` includes the
+   device `baseId`, each a clickable button (title/type + applicable-and-referencing item count). Clicking
+   opens a **modal** (× close button + backdrop-click close) with three lists — one per dataset — of the
+   items applicable to that device AND referencing that control (key/decision/status), i.e. exactly the
+   actions taken to satisfy that control on that device. Panels stay read-only (DOD-9). New
+   `renderDeviceControls`/`renderControlModal`/`countControlItems` + modal/collapse CSS.
+2. **Control Refs removable multi-select (RV5-2).** Replaced the native `<select multiple>` control-refs
+   editor (which needed modifier-clicks to add and offered no obvious remove — the user's complaint that
+   you "can only add a single ref / can't remove it") with a **searchable checkbox list**: each control is
+   a checkbox (checked = referenced), so any number can be added and any one removed independently. A
+   filter box narrows the visible options in place (no store round-trip). New `[data-control-ref-toggle]`
+   change handler toggles a single id via `setItemFields({controlRefs})`; obsolete `data-field-edit=
+   "controlRefs"`/`selectedOptions` path removed. The column still renders control titles.
+3. **Settings CSV assignment (RV5-3).** `android.settings.parseAssignment` now also accepts a CSV with
+   header exactly `setting,description,value` (column 1 = stored `<namespace>/<key>`, column 2 = a
+   description set on the item, column 3 = the value, verbatim/string). Detected by the header; any other
+   input still parses as the §9 sectioned capture format. Malformed/duplicate keys refuse with located
+   issues; the generic exact-set + atomic `applyDeviceAssignment` is unchanged.
+
+**Tests:** +7 self-tests (settings CSV parse incl. quoted-comma field + malformed-key refusal + no
+false detection on capture format; CSV applies end-to-end via the store; device panels collapsible + no
+Control Refs column; assigned controls listed/clickable with counts; empty-controls note; per-control
+modal lists only device-applicable referencing items across three dataset panels). Updated the T9.8
+control-refs test for the checkbox editor.
+
+**Review:** real-data integration (438 packages / 803 settings / 132 tactical from the reference
+captures) confirmed: a full 803-row `setting,description,value` CSV parses (0 errors) and applies in one
+transaction (value + description + decided status); device panels show 3 collapse toggles with the
+Control Refs column gone; a control assigned to the device lists as openable with `countControlItems`=5
+(4 packages + 1 setting); the modal renders three dataset lists, includes referenced items, and excludes
+non-referencing applicable items.
+
+**Defects:** none found in the product (only the one expected T9.8 test update for the editor change).
+**158/158 self-tests pass**; clean engine load; real-data settings CSV + per-control views verified.
+
 ---
 
 ## Log

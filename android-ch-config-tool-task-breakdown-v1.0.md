@@ -657,3 +657,118 @@ T9.5 data model v2 (controls + controlRefs + migrate) ─┬─ T9.6 control CRU
 
 > Note (working filename): v1.0 task blocks say `index.html`; the delivered artifact is
 > `ch-config-tool.html`. Phase 9 tasks land in that same single file per A-1/A-9 load order.
+
+## Review-4 follow-ups (UI/UX + tactical keys)
+
+Small post-Phase-9 changes from `Review Notes/review-4_notes`; spec §18.6. All land in the single
+`ch-config-tool.html` file. Process per item: build → review → tests → run → revise.
+
+#### T-RV4.1 · Strip the `policyList.` prefix from tactical policy names (display only)
+- **Spec:** §18.6 RV4-1 (display refinement of RV3-3)
+- **Objective:** Show tactical `policyList` policies by their name alone (no `policyList.` segment),
+  WITHOUT changing the stored/routed key.
+- **Build:** Keep `flattenTactical`/`rebuildTacticalDoc` exactly as RV3-3 (key = `…policyList.<name>`,
+  rebuild routes by name off that prefix). Add a module helper `stripPolicyPrefix(key)`
+  (`policyList.X`→`X`, nested `foo.policyList.X`→`foo.X`, idempotent otherwise) and expose it as
+  `tactical.displayKey`. Apply it at every key-display site: the tactical "Path" column `get`, the
+  device-view panels (the panel render already resolves the dataset adapter), the report's per-dataset
+  section, and the report's Control-coverage list.
+- **Rationale (over baking bare names into the key):** the prefix is the stable internal identity;
+  stripping only for display avoids (a) collisions when a sibling scalar/object key shares a policy
+  name, and (b) breaking already-saved (review-3) projects, with no migration required.
+- **Self-tests to add:** flatten still keys by `policyList.<name>`; `stripPolicyPrefix`/`displayKey`
+  strip the prefix (incl. nested) and leave non-policy keys untouched; the Path column renders the bare
+  name; rebuild round-trips + targeted flip via the prefixed key; a sibling key sharing a policy name
+  is NOT misrouted. Validated on the real capture (100 policies, byte-identical round-trip).
+- **Definition of done:** policies DISPLAY without the prefix everywhere; stored keys unchanged;
+  round-trip identity + DOD-7 determinism hold; review-3 saves still route.
+
+#### T-RV4.2 · Incomplete-only filter defaults OFF
+- **Spec:** §18.6 RV4-2
+- **Objective:** Stop the data tables landing with "Incomplete only" pre-ticked (esp. post-onboard).
+- **Build:** Default per-dataset UI state already carries `incompleteOnly:false`; remove the post-
+  onboard `openDatasetIncomplete` call (which forced it on) in favour of `switchTab`, and drop the now-
+  unused `openDatasetIncomplete` from the controller context.
+- **Self-tests to add:** the toolbar renders the checkbox unticked for default UI state and ticked when
+  `incompleteOnly:true`.
+- **Definition of done:** fresh/onboarded tabs show the full list; the toggle still works per dataset.
+
+#### T-RV4.3 · Control Manager tools beside the title
+- **Spec:** §18.6 RV4-3
+- **Objective:** Put "Add type" + "Import controls (CSV)" to the right of the "Control Manager" title.
+- **Build:** Wrap the title and the `.ctl-tools` block in a `.ctl-header` flex row
+  (`justify-content:space-between; flex-wrap:wrap`); render the tools before the add form/list.
+- **Self-tests to add:** the title starts the header and the tools render inside it, before the add
+  form and the control list.
+- **Definition of done:** tools sit to the right of the title (wrapping under on narrow widths).
+
+#### T-RV4.4 · Wider, wrapping control description box
+- **Spec:** §18.6 RV4-4
+- **Objective:** Make the per-control description box wide enough and wrap long text.
+- **Build:** Replace the control-list description `<input>` with a full-width `.ctl-desc` `<textarea>`
+  (`width:100%; white-space:pre-wrap; overflow-wrap:anywhere; resize:vertical`) on its own row; the
+  existing `[data-ctl-field]` change handler reads `el.value` unchanged.
+- **Self-tests to add:** the description renders as a `ctl-desc` textarea (and no longer as an
+  `<input data-ctl-field="description">`), with the description text inside it.
+- **Definition of done:** descriptions are full-width and wrap; edits still persist via `updateControl`.
+
+## Review-5 follow-ups (per-control device view + multi-select + settings CSV)
+
+Post-review-4 changes from `Review Notes/review-5_notes`; spec §18.7. All land in the single
+`ch-config-tool.html` file. Process per item: build → review → tests → run → revise.
+
+#### T-RV5.1 · Collapsible device panels + per-control view (modal)
+- **Spec:** §18.7 RV5-1, §11.3, DOD-9, CTL-1
+- **Objective:** In the device-configuration view: make the three dataset panels collapsible, drop the
+  Control Refs column from those panels, add a "Controls applying to this device" section, and a modal
+  that shows exactly the actions satisfying a chosen control on that device.
+- **Build (`App.ui.views.devices`):**
+  - Track `_dev.collapsed = {}` (per-dataset) and `_dev.openControlId`. Reset both on device view/back.
+  - `renderPanels`: each panel header is a `[data-panel-toggle="<dsId>"]` button (`aria-expanded`); a
+    `.panel.collapsed` class hides note/table via CSS. The panel table is **Key/Decision only** (no
+    Control Refs column). Panel toggle re-renders only `#dev-panels`.
+  - `renderDeviceControls(project, deviceId)`: lists controls whose `assignedDeviceIds` includes the
+    device's `baseId`; each is a `[data-control-open]` button with title/type and the item count from
+    `countControlItems`.
+  - `renderControlModal(project, deviceId, controlId)`: a `.modal-overlay`/`.modal` (role=dialog) with a
+    `[data-control-modal-close]` × button; three `.panel` lists, one per dataset, of items applicable to
+    the device AND referencing the control (key/decision/status). Backdrop click closes
+    (`[data-control-modal]` where `e.target===el`).
+  - `renderDetail` appends the controls section and (when `_dev.openControlId`) the modal.
+- **Self-tests to add:** panels render with collapse toggles + default expanded + no Control Refs column;
+  assigned controls list as openable with correct counts; empty-controls note; modal lists only
+  device-applicable referencing items (excludes non-referencing) across three dataset panels with a close
+  button.
+- **Definition of done:** panels collapse; Control Refs column gone from the device view only; per-control
+  modal shows exactly the applicable referencing items per dataset; panels stay read-only (DOD-9).
+
+#### T-RV5.2 · Control Refs = removable, searchable checkbox multi-select
+- **Spec:** §18.7 RV5-2, §11.2, CTL-5, A-6
+- **Objective:** Replace the native `<select multiple>` control-refs editor (no remove, modifier-clicks
+  to add) with a searchable **checkbox list** allowing add/remove of any number of controls.
+- **Build (`App.ui.tables`):** `controlSelect` renders `.control-multiselect` = a `[data-control-search]`
+  filter input + a `.ctl-opts` list of `[data-control-ref-toggle]` checkboxes (`data-control-id`,
+  `checked` when referenced) + a selected count. New `change` handler on `[data-control-ref-toggle]`
+  reads the item's `controlRefs`, toggles the one id, and persists via `setItemFields({controlRefs})`.
+  An `input` handler on `[data-control-search]` filters the visible options in place (no store
+  round-trip). Remove the obsolete `data-field-edit="controlRefs"` branch. The column still renders titles.
+- **Self-tests to add:** the editor is no longer a `<select multiple>`; it renders a `data-control-multiselect`
+  container, a search box, checkbox toggles, and the referenced control renders `checked`.
+- **Definition of done:** multiple controls can be selected; any one can be removed; titles display in the
+  column; no free-text box remains.
+
+#### T-RV5.3 · Settings bulk-assignment also accepts a "setting,description,value" CSV
+- **Spec:** §18.7 RV5-3, §18.2 ASG-3/ASG-4, §9
+- **Objective:** Let the settings "set from files" control accept a CSV (`setting,description,value`) in
+  addition to the §9 sectioned capture format.
+- **Build (`android.settings`):** `parseAssignment` runs `parseCsv(raw)` and, if row 0 is exactly
+  `setting,description,value`, delegates to `parseSettingsCsvAssignment` (key = column 1 validated as
+  `<namespace>/<key>`; `decision={value: col3, type:'string'}`; `fields={description: col2}`; located
+  errors for malformed/duplicate keys); otherwise it falls through to the capture-format parser. Update
+  `assignmentHint` to describe both formats. The generic `applyDeviceAssignment` (exact-set + atomic) is
+  unchanged.
+- **Self-tests to add:** the CSV parses to `{value,type,fields.description}` (incl. quoted comma field);
+  a malformed key is rejected; a capture-format file still parses (no false CSV detection); the CSV
+  applies end-to-end via `applyDeviceAssignment`.
+- **Definition of done:** both formats accepted; malformed CSV refused with located issues; description +
+  value applied; exact-set validation intact.

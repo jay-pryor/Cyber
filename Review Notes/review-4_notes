@@ -1,0 +1,4 @@
+1. We dont need to keep "policyList." at the start of the tactical policy list settings names
+2. The 'incomplete only' checkbox is default ticked on the packages tab. Set that to default unticked.
+3. On the control manager tab, can you put the add type and import controls sections to the right of the 'Control Manager' title, rather than beneath it.
+4. For the control manager tab, I'm also not a fan of the controls being individual tabs. I'd rather it be a table as well. If you could also put a dropdown menu for each row similar to like we have for the packages table, etc. and put the 'Remove' button in the dropdown. This table should also have a searching/filtering mechanism like our other tables. Make sure the description column is wide enough and the text wraps if it exceeds column width.

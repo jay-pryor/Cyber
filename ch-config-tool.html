@@ -245,10 +245,41 @@
   .ctl-row { border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); padding: 10px; margin-bottom: 8px; }
   .ctl-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .ctl-devices { margin-top: 6px; }
-  .ctl-tools { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0; }
+  .ctl-header { display: flex; justify-content: space-between; align-items: center; gap: 12px 24px; flex-wrap: wrap; }
+  .ctl-header h2 { margin: 8px 0; }
+  .ctl-tools { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
   .ctl-add-type, .ctl-import { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
   .ctl-add-type input { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .ctl-desc { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; min-height: 46px; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
   .dev-search { width: 100%; max-width: 520px; font: inherit; padding: 6px 8px; margin: 8px 0; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
+
+  /* Control-refs multi-select (review-5 #2): searchable checkbox list. */
+  .control-multiselect { border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); padding: 6px; max-width: 360px; }
+  .control-multiselect .ctl-opt-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 4px 6px; margin-bottom: 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .control-multiselect .ctl-opts { max-height: 150px; overflow-y: auto; }
+  .control-multiselect .ctl-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
+  .control-multiselect .ctl-opt-count { margin-top: 4px; }
+
+  /* Collapsible device panels (review-5 #1). */
+  .panel > h3 .panel-toggle { background: none; border: none; cursor: pointer; color: inherit; font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; text-align: left; }
+  .panel.collapsed .panel-note, .panel.collapsed table, .panel.collapsed .empty { display: none; }
+
+  /* Per-device control list + the "actions for this control" modal (review-5 #1). */
+  .dev-controls { margin-top: 16px; }
+  .dev-controls h3 { margin: 0 0 6px; font-size: 15px; }
+  .ctl-applies-list { display: flex; flex-direction: column; gap: 6px; max-width: 760px; }
+  .ctl-applies-item { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); color: var(--c-text); font: inherit; cursor: pointer; }
+  .ctl-applies-item:hover { background: var(--c-surface-alt); }
+  .ctl-applies-item .ctl-applies-title { font-weight: 600; }
+  .ctl-applies-item .ctl-applies-count { margin-left: auto; color: var(--c-text-muted); font-size: 12px; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+  .modal { background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 10px; max-width: 900px; width: 100%; max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
+  .modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--c-border); }
+  .modal-head h3 { margin: 0; font-size: 16px; }
+  .modal-head .modal-sub { color: var(--c-text-muted); font-size: 12px; }
+  .modal-close { margin-left: auto; background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--c-text); padding: 0 4px; }
+  .modal-body { padding: 14px 16px; overflow-y: auto; }
 
   /* Draft restore banner */
   .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
@@ -2439,9 +2470,13 @@
         var keys = Object.keys(node);
         for (var j = 0; j < keys.length; j++) {
           var k = keys[j], childPath = path ? path + '.' + k : k;
-          // policyList special-case (review-3 #3): one leaf per policy, keyed by its
-          // name, valued by `checked`. (e.g. {name:'Disable Bluetooth', checked:false}
-          // -> key 'policyList.Disable Bluetooth' = false.) Rebuild mirrors this.
+          // policyList special-case (review-3 #3): one leaf per policy, keyed (for
+          // STORAGE/ROUTING) by `…policyList.<name>` and valued by `checked` (e.g.
+          // {name:'Disable Bluetooth', checked:false} -> key 'policyList.Disable
+          // Bluetooth' = false). Rebuild mirrors this. The `policyList.` segment is a
+          // stable internal identity; it is stripped for DISPLAY only via
+          // `tactical.displayKey` (review-4 #1) so it never collides with sibling
+          // keys nor breaks already-saved projects.
           if (k === 'policyList' && isPolicyArray(node[k])) {
             node[k].forEach(function (pol) { leaves.push({ key: childPath + '.' + pol.name, value: pol.checked, type: jsType(pol.checked) }); });
             continue;
@@ -2450,6 +2485,23 @@
         }
       })(doc, '');
       return leaves;
+    }
+
+    /**
+     * Strip the `policyList.` segment from a tactical key for DISPLAY only
+     * (review-4 #1): `policyList.Disable Bluetooth` -> `Disable Bluetooth`, and a
+     * nested `foo.policyList.Bar` -> `foo.Bar`. The STORED/routed key keeps the
+     * segment, so this is purely cosmetic and never affects rebuild, storage, or
+     * already-saved projects. Idempotent on keys without the segment.
+     * @param {string} key
+     * @returns {string}
+     */
+    function stripPolicyPrefix(key) {
+      if (typeof key !== 'string') return key;
+      if (key.indexOf('policyList.') === 0) return key.slice('policyList.'.length);
+      var m = key.indexOf('.policyList.');
+      if (m >= 0) return key.slice(0, m) + '.' + key.slice(m + '.policyList.'.length);
+      return key;
     }
 
     /**
@@ -2611,6 +2663,43 @@
     var SETTINGS_KEY_RE = /^[A-Za-z0-9._:#-]+$/;
     var SETTINGS_NS_HEADER_RE = /^(system|secure|global)\s*:\s*$/;
 
+    // review-5 #3: an alternative settings-assignment format — a CSV whose header
+    // row is exactly "setting,description,value". Column 1 is the stored setting key
+    // (namespace/key, e.g. secure/location_mode), column 2 a free-text description,
+    // column 3 the value (applied verbatim, type 'string'). Detected by the header;
+    // any other input falls through to the §9 sectioned capture format.
+    /** @param {string[]} row @returns {boolean} */
+    function isSettingsCsvHeader(row) {
+      return !!row && row.length === 3 &&
+        String(row[0]).trim() === 'setting' &&
+        String(row[1]).trim() === 'description' &&
+        String(row[2]).trim() === 'value';
+    }
+    /** Parse a "setting,description,value" CSV into bulk-assignment entries.
+     * @param {string[][]} rows  Parsed CSV rows (row 0 is the validated header).
+     * @returns {{assignments:Array,warnings:Issue[],errors:Issue[]}} */
+    function parseSettingsCsvAssignment(rows) {
+      var assignments = [], warnings = [], errors = [], seen = {};
+      for (var i = 1; i < rows.length; i++) {
+        var r = rows[i], loc = 'line ' + (i + 1);
+        if (r.length === 1 && String(r[0]).trim() === '') continue; // blank line
+        if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected 3 columns (setting,description,value).', location: loc }); continue; }
+        var key = String(r[0]).trim(), desc = String(r[1]), value = String(r[2]);
+        if (!key) { errors.push({ category: 'parse', severity: 'error', message: 'Empty setting key.', location: loc }); continue; }
+        var slash = key.indexOf('/');
+        var ns = slash === -1 ? '' : key.slice(0, slash), keyseg = slash === -1 ? '' : key.slice(slash + 1);
+        if (SETTINGS_NAMESPACES.indexOf(ns) === -1 || !SETTINGS_KEY_RE.test(keyseg)) {
+          errors.push({ category: 'parse', severity: 'error', message: 'Malformed setting key "' + key + '".', location: loc, fix: 'Use "<namespace>/<key>" with namespace system|secure|global.' });
+          continue;
+        }
+        if (seen[key]) { errors.push({ category: 'parse', severity: 'error', message: 'Duplicate setting "' + key + '".', location: loc }); continue; }
+        seen[key] = true;
+        assignments.push({ key: key, decision: { value: value, type: 'string' }, fields: { description: desc } });
+      }
+      if (!assignments.length && !errors.length) errors.push({ category: 'parse', severity: 'error', message: 'No setting rows found.', location: 'file' });
+      return { assignments: assignments, warnings: warnings, errors: errors };
+    }
+
     var settings = {
       id: 'android.settings',
       label: 'Settings',
@@ -2722,9 +2811,17 @@
         if (snap && snap.values) Object.keys(snap.values).forEach(function (k) { out[k] = { value: snap.values[k], type: 'string' }; });
         return out;
       },
-      // ---- bulk assignment (spec §18.2): reuse the capture parser; value verbatim, type defaults to string ----
-      assignmentHint: 'Settings capture format: "<namespace>:" header lines (system/secure/global) followed by key=value lines. Values are applied verbatim (type defaults to string).',
+      // ---- bulk assignment (spec §18.2 + review-5 #3): two accepted formats ----
+      assignmentHint: 'Either (a) a CSV with header exactly "setting,description,value" (column 1 = namespace/key, e.g. secure/location_mode; column 3 = the value), or (b) the capture format: "<namespace>:" header lines (system/secure/global) + key=value lines. Values are applied verbatim (type defaults to string).',
       parseAssignment: function (raw) {
+        // review-5 #3: also accept a "setting,description,value" CSV. Detect it by
+        // the header row; anything else is parsed as the §9 capture format. parseCsv
+        // never throws here, but guard anyway so a non-CSV input cannot break detection.
+        var csvRows = null;
+        try { csvRows = parseCsv(raw); } catch (e) { csvRows = null; }
+        if (csvRows && csvRows.length && isSettingsCsvHeader(csvRows[0])) {
+          return parseSettingsCsvAssignment(csvRows);
+        }
         var pr = this.parse(raw);
         return { assignments: pr.keys.map(function (k) { return { key: k, decision: { value: pr.values[k], type: 'string' } }; }), warnings: pr.warnings, errors: pr.errors };
       }
@@ -2789,8 +2886,12 @@
         return item.decision !== null && this.validateDecision(item).every(function (i) { return i.severity !== 'error'; });
       },
 
+      // Strip the internal `policyList.` segment for human-facing key display
+      // (review-4 #1). Storage/routing keys are unaffected.
+      displayKey: stripPolicyPrefix,
+
       columns: [
-        { key: 'key', label: 'Path', get: function (it) { return it.key; } },
+        { key: 'key', label: 'Path', get: function (it) { return stripPolicyPrefix(it.key); } },
         { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
         { key: 'decision', label: 'Value', get: function (it) { return it.decision ? stableStringify(it.decision.value) : ''; } },
         { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
@@ -2816,13 +2917,14 @@
           'Applied by manual upload of tactical.json to Knox tactical; confirm in the Knox console.', ''];
         items.slice().sort(byKey).forEach(function (it) {
           if (!it.decision) return;
-          lines.push('EVIDENCED ' + it.key + ' = ' + stableStringify(it.decision.value));
+          // Show the human-facing policy name (review-4 #1), consistent with the report.
+          lines.push('EVIDENCED ' + stripPolicyPrefix(it.key) + ' = ' + stableStringify(it.decision.value));
         });
         return [{ name: 'tactical.verify.txt', content: lines.join('\n') }];
       },
       renderReportSection: function (items, ctx) {
         var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? stableStringify(it.decision.value) : '') +
+          return '<tr><td>' + esc(stripPolicyPrefix(it.key)) + '</td><td>' + esc(it.decision ? stableStringify(it.decision.value) : '') +
             '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
         return '<h2>Tactical</h2><table><thead><tr><th>Path</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
@@ -2851,7 +2953,8 @@
       packages: packages, settings: settings, tactical: tactical,
       psSingleQuote: psSingleQuote, shSingleQuote: shSingleQuote,
       parsePath: parsePath, setAtPath: setAtPath, flattenTactical: flattenTactical,
-      rebuildTacticalDoc: rebuildTacticalDoc, normalizeSettingValue: normalizeSettingValue
+      rebuildTacticalDoc: rebuildTacticalDoc, stripPolicyPrefix: stripPolicyPrefix,
+      normalizeSettingValue: normalizeSettingValue
     };
   })(App);
   </script>
@@ -3417,13 +3520,15 @@
       var byCtl = {}; var ctlLabel = {};
       var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
       platform.datasets.forEach(function (ds) {
+        var adapter = App.registry.getDataset(project.platformProfileId, ds.id);
+        var dispKey = (adapter && adapter.displayKey) || function (k) { return k; };
         gather(project, deviceId, ds.id).forEach(function (it) {
           var refs = (it.controlRefs && it.controlRefs.length) ? it.controlRefs : ['__none__'];
           refs.forEach(function (ref) {
             var c = controlsById[ref];
             ctlLabel[ref] = ref === '__none__' ? '(no control)' : (c ? (c.title + ' (' + c.type + ')') : ref);
             byCtl[ref] = byCtl[ref] || {};
-            (byCtl[ref][ds.label] = byCtl[ref][ds.label] || []).push(it.key);
+            (byCtl[ref][ds.label] = byCtl[ref][ds.label] || []).push(dispKey(it.key));
           });
         });
       });
@@ -3692,13 +3797,29 @@
     }
 
     /** Render the expanded detail editor row (description/ISM/rationale/rollback + issues). */
-    /** Multi-select over the control catalogue (spec §18.3 CTL-5) — no free text. */
+    /**
+     * Multi-select over the control catalogue (spec §18.3 CTL-5; review-5 #2).
+     * A native <select multiple> made it impossible to add more than one ref or to
+     * remove one without modifier-clicks, so this is a searchable CHECKBOX list:
+     * each control is a checkbox (checked = referenced); ticking/unticking toggles
+     * that single ref, so any number can be added and any one removed independently.
+     * The search box filters the visible options client-side (no store round-trip).
+     */
     function controlSelect(dsId, key, refs, controls) {
       if (!controls.length) return '<span class="muted" style="font-size:12px">No controls yet — add them in Control Manager.</span>';
       var sel = {}; (refs || []).forEach(function (r) { sel[r] = true; });
       var opts = controls.slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; })
-        .map(function (c) { return '<option value="' + esc(c.id) + '"' + (sel[c.id] ? ' selected' : '') + '>' + esc(c.title + ' (' + c.type + ')') + '</option>'; }).join('');
-      return '<select multiple data-field-edit="controlRefs" data-ds="' + esc(dsId) + '" data-key="' + esc(key) + '" size="4" aria-label="Control refs">' + opts + '</select>';
+        .map(function (c) {
+          return '<label class="ctl-opt" data-ctl-opt>' +
+            '<input type="checkbox" data-control-ref-toggle data-ds="' + esc(dsId) + '" data-key="' + esc(key) + '" data-control-id="' + esc(c.id) + '"' + (sel[c.id] ? ' checked' : '') + '> ' +
+            '<span>' + esc(c.title) + ' <span class="muted">(' + esc(c.type) + ')</span></span></label>';
+        }).join('');
+      var count = (refs || []).length;
+      return '<div class="control-multiselect" data-control-multiselect>' +
+        '<input type="search" class="ctl-opt-search" data-control-search placeholder="Filter controls…" aria-label="Filter controls">' +
+        '<div class="ctl-opts">' + opts + '</div>' +
+        '<div class="muted ctl-opt-count" style="font-size:11px">' + count + ' selected</div>' +
+        '</div>';
     }
 
     function renderDetailRow(dsId, item, colspan, issues, controls) {
@@ -3937,9 +4058,10 @@
         App.ui.activity.log({ severity: 'info', message: d.label + ': ' + pd.newCount + ' new, ' + pd.existingCount + ' inherited.' });
       });
 
-      // Reset the form and switch focus to the first dataset, Incomplete-only (spec §11.4).
+      // Reset the form and switch focus to the first dataset (review-4 #2: land with
+      // the Incomplete-only filter UNticked so the full list shows by default).
       _ob = { fields: { name: '', model: '', firmware: '' }, slots: {} };
-      _ctx.openDatasetIncomplete(ds[0].id);
+      _ctx.switchTab(ds[0].id);
     }
 
     function wire(ctx) {
@@ -4072,7 +4194,7 @@
   (function (App) {
     'use strict';
     var esc = App.util.html.esc;
-    var _dev = { selectedId: null, assignResults: {}, detailSearch: '' };
+    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null };
     var _devSearchTimer = null;
     var _ctx = null;
 
@@ -4137,30 +4259,113 @@
     }
 
     /** The read-only device-configuration view: three panels (spec §11.3, DOD-9). */
-    /** The three read-only panels, filtered by an optional search term (review-3 #6). */
+    /**
+     * The three read-only panels, filtered by an optional search term (review-3 #6).
+     * Each panel is COLLAPSIBLE (review-5 #1) and the Control Refs column is dropped
+     * here (review-5 #1) — control↔item links are surfaced via the per-control view
+     * below instead.
+     */
     function renderPanels(project, deviceId, search) {
       var q = (search || '').toLowerCase().trim();
-      var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
       return datasets(project).map(function (d) {
         var adapter = App.registry.getDataset(project.platformProfileId, d.id);
         var get = decisionGet(adapter);
         var decided = applicable(project, deviceId, d.id).filter(function (it) { return it.status === 'decided'; });
+        var dispKey = adapter.displayKey || function (k) { return k; };
         var rows = decided.slice().sort(function (a, b) { return a.key < b.key ? -1 : 1; }).map(function (it) {
-          var titles = (it.controlRefs || []).map(function (id) { return controlsById[id] ? controlsById[id].title : id; }).join(', ');
-          return { it: it, dec: String(get(it)), titles: titles };
+          return { it: it, disp: dispKey(it.key), dec: String(get(it)) };
         }).filter(function (r) {
           if (!q) return true;
-          return (r.it.key + ' ' + r.dec + ' ' + r.titles + ' ' + (r.it.description || '')).toLowerCase().indexOf(q) !== -1;
+          return (r.disp + ' ' + r.dec + ' ' + (r.it.description || '')).toLowerCase().indexOf(q) !== -1;
         });
         var bodyRows = rows.map(function (r) {
-          return '<tr><td>' + esc(r.it.key) + '</td><td>' + esc(r.dec) + '</td><td>' + esc(r.titles) + '</td></tr>';
+          return '<tr><td>' + esc(r.disp) + '</td><td>' + esc(r.dec) + '</td></tr>';
         }).join('');
         var body = rows.length
-          ? '<table><thead><tr><th>Key</th><th>Decision</th><th>Control Refs</th></tr></thead><tbody>' + bodyRows + '</tbody></table>'
+          ? '<table><thead><tr><th>Key</th><th>Decision</th></tr></thead><tbody>' + bodyRows + '</tbody></table>'
           : '<div class="empty">' + (q ? 'No matching decided items.' : 'No decided items.') + '</div>';
         var note = '<div class="panel-note">' + rows.length + (q ? ' matching' : '') + ' of ' + decided.length + ' decided</div>';
-        return '<div class="panel"><h3>' + esc(d.label) + '</h3>' + note + body + '</div>';
+        var collapsed = !!_dev.collapsed[d.id];
+        var caret = collapsed ? '▸' : '▾';
+        return '<div class="panel' + (collapsed ? ' collapsed' : '') + '">' +
+          '<h3><button type="button" class="panel-toggle" data-panel-toggle="' + esc(d.id) + '" aria-expanded="' + (!collapsed) + '"><span class="caret">' + caret + '</span> ' + esc(d.label) + '</button></h3>' +
+          note + body + '</div>';
       }).join('');
+    }
+
+    /**
+     * Controls assigned to this device, each a button that opens a modal listing the
+     * exact items (per dataset) applicable to BOTH this device and that control —
+     * i.e. what is done to satisfy that control here (review-5 #1).
+     */
+    function renderDeviceControls(project, deviceId) {
+      var dc = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      if (!dc) return '';
+      var controls = (project.controls || []).filter(function (c) {
+        return (c.assignedDeviceIds || []).indexOf(dc.baseId) !== -1;
+      }).sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
+      var inner;
+      if (!controls.length) {
+        inner = '<p class="muted">No controls are assigned to this device. Assign controls to devices in the <strong>Control Manager</strong> tab.</p>';
+      } else {
+        inner = '<div class="ctl-applies-list">' + controls.map(function (c) {
+          var n = countControlItems(project, deviceId, c.id);
+          return '<button type="button" class="ctl-applies-item" data-control-open="' + esc(c.id) + '">' +
+            '<span class="ctl-applies-title">' + esc(c.title) + '</span>' +
+            '<span class="muted">' + esc(c.type) + '</span>' +
+            '<span class="ctl-applies-count">' + n + ' item' + (n === 1 ? '' : 's') + '</span></button>';
+        }).join('') + '</div>';
+      }
+      return '<div class="dev-controls"><h3>Controls applying to this device</h3>' +
+        '<p class="muted" style="font-size:12px">Click a control to see exactly which packages, settings and tactical items satisfy it on this device.</p>' +
+        inner + '</div>';
+    }
+
+    /** Count items applicable to a device that reference a given control (all datasets). */
+    function countControlItems(project, deviceId, controlId) {
+      return datasets(project).reduce(function (sum, d) {
+        return sum + applicable(project, deviceId, d.id).filter(function (it) {
+          return (it.controlRefs || []).indexOf(controlId) !== -1;
+        }).length;
+      }, 0);
+    }
+
+    /**
+     * Modal: for one control + device, three read-only lists of the items applicable
+     * to the device that reference the control (review-5 #1). Closed via the × button
+     * or a backdrop click.
+     */
+    function renderControlModal(project, deviceId, controlId) {
+      var control = (project.controls || []).filter(function (c) { return c.id === controlId; })[0];
+      if (!control) return '';
+      var lists = datasets(project).map(function (d) {
+        var adapter = App.registry.getDataset(project.platformProfileId, d.id);
+        var get = decisionGet(adapter);
+        var dispKey = adapter.displayKey || function (k) { return k; };
+        var items = applicable(project, deviceId, d.id).filter(function (it) {
+          return (it.controlRefs || []).indexOf(controlId) !== -1;
+        }).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
+        var rows = items.map(function (it) {
+          var statusBadge = it.status === 'decided'
+            ? '<span class="badge decided">decided</span>'
+            : '<span class="badge undecided">undecided</span>';
+          return '<tr><td>' + esc(dispKey(it.key)) + '</td><td>' + esc(it.decision ? String(get(it)) : '') + '</td><td>' + statusBadge + '</td></tr>';
+        }).join('');
+        var body = items.length
+          ? '<table><thead><tr><th>Key</th><th>Decision</th><th>Status</th></tr></thead><tbody>' + rows + '</tbody></table>'
+          : '<div class="empty">No items reference this control on this device.</div>';
+        return '<div class="panel"><h3>' + esc(d.label) + ' (' + items.length + ')</h3>' + body + '</div>';
+      }).join('');
+      return '<div class="modal-overlay" data-control-modal>' +
+        '<div class="modal" role="dialog" aria-modal="true" aria-label="Actions satisfying control ' + esc(control.title) + '">' +
+          '<div class="modal-head">' +
+            '<div><h3>' + esc(control.title) + '</h3>' +
+            '<div class="modal-sub">' + esc(control.type) + (control.description ? ' · ' + esc(control.description) : '') + '</div></div>' +
+            '<button type="button" class="modal-close" data-control-modal-close aria-label="Close">×</button>' +
+          '</div>' +
+          '<div class="modal-body"><div class="panels">' + lists + '</div></div>' +
+        '</div>' +
+      '</div>';
     }
 
     function renderDetail(project, deviceId) {
@@ -4178,7 +4383,9 @@
         banner +
         '<input class="dev-search" type="search" data-dev-search placeholder="Filter this device\'s packages, settings & tactical…" value="' + esc(_dev.detailSearch || '') + '" aria-label="Filter device items">' +
         '<div class="panels" id="dev-panels">' + renderPanels(project, deviceId, _dev.detailSearch) + '</div>' +
+        renderDeviceControls(project, deviceId) +
         (isLatest ? renderAssignSection(project, deviceId) : '') +
+        (_dev.openControlId ? renderControlModal(project, deviceId, _dev.openControlId) : '') +
         '</div>';
     }
 
@@ -4217,8 +4424,25 @@
 
     function wire(ctx) {
       _ctx = ctx;
-      App.util.dom.on(ctx.root, 'click', '[data-device-view]', function (e, el) { _dev.selectedId = el.getAttribute('data-device-view'); _dev.assignResults = {}; _dev.detailSearch = ''; ctx.refreshMain(); });
-      App.util.dom.on(ctx.root, 'click', '[data-device-back]', function () { _dev.selectedId = null; _dev.assignResults = {}; _dev.detailSearch = ''; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'click', '[data-device-view]', function (e, el) { _dev.selectedId = el.getAttribute('data-device-view'); _dev.assignResults = {}; _dev.detailSearch = ''; _dev.collapsed = {}; _dev.openControlId = null; ctx.refreshMain(); });
+      App.util.dom.on(ctx.root, 'click', '[data-device-back]', function () { _dev.selectedId = null; _dev.assignResults = {}; _dev.detailSearch = ''; _dev.collapsed = {}; _dev.openControlId = null; ctx.refreshMain(); });
+      // Collapse/expand a device panel (review-5 #1) — re-render only the panels so
+      // the search box keeps focus and the rest of the view is untouched.
+      App.util.dom.on(ctx.root, 'click', '[data-panel-toggle]', function (e, el) {
+        var dsId = el.getAttribute('data-panel-toggle');
+        _dev.collapsed[dsId] = !_dev.collapsed[dsId];
+        var host = document.getElementById('dev-panels');
+        if (host && _dev.selectedId) host.innerHTML = renderPanels(App.store.getProject(), _dev.selectedId, _dev.detailSearch);
+      });
+      // Open the per-control "actions on this device" modal (review-5 #1).
+      App.util.dom.on(ctx.root, 'click', '[data-control-open]', function (e, el) {
+        _dev.openControlId = el.getAttribute('data-control-open'); ctx.refreshMain();
+      });
+      App.util.dom.on(ctx.root, 'click', '[data-control-modal-close]', function () { _dev.openControlId = null; ctx.refreshMain(); });
+      // Backdrop click closes (but a click inside the modal does not bubble to here as the overlay).
+      App.util.dom.on(ctx.root, 'click', '[data-control-modal]', function (e, el) {
+        if (e.target === el) { _dev.openControlId = null; ctx.refreshMain(); }
+      });
       // Device-detail search: re-render ONLY the panels so the search box keeps focus.
       App.util.dom.on(ctx.root, 'input', '[data-dev-search]', function (e, el) {
         var val = el.value;
@@ -4249,7 +4473,7 @@
 
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
-    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels };
+    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems };
   })(App);
   </script>
 
@@ -4304,9 +4528,12 @@
           '<div class="ctl-line">' +
             '<input type="text" data-ctl-field="title" data-ctl-id="' + esc(c.id) + '" value="' + esc(c.title) + '" aria-label="title">' +
             '<select data-ctl-field="type" data-ctl-id="' + esc(c.id) + '" aria-label="type">' + typeOptions(c.type) + '</select>' +
-            '<input type="text" data-ctl-field="description" data-ctl-id="' + esc(c.id) + '" value="' + esc(c.description || '') + '" placeholder="Description" aria-label="description" style="flex:1;min-width:200px">' +
             '<button data-ctl-remove="' + esc(c.id) + '">Remove</button>' +
           '</div>' +
+          // review-4 #4: full-width wrapping description box (textarea wraps long text).
+          // The leading "\n" right after ">" is sacrificial: HTML drops one leading
+          // newline inside <textarea>, so this preserves a description's own leading newline.
+          '<textarea class="ctl-desc" data-ctl-field="description" data-ctl-id="' + esc(c.id) + '" placeholder="Description" aria-label="description">\n' + esc(c.description || '') + '</textarea>' +
           '<div class="ctl-devices"><span class="muted" style="font-size:12px">Applies to: </span>' + deviceCheckboxes(project, c.id, c.assignedDeviceIds) + '</div>' +
           '</div>';
       }).join('') || '<p class="muted">No controls yet — add one above, or they are created automatically when migrating a v1 project.</p>';
@@ -4324,9 +4551,10 @@
           '<input type="file" data-ctl-import-file accept=".csv,text/csv" class="visually-hidden" aria-hidden="true">' +
         '</div></div>';
 
-      return '<div style="max-width:900px"><h2>Control Manager</h2>' +
+      // review-4 #3: the add-type + import tools sit to the RIGHT of the title, not beneath it.
+      return '<div style="max-width:1100px">' +
+        '<div class="ctl-header"><h2>Control Manager</h2>' + tools + '</div>' +
         '<p class="muted">Controls are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs).</p>' +
-        tools +
         addForm +
         '<div class="ctl-list">' + rows + '</div>' +
         '</div>';
@@ -4699,11 +4927,28 @@
       dom.on(_root, 'change', '[data-field-edit]', function (e, el) {
         var field = el.getAttribute('data-field-edit'), dsId = el.getAttribute('data-ds'), key = el.getAttribute('data-key');
         var fields = {};
-        if (field === 'controlRefs') {
-          // Multi-select of control ids (spec §18.3 CTL-5).
-          fields.controlRefs = Array.prototype.map.call(el.selectedOptions || [], function (o) { return o.value; });
-        } else fields[field] = el.value;
+        fields[field] = el.value;
         App.store.setItemFields(dsId, key, fields);
+      });
+      // Control-refs checkbox toggle (review-5 #2): tick/untick adds/removes one ref
+      // from the item's controlRefs, so multiple can be selected and any one removed.
+      dom.on(_root, 'change', '[data-control-ref-toggle]', function (e, el) {
+        var dsId = el.getAttribute('data-ds'), key = el.getAttribute('data-key'), id = el.getAttribute('data-control-id');
+        var project = App.store.getProject(); if (!project) return;
+        var item = (project.items[dsId] || []).filter(function (it) { return it.key === key; })[0];
+        if (!item) return;
+        var refs = (item.controlRefs || []).filter(function (r) { return r !== id; });
+        if (el.checked) refs.push(id);
+        App.store.setItemFields(dsId, key, { controlRefs: refs });
+      });
+      // Filter the control checkbox list in place (no store round-trip / re-render).
+      dom.on(_root, 'input', '[data-control-search]', function (e, el) {
+        var q = el.value.toLowerCase().trim();
+        var box = el.closest('[data-control-multiselect]');
+        if (!box) return;
+        Array.prototype.forEach.call(box.querySelectorAll('[data-ctl-opt]'), function (lab) {
+          lab.style.display = (!q || lab.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+        });
       });
       dom.on(_root, 'click', '[data-action="toggle-drawer"]', function () { _state.drawerCollapsed = !_state.drawerCollapsed; render(); });
       dom.on(_root, 'click', '[data-action="clear-drawer"]', function () { App.ui.activity.clear(); });
@@ -4876,7 +5121,6 @@
         refresh: render,
         refreshMain: renderMain,
         switchTab: function (t) { _state.activeTab = t; render(); },
-        openDatasetIncomplete: function (dsId) { _state.activeTab = dsId; uiFor(dsId).incompleteOnly = true; render(); },
         uiFor: uiFor
       };
     }
@@ -5389,6 +5633,46 @@
       });
     });
 
+    T.suite('review-5 #1 device panels collapsible + per-control view', function (s) {
+      s.test('panels are collapsible and DROP the Control Refs column', function () {
+        var p = setup();
+        var html = App.ui.views.devices.renderPanels(p, 'tab-m1', '');
+        T.assert(/data-panel-toggle="android.packages"/.test(html), 'no panel collapse toggle');
+        T.assert(/aria-expanded="true"/.test(html), 'panel should default expanded');
+        T.assert(html.indexOf('Control Refs') === -1, 'Control Refs column should be removed from the device panels');
+        T.assert(/<th>Key<\/th><th>Decision<\/th>/.test(html), 'panel table should be Key/Decision only');
+      });
+      s.test('controls assigned to the device are listed, clickable, with a count', function () {
+        setup();
+        var ctlId = App.store.addControl({ title: 'No BT', type: 'ISM', assignedDeviceIds: ['tab-m1'] }).id;
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [ctlId] });
+        var p = App.store.getProject();
+        var html = App.ui.views.devices.renderDeviceControls(p, 'tab-m1');
+        T.assert(new RegExp('data-control-open="' + ctlId + '"').test(html), 'control not listed as openable');
+        T.assert(/No BT/.test(html), 'control title not shown');
+        // com.a (applicable to tab-m1 + references the control) counts; com.b applicable but unref'd does not.
+        T.assertEqual(App.ui.views.devices.countControlItems(p, 'tab-m1', ctlId), 1);
+        T.assert(/1 item/.test(html), 'item count not shown on the control row');
+      });
+      s.test('a device with no assigned controls shows the empty note', function () {
+        var p = setup();
+        var html = App.ui.views.devices.renderDeviceControls(p, 'tab-m1');
+        T.assert(/No controls are assigned/.test(html), 'expected the empty-controls note');
+      });
+      s.test('the control modal lists ONLY device-applicable items referencing the control', function () {
+        setup();
+        var ctlId = App.store.addControl({ title: 'No BT', type: 'ISM', assignedDeviceIds: ['tab-m1'] }).id;
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [ctlId] });
+        var p = App.store.getProject();
+        var html = App.ui.views.devices.renderControlModal(p, 'tab-m1', ctlId);
+        T.assert(/modal-overlay/.test(html) && /data-control-modal/.test(html), 'no modal overlay');
+        T.assert(/data-control-modal-close/.test(html), 'no close (×) button');
+        T.assert(html.indexOf('com.a') !== -1, 'referencing applicable item should appear');
+        T.assert(html.indexOf('com.b') === -1, 'a non-referencing applicable item must NOT appear');
+        T.assertEqual((html.match(/class="panel"/g) || []).length, 3); // one list per dataset
+      });
+    });
+
   })(App);
   </script>
 
@@ -5547,9 +5831,10 @@
       });
     });
 
-    T.suite('review-3 #3 policyList parsing', function (s) {
+    T.suite('review-3 #3 / review-4 #1 policyList (prefixed internal key, stripped for display)', function (s) {
       var doc = { policyList: [{ checked: false, name: 'Disable Bluetooth' }, { checked: true, name: 'Enable X' }], other: 1 };
-      s.test('flatten keys by policy name, valued by checked', function () {
+      var tac = A.tactical; // adapter object directly (no platform registration needed)
+      s.test('flatten keys policies by `policyList.<name>` (stable internal identity), valued by checked', function () {
         var leaves = A.flattenTactical(doc), by = {};
         leaves.forEach(function (l) { by[l.key] = l; });
         T.assertEqual(by['policyList.Disable Bluetooth'].value, false);
@@ -5558,13 +5843,40 @@
         T.assert(!leaves.some(function (l) { return /policyList\[/.test(l.key); }), 'no index-style policy keys');
         T.assertEqual(by['other'].value, 1);
       });
-      s.test('rebuild applies checked by name (round-trips + targeted change)', function () {
+      s.test('review-4 #1: displayKey strips the policyList. prefix (incl. nested) but NOT the stored key', function () {
+        T.assertEqual(A.stripPolicyPrefix('policyList.Disable Bluetooth'), 'Disable Bluetooth');
+        T.assertEqual(A.stripPolicyPrefix('parent.policyList.Bar'), 'parent.Bar');
+        T.assertEqual(A.stripPolicyPrefix('com.example.flag'), 'com.example.flag', 'non-policy keys are untouched');
+        T.assertEqual(tac.displayKey('policyList.Disable Bluetooth'), 'Disable Bluetooth');
+        // The tactical Path column shows the bare name; the stored key keeps the prefix.
+        var keyCol = tac.columns.filter(function (c) { return c.key === 'key'; })[0];
+        T.assertEqual(keyCol.get({ key: 'policyList.Disable Bluetooth' }), 'Disable Bluetooth');
+      });
+      s.test('rebuild routes checked by name via the prefixed key (round-trips + targeted change)', function () {
         var leaves = A.flattenTactical(doc);
         var items = leaves.map(function (l) { return { key: l.key, decision: { value: l.value }, controlRefs: [], status: 'decided' }; });
         T.assertEqual(App.util.stable.stableStringify(A.rebuildTacticalDoc(doc, items)), App.util.stable.stableStringify(doc));
         var changed = A.rebuildTacticalDoc(doc, [{ key: 'policyList.Disable Bluetooth', decision: { value: true }, controlRefs: [], status: 'decided' }]);
         T.assertEqual(changed.policyList.filter(function (p) { return p.name === 'Disable Bluetooth'; })[0].checked, true);
         T.assertEqual(changed.policyList.filter(function (p) { return p.name === 'Enable X'; })[0].checked, true); // untouched
+      });
+      s.test('a policy name containing dots: stored prefixed, displayed bare, routes correctly', function () {
+        var d2 = { policyList: [{ checked: false, name: 'Disable Hotspot 2.0' }] };
+        var leaves = A.flattenTactical(d2);
+        T.assertEqual(leaves[0].key, 'policyList.Disable Hotspot 2.0');
+        T.assertEqual(tac.displayKey(leaves[0].key), 'Disable Hotspot 2.0');
+        var changed = A.rebuildTacticalDoc(d2, [{ key: 'policyList.Disable Hotspot 2.0', decision: { value: true }, controlRefs: [], status: 'decided' }]);
+        T.assertEqual(changed.policyList[0].checked, true);
+      });
+      s.test('review-4 #1 regression: a sibling key sharing a policy name is NOT misrouted (no collision)', function () {
+        // 'enabled' exists BOTH as a real top-level field and as a policy name.
+        var d3 = { enabled: true, policyList: [{ checked: false, name: 'enabled' }] };
+        var out = A.rebuildTacticalDoc(d3, [
+          { key: 'enabled', decision: { value: false }, controlRefs: [], status: 'decided' },                 // the real field
+          { key: 'policyList.enabled', decision: { value: true }, controlRefs: [], status: 'decided' }        // the policy
+        ]);
+        T.assertEqual(out.enabled, false, 'real top-level field must take its own decision');
+        T.assertEqual(out.policyList[0].checked, true, 'policy must take its own decision');
       });
     });
 
@@ -5770,6 +6082,26 @@
         var tc = App.registry.getDataset('android-adb', 'android.tactical').parseAssignment('{"enabled":false}');
         T.assertDeepEqual(tc.assignments[0], { key: 'enabled', decision: { value: false } });
       });
+      s.test('review-5 #3: settings ALSO accept a "setting,description,value" CSV', function () {
+        ensureA();
+        var a = App.registry.getDataset('android-adb', 'android.settings');
+        var r = a.parseAssignment('setting,description,value\nsecure/location_mode,GPS off,0\nglobal/foo,"desc, with comma",hello world');
+        T.assertEqual(r.errors.length, 0);
+        T.assertEqual(r.assignments.length, 2);
+        T.assertDeepEqual(r.assignments[0], { key: 'secure/location_mode', decision: { value: '0', type: 'string' }, fields: { description: 'GPS off' } });
+        T.assertEqual(r.assignments[1].fields.description, 'desc, with comma');
+        T.assertEqual(r.assignments[1].decision.value, 'hello world');
+      });
+      s.test('review-5 #3: settings CSV rejects a malformed key; the §9 capture format still works', function () {
+        ensureA();
+        var a = App.registry.getDataset('android-adb', 'android.settings');
+        var bad = a.parseAssignment('setting,description,value\nbadkey-no-namespace,d,1');
+        T.assert(bad.errors.some(function (e) { return /Malformed setting key/.test(e.message); }), 'malformed key not rejected');
+        // A non-CSV capture file is still parsed by the sectioned parser (no false CSV detection).
+        var cap = a.parseAssignment('secure:\nx=5');
+        T.assertEqual(cap.errors.length, 0);
+        T.assertDeepEqual(cap.assignments[0], { key: 'secure/x', decision: { value: '5', type: 'string' } });
+      });
     });
 
     T.suite('T9.3 store.applyDeviceAssignment (exact-set + atomic)', function (s) {
@@ -5814,6 +6146,23 @@
         var res = App.store.applyDeviceAssignment('asg-m1', 'android.packages', a.parseAssignment('package,action,description\ncom.a,keep,x\ncom.z,keep,y'));
         T.assertEqual(res.ok, false);
         T.assert(res.issues.some(function (i) { return /not applicable/.test(i.message) && /com\.z/.test(i.message); }));
+      });
+      s.test('review-5 #3: a settings "setting,description,value" CSV applies end-to-end', function () {
+        ensureA();
+        App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0\ny=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var a = App.registry.getDataset('android-adb', 'android.settings');
+        var res = App.store.applyDeviceAssignment('asg-m1', 'android.settings',
+          a.parseAssignment('setting,description,value\nsecure/x,first,11\nsecure/y,second,22'));
+        T.assertEqual(res.ok, true);
+        var items = App.store.getProject().items['android.settings'];
+        var x = items.filter(function (i) { return i.key === 'secure/x'; })[0];
+        T.assertDeepEqual(x.decision, { value: '11', type: 'string' });
+        T.assertEqual(x.description, 'first');
+        T.assertEqual(x.status, 'decided');
       });
     });
 
@@ -5875,12 +6224,17 @@
         App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
         return { id: id, project: App.store.getProject() };
       }
-      s.test('table column shows control TITLES, expander has a multi-select', function () {
+      s.test('table column shows control TITLES, expander has a checkbox multi-select', function () {
         var w = withControl();
         var html = App.ui.tables.renderTableHtml(w.project, 'android.packages', { expanded: { 'com.a': true } }, {});
         T.assert(/Control Refs/.test(html), 'column not renamed');
         T.assert(html.indexOf('No Bluetooth') !== -1, 'title not shown in column');
-        T.assert(/<select multiple data-field-edit="controlRefs"/.test(html), 'no multi-select editor');
+        // review-5 #2: a searchable checkbox list (not a native <select multiple>).
+        T.assert(!/<select multiple/.test(html), 'should no longer be a native select multiple');
+        T.assert(/data-control-multiselect/.test(html), 'no control-multiselect container');
+        T.assert(/data-control-search/.test(html), 'no control filter search box');
+        T.assert(/data-control-ref-toggle/.test(html), 'no control-ref checkbox toggles');
+        T.assert(/data-control-ref-toggle[^>]*checked/.test(html), 'the referenced control should render checked');
       });
       s.test('report Control coverage groups by control title/type', function () {
         var w = withControl();
@@ -5891,6 +6245,38 @@
         var html = r.files.filter(function (f) { return f.name === 'report.html'; })[0].content;
         T.assert(/Control coverage/.test(html));
         T.assert(html.indexOf('No Bluetooth (ISM)') !== -1, 'control label missing in coverage');
+      });
+    });
+
+    T.suite('review-4 #2/#3/#4 UI: incomplete default + control layout/description', function (s) {
+      function projWithControl() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.addControl({ title: 'No Bluetooth', type: 'ISM', description: 'a long description that should wrap onto multiple lines' });
+        return App.store.getProject();
+      }
+      s.test('#2 the Incomplete-only checkbox defaults to UNticked (and reflects state when set)', function () {
+        // Default per-dataset UI state has no incompleteOnly => checkbox must be unchecked.
+        var off = App.ui.tables.renderToolbar('android.packages', {}, 10, 10);
+        T.assert(/data-incomplete="android.packages"> Incomplete only/.test(off), 'Incomplete-only should be unticked by default');
+        T.assert(!/data-incomplete="android.packages" checked/.test(off), 'Incomplete-only should not be checked by default');
+        // ...but it still reflects the filter when a user turns it on.
+        var on = App.ui.tables.renderToolbar('android.packages', { incompleteOnly: true }, 10, 2);
+        T.assert(/data-incomplete="android.packages" checked> Incomplete only/.test(on), 'checkbox should reflect incompleteOnly=true');
+      });
+      s.test('#3 add-type + import tools render to the right of the title (header, before the add form/list)', function () {
+        var html = App.ui.views.controls.render(projWithControl());
+        T.assert(/<div class="ctl-header"><h2>Control Manager<\/h2>/.test(html), 'title not at the start of the header');
+        var hdr = html.indexOf('class="ctl-header"'), tools = html.indexOf('class="ctl-tools"');
+        var addForm = html.indexOf('class="ctl-add"'), list = html.indexOf('class="ctl-list"');
+        T.assert(tools !== -1 && tools > hdr, 'tools not inside the header');
+        T.assert(tools < addForm && tools < list, 'tools should precede the add form and list (beside the title, not beneath)');
+      });
+      s.test('#4 control description box is a full-width wrapping textarea (not a one-line input)', function () {
+        var html = App.ui.views.controls.render(projWithControl());
+        T.assert(/<textarea class="ctl-desc" data-ctl-field="description"/.test(html), 'description not a ctl-desc textarea');
+        T.assert(html.indexOf('a long description that should wrap onto multiple lines') !== -1, 'description text not rendered in the textarea');
+        T.assert(!/<input[^>]*data-ctl-field="description"/.test(html), 'description should no longer be an <input>');
       });
     });
 

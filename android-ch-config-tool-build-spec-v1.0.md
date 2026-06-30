@@ -992,9 +992,10 @@ project schema to **version 2**.
   type (carried as `data-vtype`). (Settings likewise carries no type — §review-2.)
 - **RV3-3 `policyList` semantics (binding).** A tactical array named `policyList` whose elements are
   `{name, checked}` objects MUST flatten to one leaf per policy keyed by the policy **name** and
-  valued by **checked** (e.g. `policyList.Disable Bluetooth` = `false`), NOT to `policyList[i].checked`/
-  `[i].name`. Rebuild MUST set the matching policy's `checked` by name, preserving array order and any
-  other fields. Round-trip identity holds.
+  valued by **checked**, NOT to `policyList[i].checked`/`[i].name`. Rebuild MUST set the matching
+  policy's `checked` by name, preserving array order and any other fields. Round-trip identity holds.
+  (The `policyList.` prefix is the STORED key; **RV4-1** strips it for display only — e.g. the user
+  sees `Disable Bluetooth`, the stored/routed key stays `policyList.Disable Bluetooth`.)
 - **RV3-4 Rationale preset.** The item detail editor MUST provide a button beside the rationale field
   that fills it with exactly `"Not required for device use-case."`.
 - **RV3-5 Control types (`controlTypes`).** The Control Manager MUST allow adding control types
@@ -1007,3 +1008,55 @@ project schema to **version 2**.
 - **RV3-7 Device-detail search.** The device-configuration view MUST provide a search box that filters
   the three read-only panels (by key / decision / control titles / description). Read-only (DOD-9)
   is unchanged.
+
+### 18.6 Review-4 amendments (v1.1)
+
+- **RV4-1 `policyList` names display without the prefix.** Tactical `policyList` policies (RV3-3) MUST
+  be shown by the policy **name alone** — the `policyList.` (or nested `…policyList.`) segment is
+  stripped for **display** (e.g. `Disable Bluetooth`, not `policyList.Disable Bluetooth`). The
+  STORED/routed item key KEEPS the `policyList.` segment (it is the stable internal identity), so
+  `flattenTactical`/`rebuildTacticalDoc` are unchanged from RV3-3 and already-saved projects keep
+  routing. Stripping is purely cosmetic, via `tactical.displayKey(key)` (= module helper
+  `stripPolicyPrefix`), applied at every key-display site: the tactical data-table "Path" column, the
+  device-view panels, the report's per-dataset section, and the report's Control-coverage list. This
+  avoids both collisions with sibling keys of the same name and any need to migrate persisted keys.
+  Round-trip identity and byte-determinism (DOD-7) are unchanged.
+- **RV4-2 Incomplete-only defaults OFF.** The data-table "Incomplete only" filter MUST default to
+  **unticked**, including immediately after onboarding (which now focuses the first dataset WITHOUT
+  forcing the filter on). Users may still toggle it on per dataset; the toggle state persists in UI
+  state only (never in the project file).
+- **RV4-3 Control Manager tools placement.** The "Add type" and "Import controls (CSV)" tools MUST sit
+  to the **right of the "Control Manager" title** (a header row), not stacked beneath it.
+- **RV4-4 Control description box.** In the Control Manager control list, the per-control description
+  editor MUST be a **full-width** control that **wraps** long text (a `textarea`, not a single-line
+  `<input>`), and be vertically resizable.
+
+### 18.7 Review-5 amendments (v1.1)
+
+- **RV5-1 Per-control device view (device-configuration view).** In the Devices-tab device-configuration
+  view (§11.3):
+  - The three read-only dataset panels (packages/settings/tactical) MUST be individually **collapsible**
+    (a header toggle per panel; default expanded). Toggling re-renders only the panels.
+  - The **"Control Refs" column MUST be removed from these panels** (in this view only) — the
+    item↔control linkage is surfaced by the new control section below instead. The data-table tabs
+    (§11.2) keep their Control Refs column.
+  - A new **"Controls applying to this device"** section MUST list every control whose
+    `assignedDeviceIds` includes the device's `baseId` (CTL-1). Each control is a clickable item showing
+    its title, type, and the count of applicable-and-referencing items.
+  - Clicking a control MUST open a **modal/pop-up** (closable via an **×** button in the corner and via a
+    backdrop click) that lists, per dataset, exactly the items **applicable to this device AND referencing
+    that control** (key, decision, status). Intent: show precisely what is done to satisfy a specific
+    control for a specific device configuration. The device-configuration panels remain read-only (DOD-9).
+- **RV5-2 Control Refs = removable multi-select.** In the data-table tabs (§11.2 / CTL-5), the Control
+  Refs editor MUST allow selecting **multiple** controls and **removing** any of them independently. The
+  native `<select multiple>` (which required modifier-clicks to add and gave no obvious remove) is
+  replaced by a **searchable checkbox list** over the control catalogue: each control is a checkbox
+  (checked = referenced); ticking/unticking adds/removes that one ref. The column still renders the
+  referenced controls' titles.
+- **RV5-3 Settings bulk-assignment also accepts a CSV.** The "set decisions from files" settings input
+  (§18.2 / ASG-4) MUST **also** accept a CSV whose header row is exactly `setting,description,value`:
+  column 1 is the stored setting key (`<namespace>/<key>`, e.g. `secure/location_mode`), column 2 a
+  free-text description (set on the item), column 3 the value (applied verbatim, `type:'string'`). The
+  format is detected by the header; any other input is parsed as the existing §9 sectioned capture
+  format. Malformed keys / duplicates REFUSE with located issues; the §ASG-2 exact-set validation and
+  transactional apply are unchanged.
