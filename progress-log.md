@@ -89,6 +89,14 @@ validate/render tests for the type-field removal and the textarea change.
 **Defects:** none in the product (only expected test-fixture updates from the settings/value-box
 changes). 139/139 self-tests pass; clean boot; real-data generation still byte-deterministic.
 
+**Follow-ups (same review round):**
+- **Drawer timestamps → AEST.** Activity/Errors drawer entries now show the time via `toAest` (was UTC).
+- **Brand logo, top-left.** `Media/black_background_HighCom_logo.png` (507×143) embedded as a base64
+  data-URI in a `.brand-logo` CSS rule (preserves the single-file guarantee C-1) and placed first in
+  the top bar (other items flow right). Modest 6px corner rounding — sized to the logo aspect (≈99×28)
+  so corners round the black box without clipping the logo text. File grew ~18KB → ~315KB.
+- 139/139 self-tests still pass.
+
 ---
 
 ## Log
