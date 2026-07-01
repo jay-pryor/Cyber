@@ -1012,3 +1012,35 @@ Presentation-only changes from `Review Notes/review-6_notes`; spec §19.9. All l
 - **Build:** `.control-multiselect .ctl-opt{white-space:nowrap}` + checkbox `flex:0 0 auto` (left) +
   span `white-space:nowrap`; widen the box and allow horizontal scroll for very long names.
 - **Self-tests:** covered by the existing CTL-5 render test (checkbox list unchanged structurally).
+
+## Review-7 follow-ups (bulk control assignment + collapse-all)
+
+Changes from `Review Notes/review-7_notes`; spec §19.10. All land in the single `ch-config-tool.html`.
+
+#### T-RV7.1 · Collapse-all button in the device view
+- **Spec:** §19.10 RV7-1, §19.5
+- **Build (`App.ui.views.devices`):** in `renderDetail`, compute `allCollapsed` over `datasets(project)`
+  against `_dev.collapsed`; render a `[data-dev-collapse-all]` button (label `Collapse all` / `Expand
+  all`) to the right of the Deviations-first `pin` in `.dev-detail-tools`. Wire `click` → set/clear
+  `_dev.collapsed[dsId]` for all datasets, then `refreshMain` (so the label flips).
+- **Self-tests:** the detail view renders `data-dev-collapse-all` reading `Collapse all` when expanded
+  and `Expand all` when all three panels are collapsed.
+
+#### T-RV7.2 · Apply Control Mode (bulk control-ref assignment)
+- **Spec:** §19.10 RV7-2, §11.2, §18.3 CTL-5
+- **Build:**
+  - Per-dataset UI state gains `applyMode` + `applyControlId`. `renderToolbar(dsId, ui, total, shown,
+    controls)` renders an `[data-apply-toggle]` button and, when `applyMode`, a searchable control
+    picker (`<input data-apply-control list>` + `<datalist>` of control titles, or a "no controls" note).
+  - `renderTableHtml` appends an `apply-col` header and a per-row `[data-apply-check]` checkbox when
+    `ui.applyMode`; the box is `checked` iff `applyControlId ∈ item.controlRefs`, and `disabled` when no
+    control is selected. `colspan` accounts for the extra column.
+  - Wire (`App.ui.app`): `click[data-apply-toggle]` flips `ui.applyMode` (clears `applyControlId` on
+    exit) → `renderMain`; `change[data-apply-control]` resolves the typed title → control id →
+    `renderTableHost`; `change[data-apply-check]` adds/removes `applyControlId` in the item's
+    `controlRefs` via `store.setItemFields`, wrapped in a `_suppressRender` guard so the store change
+    does **not** trigger the full `render()` (fast bulk assignment; scroll preserved). The store
+    `onChange` handler honours `_suppressRender`.
+- **Self-tests:** toolbar shows the toggle (+ picker/datalist + selected title when on, hidden when off);
+  the table gains the apply column with per-row checkboxes reflecting membership (checked for an item
+  that already has the control), disabled when no control is picked, and absent when the mode is off.

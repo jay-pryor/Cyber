@@ -155,6 +155,11 @@
   .toolbar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
   .toolbar .grow { flex: 1; min-width: 180px; }
   .toolbar .muted { color: var(--c-text-muted); font-size: 12px; }
+  /* review-7 #2: Apply Control Mode toolbar affordances + row checkbox column. */
+  .toolbar button.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .toolbar .apply-picker { display: inline-flex; align-items: center; gap: 6px; }
+  .toolbar .apply-control { min-width: 220px; }
+  table.data th.apply-col, table.data td.apply-cell { text-align: center; width: 74px; }
 
   table.data { border-collapse: collapse; width: 100%; background: var(--c-surface); font-size: 13px; }
   table.data th, table.data td { border: 1px solid var(--c-border); padding: 6px 8px; text-align: left; vertical-align: top; }
@@ -298,6 +303,7 @@
 
   /* Device-config override editing + divergence highlighting (Phase 10 / §19.5). */
   .dev-detail-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .dev-detail-tools .dev-collapse-all { font-size: 12px; }
   .dev-pin { font-size: 12px; display: inline-flex; align-items: center; gap: 5px; color: var(--c-text-muted); white-space: nowrap; }
   .diverge-legend { font-size: 11px; color: var(--c-text-muted); display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; }
   .diverge-legend .swatch, .diverge-tag { display: inline-block; }
@@ -4382,11 +4388,30 @@
      * Kept separate from the table body so the search input is NOT re-rendered on
      * keystroke (preserves focus); only #table-host updates.
      */
-    function renderToolbar(dsId, ui, total, shown) {
+    function renderToolbar(dsId, ui, total, shown, controls) {
+      // review-7 #2: "Apply Control Mode" — a searchable control picker + per-row
+      // checkboxes for bulk-assigning one control to many items at once.
+      var applyBtn = '<button data-apply-toggle="' + esc(dsId) + '"' + (ui.applyMode ? ' class="active"' : '') +
+        ' title="Bulk-assign a control to many items via row checkboxes">' + (ui.applyMode ? 'Exit control mode' : 'Apply Control Mode') + '</button>';
+      var applyPicker = '';
+      if (ui.applyMode) {
+        var list = (controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
+        if (!list.length) {
+          applyPicker = '<span class="apply-picker muted" style="font-size:12px">No controls yet — add them in Control Manager.</span>';
+        } else {
+          var curTitle = '';
+          if (ui.applyControlId) { var cc = list.filter(function (x) { return x.id === ui.applyControlId; })[0]; if (cc) curTitle = cc.title; }
+          var opts = list.map(function (c) { return '<option value="' + esc(c.title) + '">' + esc(c.type) + '</option>'; }).join('');
+          applyPicker = '<span class="apply-picker"><input class="apply-control" data-apply-control="' + esc(dsId) + '" list="apply-control-list" placeholder="search a control…" value="' + esc(curTitle) + '" aria-label="Control to apply">' +
+            '<datalist id="apply-control-list">' + opts + '</datalist>' +
+            (ui.applyControlId ? '' : '<span class="muted" style="font-size:12px">pick a control, then tick rows</span>') + '</span>';
+        }
+      }
       return '' +
         '<div class="toolbar">' +
         '<input class="grow" type="search" placeholder="Search key or description…" data-search="' + esc(dsId) + '" value="' + esc(ui.search || '') + '" aria-label="Search items">' +
         '<label><input type="checkbox" data-incomplete="' + esc(dsId) + '"' + (ui.incompleteOnly ? ' checked' : '') + '> Incomplete only</label>' +
+        applyBtn + applyPicker +
         '<span class="muted">' + esc(shown) + ' of ' + esc(total) + ' shown</span>' +
         '</div>' +
         '<div id="table-host"></div>';
@@ -4531,7 +4556,9 @@
         .concat([{ key: 'appliesTo', label: 'Applies to' }, { key: 'status', label: 'Status' }]);
       var rows = App.ui.model.filterSortRows(project, dsId, adapter, ui);
       var sk = ui.sortKey || 'key', sdir = ui.sortDir || 'asc';
-      var colspan = cols.length + 1; // + leading expander column
+      // review-7 #2: an extra checkbox column when Apply Control Mode is on.
+      var applyMode = !!ui.applyMode, applyControlId = ui.applyControlId;
+      var colspan = cols.length + 1 + (applyMode ? 1 : 0); // + leading expander (+ apply col)
 
       var colWidths = ui.colWidths || {};
       var head = '<th class="lead-col" scope="col" aria-label="expand"></th>' + cols.map(function (c) {
@@ -4539,7 +4566,7 @@
         var w = colWidths[c.key] || colDefaultWidth(c.key);
         return '<th data-col="' + esc(c.key) + '" scope="col" style="width:' + w + 'px">' + esc(c.label) + arrow +
           '<span class="col-resize" data-col-resize="' + esc(c.key) + '" title="Drag to resize"></span></th>';
-      }).join('');
+      }).join('') + (applyMode ? '<th class="apply-col" scope="col" title="Tick to add the selected control ref">✓ Apply</th>' : '');
 
       var body = rows.map(function (r) {
         var isOpen = !!expanded[r.item.key];
@@ -4559,6 +4586,12 @@
         }).join('');
         tds += '<td>' + esc(r.appliesTo.join(', ')) + '</td>';
         tds += '<td>' + (r.status === 'decided' ? '<span class="badge decided">decided</span>' : '<span class="badge undecided">undecided</span>') + '</td>';
+        if (applyMode) {
+          // Checked iff the SELECTED control is already in this item's controlRefs
+          // (so the box always reflects current membership).
+          var checked = applyControlId && (r.item.controlRefs || []).indexOf(applyControlId) !== -1;
+          tds += '<td class="apply-cell"><input type="checkbox" data-apply-check data-key="' + esc(r.item.key) + '"' + (checked ? ' checked' : '') + (applyControlId ? '' : ' disabled') + ' aria-label="apply the selected control to ' + esc(r.item.key) + '"></td>';
+        }
         var rowHtml = '<tr class="' + (r.status === 'decided' ? '' : 'undecided') + '">' + lead + tds + '</tr>';
         if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues, controls);
         return rowHtml;
@@ -5242,6 +5275,10 @@
       var legend = '<div class="diverge-legend"><span class="swatch group"></span> Group override <span class="swatch device"></span> Device override</div>';
       // "Deviations first" pin toggle (OVR-5), UI-state only.
       var pin = '<label class="dev-pin"><input type="checkbox" data-dev-deviations-first' + (_dev.deviationsFirst ? ' checked' : '') + '> Deviations first</label>';
+      // review-7 #1: collapse/expand all three panels at once.
+      var dsList = datasets(project);
+      var allCollapsed = dsList.length > 0 && dsList.every(function (d) { return _dev.collapsed[d.id]; });
+      var collapseAll = '<button class="dev-collapse-all" data-dev-collapse-all>' + (allCollapsed ? 'Expand all' : 'Collapse all') + '</button>';
 
       return '<div>' +
         '<button data-device-back>← Devices</button>' +
@@ -5254,6 +5291,7 @@
         '<div class="dev-detail-tools">' +
           '<input class="dev-search" type="search" data-dev-search placeholder="Filter this device\'s packages, settings & tactical…" value="' + esc(_dev.detailSearch || '') + '" aria-label="Filter device items">' +
           (isLatest ? pin : '') +
+          collapseAll +
         '</div>' +
         (isLatest ? '<p class="muted" style="font-size:12px;margin:4px 0">Decisions shown are <strong>effective</strong> (default → group → device). Edit a value to set a <strong>device override</strong>; matching the inherited value reverts it. Group overrides are managed from the Devices list.</p>' : '') +
         '<div class="panels" id="dev-panels">' + renderPanels(project, deviceId, _dev.detailSearch) + '</div>' +
@@ -5398,6 +5436,15 @@
         _dev.deviationsFirst = el.checked;
         var host = document.getElementById('dev-panels');
         if (host && _dev.selectedId) host.innerHTML = renderPanels(App.store.getProject(), _dev.selectedId, _dev.detailSearch);
+      });
+      // review-7 #1: collapse/expand all three panels. Full re-render so the button
+      // label (Collapse all / Expand all) flips with the state.
+      App.util.dom.on(ctx.root, 'click', '[data-dev-collapse-all]', function () {
+        var project = App.store.getProject();
+        var dsList = datasets(project);
+        var allCollapsed = dsList.length > 0 && dsList.every(function (d) { return _dev.collapsed[d.id]; });
+        dsList.forEach(function (d) { if (allCollapsed) delete _dev.collapsed[d.id]; else _dev.collapsed[d.id] = true; });
+        ctx.refreshMain();
       });
       // Per-item DEVICE OVERRIDE edit (spec §19.5, OVR-8). Gather the row's override
       // controls into one decision and commit (no-op vs inherited clears it).
@@ -5773,6 +5820,7 @@
     }
     var _searchTimer = null;
     var _editIssues = {}; // transient decision-validation issues, keyed "dsId|key"
+    var _suppressRender = false; // review-7 #2: skip the full re-render during bulk control-apply clicks
     var _colResizing = false;     // true mid-drag, to suppress the trailing sort click
     var MIN_COL_WIDTH_PX = 60;    // minimum column width (review-2 #4)
 
@@ -5905,7 +5953,7 @@
         var ui = uiFor(tab);
         var total = (project.items[tab] || []).length;
         var shown = App.ui.model.filterSortRows(project, tab, ds, ui).length;
-        main.innerHTML = App.ui.tables.renderToolbar(tab, ui, total, shown);
+        main.innerHTML = App.ui.tables.renderToolbar(tab, ui, total, shown, project.controls);
         renderTableHost();
       } else {
         main.innerHTML = '<div class="empty-state">The <strong>' + esc(tab) + '</strong> view is not available yet.</div>';
@@ -5966,6 +6014,35 @@
       });
       dom.on(_root, 'change', '[data-incomplete]', function (e, el) {
         uiFor(el.getAttribute('data-incomplete')).incompleteOnly = el.checked; renderTableHost(); updateShownCount();
+      });
+      // ---- Apply Control Mode (review-7 #2) ----
+      dom.on(_root, 'click', '[data-apply-toggle]', function (e, el) {
+        var ui = uiFor(el.getAttribute('data-apply-toggle'));
+        ui.applyMode = !ui.applyMode;
+        if (!ui.applyMode) ui.applyControlId = null; // exiting clears the selection; changes persist
+        renderMain();
+      });
+      dom.on(_root, 'change', '[data-apply-control]', function (e, el) {
+        var dsId = el.getAttribute('data-apply-control'), title = el.value.trim();
+        var project = App.store.getProject();
+        var c = (project.controls || []).filter(function (x) { return x.title === title; })[0];
+        uiFor(dsId).applyControlId = c ? c.id : null;
+        renderTableHost();   // refresh the checkbox states for the chosen control
+      });
+      // Tick/untick a row's box: add/remove the selected control from that item's
+      // controlRefs. Suppress the full re-render so bulk assignment stays fast and the
+      // scroll position is kept (the box already reflects the click).
+      dom.on(_root, 'change', '[data-apply-check]', function (e, el) {
+        var dsId = _state.activeTab, ui = uiFor(dsId);
+        if (!ui.applyControlId) return;
+        var key = el.getAttribute('data-key');
+        var project = App.store.getProject();
+        var item = (project.items[dsId] || []).filter(function (it) { return it.key === key; })[0];
+        if (!item) { el.checked = false; return; }
+        var refs = (item.controlRefs || []).filter(function (r) { return r !== ui.applyControlId; });
+        if (el.checked) refs.push(ui.applyControlId);
+        _suppressRender = true;
+        try { App.store.setItemFields(dsId, key, { controlRefs: refs }); } finally { _suppressRender = false; }
       });
       // ---- inline decision editing & per-row expander (spec §11.2) ----
       dom.on(_root, 'click', '[data-expand-key]', function (e, el) {
@@ -6195,7 +6272,7 @@
       if (App.ui.views) Object.keys(App.ui.views).forEach(function (k) {
         if (App.ui.views[k].wire) App.ui.views[k].wire(ctx);
       });
-      App.store.onChange(function () { render(); if (App.store.isDirty()) scheduleDraftSave(); });
+      App.store.onChange(function () { if (!_suppressRender) render(); if (App.store.isDirty()) scheduleDraftSave(); });
       App.ui.activity.onChange(function () { renderDrawer(); });
 
       // Dirty guard (spec §6.6): warn before leaving with unsaved changes.
@@ -7547,6 +7624,59 @@
         T.assert(/data-col-resize="key"/.test(html), 'no resize handle');
         T.assert(/data-col="key"[^>]*style="width:333px"/.test(html), 'stored column width not applied');
         T.assert(/class="data resizable"/.test(html), 'table not in fixed/resizable layout');
+      });
+    });
+
+    T.suite('review-7 collapse-all + Apply Control Mode', function (s) {
+      function withCtl() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
+        return { id: id, project: App.store.getProject() };
+      }
+      s.test('#1 device detail has a Collapse-all button; its label flips with state', function () {
+        var w = withCtl();
+        var D = App.ui.views.devices;
+        D._dev.collapsed = {};
+        var html = D.renderDetail(w.project, 'dev-m1');
+        T.assert(/data-dev-collapse-all/.test(html), 'no collapse-all button');
+        T.assert(/>Collapse all</.test(html), 'should read "Collapse all" when panels are expanded');
+        D._dev.collapsed = { 'android.packages': true, 'android.settings': true, 'android.tactical': true };
+        T.assert(/>Expand all</.test(D.renderDetail(w.project, 'dev-m1')), 'should read "Expand all" when all collapsed');
+        D._dev.collapsed = {};
+      });
+      s.test('#2 toolbar shows the Apply Control Mode button + a searchable picker when on', function () {
+        var w = withCtl();
+        var off = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, w.project.controls);
+        T.assert(/data-apply-toggle="android.packages"/.test(off) && />Apply Control Mode</.test(off), 'no apply-mode button');
+        T.assert(off.indexOf('data-apply-control') === -1, 'picker must be hidden when mode is off');
+        var on = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
+        T.assert(/class="active"/.test(on) && />Exit control mode</.test(on), 'button not in active/exit state');
+        T.assert(/data-apply-control="android.packages"[^>]*list="apply-control-list"/.test(on), 'no searchable control input');
+        T.assert(/<datalist id="apply-control-list"><option value="No Bluetooth">/.test(on), 'datalist missing the controls');
+        T.assert(/class="apply-control"[^>]*value="No Bluetooth"/.test(on), 'selected control title not shown in the input');
+      });
+      s.test('#2 table adds an Apply column + per-row checkboxes reflecting membership', function () {
+        var w = withCtl(); // com.a already has the control; com.b does not
+        var html = App.ui.tables.renderTableHtml(w.project, 'android.packages', { applyMode: true, applyControlId: w.id }, {});
+        T.assert(/<th class="apply-col"[^>]*>✓ Apply<\/th>/.test(html), 'no apply column header');
+        T.assert(html.indexOf('data-apply-check data-key="com.a" checked') !== -1, 'com.a checkbox should be checked (control applied)');
+        T.assert(html.indexOf('data-apply-check data-key="com.b" checked') === -1, 'com.b checkbox should NOT be checked');
+        T.assert(html.indexOf('data-apply-check data-key="com.b"') !== -1, 'com.b should still have an apply checkbox');
+      });
+      s.test('#2 with no control selected the row checkboxes are disabled', function () {
+        var w = withCtl();
+        var html = App.ui.tables.renderTableHtml(w.project, 'android.packages', { applyMode: true }, {});
+        T.assert(html.indexOf('data-apply-check data-key="com.a" disabled') !== -1, 'checkbox should be disabled without a selected control');
+      });
+      s.test('#2 no apply column when the mode is off', function () {
+        var w = withCtl();
+        var html = App.ui.tables.renderTableHtml(w.project, 'android.packages', {}, {});
+        T.assert(html.indexOf('apply-col') === -1 && html.indexOf('data-apply-check') === -1, 'apply column should only appear in apply mode');
       });
     });
 

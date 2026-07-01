@@ -1399,3 +1399,20 @@ change.
 - **RV6-5 Control-ref list on one line.** In the data-table Control Refs multi-select (§18.3 CTL-5 /
   review-5 #2), each control's name MUST render on a **single line** with the checkbox at the **left**
   (no two-line wrap when space allows).
+
+## 19.10 Review-7 amendments (bulk control assignment + collapse-all)
+
+- **RV7-1 Collapse-all in the device view.** The device-configuration view (§11.3/§19.5) MUST provide a
+  **Collapse-all** control to the **right of the "Deviations first" checkbox** that collapses all three
+  dataset panels at once (packages/settings/tactical). It SHOULD toggle to **Expand-all** when every
+  panel is already collapsed. UI-state only (`_dev.collapsed`).
+- **RV7-2 Apply Control Mode (bulk control-ref assignment).** Each data-table tab (§11.2) MUST provide
+  an **"Apply Control Mode"** toggle in the toolbar. When on:
+  - a **searchable control picker** (type-to-search over the control catalogue) appears in the toolbar, and
+  - a **checkbox column** appears at the right of every row.
+  With a control selected, **ticking** a row's box **adds** that control to the item's `controlRefs`;
+  **unticking removes** it. Each checkbox's state MUST always reflect whether the selected control is
+  currently in that item's `controlRefs` (e.g. a ref set earlier via the row dropdown shows the box
+  already ticked). Toggling the button **off** exits the mode — the picker and checkboxes disappear and
+  the selection resets, but all `controlRefs` changes persist. The intent is fast bulk assignment across
+  many items; the per-tick commit MUST NOT force a disruptive full re-render (keep scroll position).

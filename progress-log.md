@@ -26,8 +26,8 @@ Process per task (build phase): **build → review → devise tests → log defe
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–6.
-**190/190 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–7.
+**195/195 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
 Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
@@ -314,6 +314,31 @@ the `modal-wide` group modal with a JSON-free Default column, and the searchable
 round-trip determinism) re-verified unchanged.
 
 **Defects:** none in the product (only the expected T10.5 / review-4 #4 test updates).
+
+### 2026-07-01 — Review-7 changes (bulk control assignment + collapse-all) — ✅ COMPLETE
+
+Actioned the two review-7 notes (spec §19.10 / task breakdown T-RV7.1–T-RV7.2):
+1. **Collapse-all in the device view (RV7-1).** A **Collapse all** / **Expand all** button sits to the
+   right of the "Deviations first" checkbox; it collapses (or, when all are collapsed, expands) all three
+   dataset panels at once via `_dev.collapsed`.
+2. **Apply Control Mode (RV7-2).** Each data-table tab has an **"Apply Control Mode"** toggle. When on, a
+   **searchable control picker** (input + datalist) appears in the toolbar and a **checkbox column**
+   appears on the right of every row. With a control selected, ticking a row adds it to that item's
+   `controlRefs`, unticking removes it, and each box always reflects current membership (a ref set via
+   the row dropdown shows already-ticked). Exiting the mode hides the picker + checkboxes (changes
+   persist). Per-tick commits run under a `_suppressRender` guard so bulk assignment stays fast and
+   scroll-stable (the store `onChange` skips the full re-render for those clicks). Built for fast
+   assignment of one control across many items without opening each row's dropdown.
+
+**Tests:** +5 self-tests (collapse-all button + label flip; apply toolbar toggle/picker/datalist; apply
+column + per-row checkboxes reflecting membership; disabled without a selection; absent when off).
+**195/195 self-tests pass.**
+
+**Review:** real-data render smoke checks (438 packages) confirm the apply column renders one checkbox
+per row with exactly the assigned control pre-ticked, toggling adds/removes the ref correctly, and the
+device view's collapse-all label flips with state.
+
+**Defects:** none.
 
 ---
 
