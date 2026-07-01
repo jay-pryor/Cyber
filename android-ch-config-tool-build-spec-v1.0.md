@@ -1416,3 +1416,20 @@ change.
   already ticked). Toggling the button **off** exits the mode — the picker and checkboxes disappear and
   the selection resets, but all `controlRefs` changes persist. The intent is fast bulk assignment across
   many items; the per-tick commit MUST NOT force a disruptive full re-render (keep scroll position).
+
+## 19.11 Review-8 amendments (apply-mode + device-panel columns)
+
+- **RV8-1 Control picker shows the name only.** In the Apply-Control-Mode control picker (§19.10 RV7-2),
+  each option MUST show the control **title only** — no control **type** beneath/after it.
+- **RV8-2 "Apply to <action>" bulk assignment (enum datasets only).** In Apply Control Mode, replace the
+  "pick a control, then tick rows" hint with an **"Apply to" action dropdown** that is enabled **only
+  when a control is selected**. Choosing an action applies the selected control to **every item whose
+  decision has that action** (e.g. apply a debloat control to all `remove` packages). This applies only
+  to datasets whose decision schema has an **enum** field (packages); settings/tactical (no enum action)
+  MUST NOT show it. Options come from the adapter's enum `decisionSchema` field (data-driven, not
+  hard-coded). The bulk apply is one pass under the same no-full-re-render guard (RV7-2).
+- **RV8-3 Device-panel Override for settings + resizable panel columns.** In the device-configuration
+  view (§19.5), all three panels (packages/settings/tactical) MUST expose a working, visible **Override**
+  editor — including **settings** (a string value editor). The three panel tables MUST use fixed-layout
+  columns that are **independently drag-resizable per dataset** (widths persisted in UI state), and long
+  values MUST wrap, so a long settings value no longer squeezes the Override column out of view.

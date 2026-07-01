@@ -26,8 +26,8 @@ Process per task (build phase): **build → review → devise tests → log defe
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–7.
-**195/195 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–8.
+**199/199 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
 Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
@@ -339,6 +339,34 @@ per row with exactly the assigned control pre-ticked, toggling adds/removes the 
 device view's collapse-all label flips with state.
 
 **Defects:** none.
+
+### 2026-07-01 — Review-8 changes (apply-mode + device-panel columns) — ✅ COMPLETE
+
+Actioned the three review-8 notes (spec §19.11 / task breakdown T-RV8.1–T-RV8.3):
+1. **Control picker: name only (RV8-1).** The Apply-Control-Mode picker datalist now shows the control
+   **title only** — the type text under the name is gone.
+2. **"Apply to <action>" bulk assignment (RV8-2).** Replaced the "pick a control, then tick rows" hint
+   with an **"Apply to" action dropdown** (enabled only when a control is selected). Picking an action
+   assigns the selected control to **every item with that decision action** — e.g. a debloat control to
+   all `remove` packages. Data-driven off the adapter's **enum** decision field, so it appears only for
+   packages (settings/tactical have no action). One pass under the `_suppressRender` guard + an Activity
+   summary.
+3. **Settings override + resizable panel columns (RV8-3).** The settings device-panel Override editor was
+   already rendered but long settings values in an auto-layout table squeezed the Override column out of
+   view. The three device panels now use **fixed-layout, independently drag-resizable columns per
+   dataset** (widths in `_dev.panelColWidths`) with wrapping cells, so the settings Override is clearly
+   visible and usable (and each panel sizes independently).
+
+**Tests:** +4 self-tests (name-only options; Apply-to present/enabled for packages with action options +
+absent for settings/tactical; panels resizable per dataset + settings has an editable string override +
+independent stored widths). Updated the review-5 panel-header test for the new resizable headers.
+**199/199 self-tests pass.**
+
+**Review:** real-data smoke check (438 packages / 803 settings): the name-only picker, the Apply-to
+action assigning a control to exactly the 50 `remove`-action packages (and only those), and the settings
+panel exposing an editable, resizable Override column all verified.
+
+**Defects:** none (only the expected review-5 panel-header test update).
 
 ---
 

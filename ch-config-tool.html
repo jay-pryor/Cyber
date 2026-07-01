@@ -159,6 +159,7 @@
   .toolbar button.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
   .toolbar .apply-picker { display: inline-flex; align-items: center; gap: 6px; }
   .toolbar .apply-control { min-width: 220px; }
+  .toolbar .apply-to:disabled { opacity: 0.5; cursor: not-allowed; }
   table.data th.apply-col, table.data td.apply-cell { text-align: center; width: 74px; }
 
   table.data { border-collapse: collapse; width: 100%; background: var(--c-surface); font-size: 13px; }
@@ -316,6 +317,11 @@
   .panel .ov-edit { display: flex; align-items: center; gap: 6px; }
   .panel .ov-edit select, .panel .ov-edit textarea.val-edit { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); width: 100%; box-sizing: border-box; resize: vertical; }
   .panel .ov-edit .ov-revert { font-size: 11px; padding: 1px 6px; white-space: nowrap; flex: 0 0 auto; }
+  /* review-8 #3: fixed-layout, drag-resizable device-panel columns (per dataset). */
+  .panel table.dev-panel-table { table-layout: fixed; }
+  .panel table.dev-panel-table thead th { position: relative; }
+  .panel table.dev-panel-table td { word-break: break-word; overflow-wrap: anywhere; }
+  .panel table.dev-panel-table thead th .col-resize { position: absolute; top: 0; right: -3px; width: 8px; height: 100%; cursor: col-resize; user-select: none; }
 
   /* Device groups (Phase 10 / §19.4). */
   .add-group { display: flex; gap: 8px; align-items: center; margin: 8px 0 12px; }
@@ -4401,10 +4407,23 @@
         } else {
           var curTitle = '';
           if (ui.applyControlId) { var cc = list.filter(function (x) { return x.id === ui.applyControlId; })[0]; if (cc) curTitle = cc.title; }
-          var opts = list.map(function (c) { return '<option value="' + esc(c.title) + '">' + esc(c.type) + '</option>'; }).join('');
+          // review-8 #1: option shows the control NAME only (no type beneath it).
+          var opts = list.map(function (c) { return '<option value="' + esc(c.title) + '"></option>'; }).join('');
+          // review-8 #2: an "Apply to <action>" dropdown (only for datasets with an enum
+          // decision field, i.e. packages) that assigns the selected control to every item
+          // with the chosen action. Enabled only when a control is selected.
+          var proj = App.store.getProject();
+          var adapter = proj ? App.registry.getDataset(proj.platformProfileId, dsId) : null;
+          var actionField = adapter ? (adapter.decisionSchema || []).filter(function (f) { return f.kind === 'enum'; })[0] : null;
+          var applyTo = '';
+          if (actionField) {
+            applyTo = ' <select class="apply-to" data-apply-to="' + esc(dsId) + '" data-field="' + esc(actionField.name) + '"' + (ui.applyControlId ? '' : ' disabled') +
+              ' aria-label="Apply the selected control to all items with an action" title="' + (ui.applyControlId ? 'Apply the selected control to every item with the chosen action' : 'Select a control first') + '">' +
+              '<option value="">Apply to…</option>' +
+              actionField.options.map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; }).join('') + '</select>';
+          }
           applyPicker = '<span class="apply-picker"><input class="apply-control" data-apply-control="' + esc(dsId) + '" list="apply-control-list" placeholder="search a control…" value="' + esc(curTitle) + '" aria-label="Control to apply">' +
-            '<datalist id="apply-control-list">' + opts + '</datalist>' +
-            (ui.applyControlId ? '' : '<span class="muted" style="font-size:12px">pick a control, then tick rows</span>') + '</span>';
+            '<datalist id="apply-control-list">' + opts + '</datalist>' + applyTo + '</span>';
         }
       }
       return '' +
@@ -4888,7 +4907,7 @@
   (function (App) {
     'use strict';
     var esc = App.util.html.esc;
-    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null, deviationsFirst: false, openGroupId: null, groupAdd: { dsId: null, key: '' }, newGroupName: '' };
+    var _dev = { selectedId: null, assignResults: {}, detailSearch: '', collapsed: {}, openControlId: null, deviationsFirst: false, openGroupId: null, groupAdd: { dsId: null, key: '' }, newGroupName: '', panelColWidths: {} };
     var _devSearchTimer = null;
     var _ctx = null;
 
@@ -5176,10 +5195,20 @@
             (r.hasOv ? ' <button type="button" class="ov-revert" data-ov-revert data-ds="' + esc(d.id) + '" data-key="' + esc(r.it.key) + '" title="Revert to the inherited value">Revert</button>' : '') + '</div>';
           return '<tr class="' + rowCls + '"><td>' + esc(r.disp) + '</td>' + decCell + '<td>' + editor + '</td></tr>';
         }).join('');
-        var headCols = isLatest ? '<th>Key</th><th>Effective</th><th>Override</th>' : '<th>Key</th><th>Effective</th>';
-        var colspan = isLatest ? 3 : 2;
+        // review-8 #3: fixed-layout, drag-resizable columns keyed PER dataset (so long
+        // settings values no longer squish the Override column, and each of the three
+        // panels can be sized independently).
+        var panelCols = isLatest
+          ? [{ key: 'key', label: 'Key', w: 220 }, { key: 'effective', label: 'Effective', w: 170 }, { key: 'override', label: 'Override', w: 220 }]
+          : [{ key: 'key', label: 'Key', w: 260 }, { key: 'effective', label: 'Effective', w: 220 }];
+        var pcw = (_dev.panelColWidths && _dev.panelColWidths[d.id]) || {};
+        var headCols = panelCols.map(function (c) {
+          var w = pcw[c.key] || c.w;
+          return '<th data-dev-col scope="col" style="width:' + w + 'px">' + esc(c.label) +
+            '<span class="col-resize" data-dev-col-resize="' + esc(d.id) + '|' + c.key + '" title="Drag to resize"></span></th>';
+        }).join('');
         var body = rows.length
-          ? '<table><thead><tr>' + headCols + '</tr></thead><tbody>' + bodyRows + '</tbody></table>'
+          ? '<table class="dev-panel-table"><thead><tr>' + headCols + '</tr></thead><tbody>' + bodyRows + '</tbody></table>'
           : '<div class="empty">' + (q ? 'No matching applicable items.' : 'No applicable items.') + '</div>';
         var note = '<div class="panel-note">' + rows.length + (q ? ' matching' : '') + ' of ' + appItems.length + ' applicable</div>';
         var collapsed = !!_dev.collapsed[d.id];
@@ -5436,6 +5465,21 @@
         _dev.deviationsFirst = el.checked;
         var host = document.getElementById('dev-panels');
         if (host && _dev.selectedId) host.innerHTML = renderPanels(App.store.getProject(), _dev.selectedId, _dev.detailSearch);
+      });
+      // review-8 #3: drag-resize a device panel's columns (persist per dataset).
+      App.util.dom.on(ctx.root, 'mousedown', '[data-dev-col-resize]', function (e, el) {
+        e.preventDefault(); e.stopPropagation();
+        var spec = el.getAttribute('data-dev-col-resize').split('|'), dsId = spec[0], col = spec[1];
+        var th = el; while (th && th.tagName !== 'TH') th = th.parentNode;
+        if (!th) return;
+        var startX = e.clientX, startW = th.offsetWidth;
+        function onMove(ev) { th.style.width = Math.max(60, startW + (ev.clientX - startX)) + 'px'; }
+        function onUp(ev) {
+          document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
+          _dev.panelColWidths[dsId] = _dev.panelColWidths[dsId] || {};
+          _dev.panelColWidths[dsId][col] = Math.max(60, startW + (ev.clientX - startX));
+        }
+        document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
       });
       // review-7 #1: collapse/expand all three panels. Full re-render so the button
       // label (Collapse all / Expand all) flips with the state.
@@ -6027,7 +6071,28 @@
         var project = App.store.getProject();
         var c = (project.controls || []).filter(function (x) { return x.title === title; })[0];
         uiFor(dsId).applyControlId = c ? c.id : null;
-        renderTableHost();   // refresh the checkbox states for the chosen control
+        renderMain();   // enable/disable the "Apply to" control + refresh checkbox states
+      });
+      // review-8 #2: apply the selected control to ALL items with the chosen decision action.
+      dom.on(_root, 'change', '[data-apply-to]', function (e, el) {
+        var dsId = el.getAttribute('data-apply-to'), field = el.getAttribute('data-field'), action = el.value;
+        var ui = uiFor(dsId);
+        if (!action || !ui.applyControlId) { el.value = ''; return; }
+        var controlId = ui.applyControlId;
+        var project = App.store.getProject();
+        var count = 0;
+        _suppressRender = true;
+        try {
+          (project.items[dsId] || []).forEach(function (it) {
+            if (it.decision && it.decision[field] === action && (it.controlRefs || []).indexOf(controlId) === -1) {
+              App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).concat([controlId]) });
+              count++;
+            }
+          });
+        } finally { _suppressRender = false; }
+        var ctrl = (project.controls || []).filter(function (c) { return c.id === controlId; })[0];
+        App.ui.activity.log({ severity: 'info', message: 'Applied control "' + ((ctrl && ctrl.title) || controlId) + '" to ' + count + ' item(s) with ' + field + '=' + action + '.' });
+        renderMain(); // refresh checkbox states + reset the "Apply to" select
       });
       // Tick/untick a row's box: add/remove the selected control from that item's
       // controlRefs. Suppress the full re-render so bulk assignment stays fast and the
@@ -6777,7 +6842,8 @@
         T.assert(/data-panel-toggle="android.packages"/.test(html), 'no panel collapse toggle');
         T.assert(/aria-expanded="true"/.test(html), 'panel should default expanded');
         T.assert(html.indexOf('Control Refs') === -1, 'Control Refs column should be removed from the device panels');
-        T.assert(/<th>Key<\/th><th>Effective<\/th><th>Override<\/th>/.test(html), 'panel table should be Key/Effective/Override (latest, §19.5)');
+        // review-8 #3: Key / Effective / Override headers (now resizable, data-dev-col).
+        T.assert(/data-dev-col[^>]*>Key<span/.test(html) && /data-dev-col[^>]*>Effective<span/.test(html) && /data-dev-col[^>]*>Override<span/.test(html), 'panel table should be Key/Effective/Override (latest, §19.5)');
       });
       s.test('controls assigned to the device are listed, clickable, with a count', function () {
         setup();
@@ -7677,6 +7743,57 @@
         var w = withCtl();
         var html = App.ui.tables.renderTableHtml(w.project, 'android.packages', {}, {});
         T.assert(html.indexOf('apply-col') === -1 && html.indexOf('data-apply-check') === -1, 'apply column should only appear in apply mode');
+      });
+    });
+
+    T.suite('review-8 name-only picker + Apply-to action + resizable panels', function (s) {
+      function withCtl() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        return App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
+      }
+      s.test('#1 the control picker options show the NAME only (no type text)', function () {
+        var id = withCtl();
+        var on = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
+        T.assert(/<option value="No Bluetooth"><\/option>/.test(on), 'option should be name-only');
+        T.assert(!/<option value="No Bluetooth">ISM<\/option>/.test(on), 'the type must not appear under the name');
+      });
+      s.test('#2 packages has an "Apply to" action dropdown, enabled only with a control (old hint gone)', function () {
+        var id = withCtl();
+        var noCtl = App.ui.tables.renderToolbar('android.packages', { applyMode: true }, 2, 2, App.store.getProject().controls);
+        T.assert(noCtl.indexOf('pick a control, then tick rows') === -1, 'old hint text should be removed');
+        T.assert(/data-apply-to="android.packages"[^>]*disabled/.test(noCtl), 'Apply-to should be disabled without a control');
+        var withC = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
+        T.assert(/data-apply-to="android.packages" data-field="action"/.test(withC), 'no Apply-to action select');
+        T.assert(!/data-apply-to="android.packages"[^>]*disabled/.test(withC), 'Apply-to should be enabled with a control');
+        T.assert(/<option value="remove">remove<\/option>/.test(withC) && /<option value="disable">disable<\/option>/.test(withC) && /<option value="keep">keep<\/option>/.test(withC), 'action options missing');
+      });
+      s.test('#2 settings/tactical have NO "Apply to" (they have no enum decision field)', function () {
+        var id = withCtl();
+        var st = App.ui.tables.renderToolbar('android.settings', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
+        var tc = App.ui.tables.renderToolbar('android.tactical', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
+        T.assert(st.indexOf('data-apply-to="') === -1, 'settings must not have an Apply-to');
+        T.assert(tc.indexOf('data-apply-to="') === -1, 'tactical must not have an Apply-to');
+      });
+      s.test('#3 device panels are per-dataset resizable AND settings has an editable override', function () {
+        withCtl();
+        var D = App.ui.views.devices; D._dev.collapsed = {}; D._dev.panelColWidths = {};
+        var html = D.renderPanels(App.store.getProject(), 'dev-m1', '');
+        T.assert(/class="dev-panel-table"/.test(html), 'panels should be fixed/resizable tables');
+        T.assert(/data-dev-col-resize="android.settings\|override"/.test(html), 'no settings Override resize handle');
+        T.assert(/data-dev-col-resize="android.packages\|key"/.test(html), 'no packages key resize handle');
+        // settings override editor is present + editable (string textarea) — review-8 #3.
+        T.assert(/data-ov-ds="android.settings"[^>]*data-ov-kind="string"/.test(html), 'settings should expose an editable override control');
+        // widths are stored INDEPENDENTLY per dataset.
+        D._dev.panelColWidths = { 'android.settings': { key: 321 } };
+        var html2 = D.renderPanels(App.store.getProject(), 'dev-m1', '');
+        T.assert(/data-dev-col scope="col" style="width:321px">Key<span class="col-resize" data-dev-col-resize="android.settings\|key"/.test(html2), 'stored settings key width not applied');
+        // packages key keeps its default (independent of settings)
+        T.assert(/data-dev-col scope="col" style="width:220px">Key<span class="col-resize" data-dev-col-resize="android.packages\|key"/.test(html2), 'packages column width should be independent of settings');
+        D._dev.panelColWidths = {};
       });
     });
 

@@ -1044,3 +1044,37 @@ Changes from `Review Notes/review-7_notes`; spec §19.10. All land in the single
 - **Self-tests:** toolbar shows the toggle (+ picker/datalist + selected title when on, hidden when off);
   the table gains the apply column with per-row checkboxes reflecting membership (checked for an item
   that already has the control), disabled when no control is picked, and absent when the mode is off.
+
+## Review-8 follow-ups (apply-mode + device-panel columns)
+
+Changes from `Review Notes/review-8_notes`; spec §19.11. All land in the single `ch-config-tool.html`.
+
+#### T-RV8.1 · Control picker: name only
+- **Spec:** §19.11 RV8-1, §19.10 RV7-2
+- **Build (`App.ui.tables.renderToolbar`):** the apply-mode datalist option becomes
+  `<option value="title"></option>` (drop the `type` text).
+- **Self-tests:** the option renders name-only; the type does not appear.
+
+#### T-RV8.2 · "Apply to <action>" bulk assignment (packages only)
+- **Spec:** §19.11 RV8-2, §11.2
+- **Build:** in `renderToolbar`, resolve the dataset adapter from the loaded project and its **enum**
+  `decisionSchema` field; only then render a `[data-apply-to]` `<select>` (placeholder + the enum
+  options) `disabled` unless `ui.applyControlId`. Remove the old hint text. Wire
+  `change[data-apply-to]` in `App.ui.app`: for the selected control + action, add the control to the
+  `controlRefs` of every item whose `decision[field] === action` (skip those that already have it),
+  under the `_suppressRender` guard, then `renderMain` + log a summary. Settings/tactical have no enum
+  field → no control rendered.
+- **Self-tests:** packages shows an enabled/disabled `data-apply-to` with the action options and no old
+  hint; settings/tactical have none.
+
+#### T-RV8.3 · Settings device-panel Override + resizable panel columns
+- **Spec:** §19.11 RV8-3, §19.5
+- **Build (`App.ui.views.devices`):** `_dev.panelColWidths` (keyed by dataset). `renderPanels` builds
+  each latest-version panel as `table.dev-panel-table` (fixed layout) with data-driven `<th data-dev-col
+  style="width:Npx">` + `.col-resize` handles (`data-dev-col-resize="<dsId>|<col>"`) for Key/Effective/
+  Override; CSS wraps long cell text. Add a `mousedown[data-dev-col-resize]` handler in `wire` that
+  live-resizes the `<th>` and persists to `_dev.panelColWidths[dsId][col]`. The settings Override editor
+  (a string textarea) was already produced by `renderOverrideControl`; fixed widths keep it visible.
+- **Self-tests:** panels are `dev-panel-table` with per-dataset resize handles (incl. settings Override);
+  settings exposes an editable `data-ov-kind="string"` override; stored widths apply independently per
+  dataset.
