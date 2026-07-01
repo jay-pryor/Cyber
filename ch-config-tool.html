@@ -217,6 +217,15 @@
   .gen-card .why { color: var(--c-warn); font-size: 12px; min-height: 16px; }
   .gen-ready { color: var(--c-ok); font-weight: 600; }
   .gen-blocked { color: var(--c-warn); font-weight: 600; }
+  /* v1.3 per-command options (spec §20.8). */
+  .gen-card { min-width: 260px; }
+  .gen-options-toggle { font-size: 12px; }
+  .gen-options { margin-top: 10px; border-top: 1px solid var(--c-border); padding-top: 8px; }
+  .gen-opt-grp { margin-bottom: 8px; }
+  .gen-opt-grp > strong { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 3px; }
+  .gen-opt-sub { margin: 2px 0 2px 10px; font-size: 12px; }
+  .gen-opt-sub > em { color: var(--c-text-muted); margin-right: 6px; }
+  .gen-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; margin: 1px 10px 1px 0; }
 
   /* Devices tab */
   .dev-group { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-surface); margin-bottom: 12px; overflow: hidden; }
@@ -3106,15 +3115,17 @@
         });
         return [{ name: 'packages.verify.ps1', content: lines.join('\n') }];
       },
-      renderReportSection: function (items, ctx) {
-        // report-gen #1: keep the package description in the report.
-        var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.description || '') + '</td><td>' + esc(it.decision ? it.decision.action : '') +
-            '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
-        }).join('');
-        // report-gen #6: colgroup widths so the table fits the Word page.
-        return '<h2>Packages</h2><table><colgroup><col style="width:20%"><col style="width:30%"><col style="width:10%"><col style="width:20%"><col style="width:20%"></colgroup>' +
-          '<thead><tr><th>Package</th><th>Description</th><th>Action</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      // Declarative report metadata (spec §20.3): post-key columns (incl. Description,
+      // report-gen #1) + a group split by action (GEN-2).
+      reportGroups: { field: 'action', options: [{ value: 'remove', label: 'Removed' }, { value: 'disable', label: 'Disabled' }, { value: 'keep', label: 'Kept' }] },
+      reportColumns: [
+        { id: 'description', label: 'Description', optional: true, w: 3, get: function (it) { return it.description || ''; } },
+        { id: 'action', label: 'Action', optional: true, w: 1, get: function (it) { return it.decision ? it.decision.action : ''; } },
+        { id: 'control', label: 'Control', optional: true, w: 2, get: function (it, ctx) { return controlTitles(it.controlRefs, ctx); } },
+        { id: 'rationale', label: 'Rationale', optional: true, w: 3, get: function (it) { return it.rationale || ''; } }
+      ],
+      renderReportSection: function (items, ctx, opts) {
+        return App.report.buildSection('Packages', { label: 'Package', w: 2, get: function (it) { return it.key; } }, this.reportColumns, items, opts || {}, ctx, this.reportGroups);
       },
       // ---- bulk assignment (spec §18.2): a CSV of package,action,description ----
       assignmentHint: 'CSV with a header row exactly "package,action,description". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas).',
@@ -3290,14 +3301,15 @@
         });
         return [{ name: 'settings.verify.ps1', content: lines.join('\n') }];
       },
-      renderReportSection: function (items, ctx) {
-        // report-gen #1: keep the setting description in the report.
-        var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.description || '') + '</td><td>' + esc(it.decision ? it.decision.value : '') +
-            '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
-        }).join('');
-        return '<h2>Settings</h2><table><colgroup><col style="width:22%"><col style="width:28%"><col style="width:20%"><col style="width:15%"><col style="width:15%"></colgroup>' +
-          '<thead><tr><th>Key</th><th>Description</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      // Single-table dataset (no reportGroups); Description column kept (report-gen #1).
+      reportColumns: [
+        { id: 'description', label: 'Description', optional: true, w: 3, get: function (it) { return it.description || ''; } },
+        { id: 'value', label: 'Value', optional: true, w: 2, get: function (it) { return it.decision ? it.decision.value : ''; } },
+        { id: 'control', label: 'Control', optional: true, w: 2, get: function (it, ctx) { return controlTitles(it.controlRefs, ctx); } },
+        { id: 'rationale', label: 'Rationale', optional: true, w: 2, get: function (it) { return it.rationale || ''; } }
+      ],
+      renderReportSection: function (items, ctx, opts) {
+        return App.report.buildSection('Settings', { label: 'Key', w: 2, get: function (it) { return it.key; } }, this.reportColumns, items, opts || {}, ctx, null);
       },
       /** Captured value/type per key, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
@@ -3416,14 +3428,15 @@
         });
         return [{ name: 'tactical.verify.txt', content: lines.join('\n') }];
       },
-      renderReportSection: function (items, ctx) {
-        // report-gen #2: add a Description column to the tactical section.
-        var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(stripPolicyPrefix(it.key)) + '</td><td>' + esc(it.description || '') + '</td><td>' + esc(it.decision ? stableStringify(it.decision.value) : '') +
-            '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
-        }).join('');
-        return '<h2>Tactical</h2><table><colgroup><col style="width:22%"><col style="width:28%"><col style="width:20%"><col style="width:15%"><col style="width:15%"></colgroup>' +
-          '<thead><tr><th>Path</th><th>Description</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      // Single-table dataset; Path key strips the policyList prefix (RV4-1); Description kept.
+      reportColumns: [
+        { id: 'description', label: 'Description', optional: true, w: 3, get: function (it) { return it.description || ''; } },
+        { id: 'value', label: 'Value', optional: true, w: 2, get: function (it) { return it.decision ? stableStringify(it.decision.value) : ''; } },
+        { id: 'control', label: 'Control', optional: true, w: 2, get: function (it, ctx) { return controlTitles(it.controlRefs, ctx); } },
+        { id: 'rationale', label: 'Rationale', optional: true, w: 2, get: function (it) { return it.rationale || ''; } }
+      ],
+      renderReportSection: function (items, ctx, opts) {
+        return App.report.buildSection('Tactical', { label: 'Path', w: 2, get: function (it) { return stripPolicyPrefix(it.key); } }, this.reportColumns, items, opts || {}, ctx, null);
       },
       /** Captured value/type per leaf path, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
@@ -4043,34 +4056,87 @@
       'th{background:#e6e6e6;font-weight:bold;}' +
       '.meta td{border:1px solid #bbb;}' +
       '.section{page-break-before:always;}' +
+      '.classification{background:#a00;color:#fff;font-weight:bold;text-align:center;padding:5pt;margin:6pt 0;font-size:12pt;font-family:Arial,sans-serif;}' +
       '.muted{color:#555;}';
 
+    /** The "Device Config Information" metadata section (spec §20.4). */
+    function metaTable(meta) {
+      var rows = meta.map(function (m) { return '<tr><th>' + esc(m.label) + '</th><td>' + esc(m.value) + '</td></tr>'; }).join('');
+      return '<h2>Device Config Information</h2><table class="meta"><colgroup><col style="width:190pt"><col></colgroup><tbody>' + rows + '</tbody></table>';
+    }
+
     /**
-     * Wrap a report from a title, a metadata table, and section HTML fragments.
+     * Wrap a complete report document from a title + ordered section fragments.
      * @param {string} title
-     * @param {{label:string,value:string}[]} meta
-     * @param {string[]} sections  Pre-built (already-escaped) HTML fragments.
+     * @param {string[]} sections  Pre-built (already-escaped) HTML fragments, in order.
+     * @param {{classification?:string}} [wrapOpts]  when classification is set, a banner
+     *        is injected at the top and bottom of <body> (GEN-6).
      * @returns {string} a complete HTML document
      */
-    function wrapReport(title, meta, sections) {
-      var metaRows = meta.map(function (m) {
-        return '<tr><th>' + esc(m.label) + '</th><td>' + esc(m.value) + '</td></tr>';
-      }).join('');
-      // report-gen #6: fixed column widths so long hashes wrap and the table fits the page.
-      var metaCols = '<colgroup><col style="width:190pt"><col></colgroup>';
-      // First section flows after the meta table; subsequent sections start on a new page.
+    function wrapReport(title, sections, wrapOpts) {
+      wrapOpts = wrapOpts || {};
+      var banner = wrapOpts.classification ? '<div class="classification">' + esc(wrapOpts.classification) + '</div>' : '';
+      // First section flows after the title; subsequent sections start on a new page.
       var body = sections.map(function (sec, i) {
         return '<div class="' + (i === 0 ? '' : 'section') + '">' + sec + '</div>';
       }).join('');
       return '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>' + esc(title) + '</title>' +
         '<style>' + REPORT_CSS + '</style></head><body>' +
-        '<h1>' + esc(title) + '</h1>' +
-        '<table class="meta">' + metaCols + '<tbody>' + metaRows + '</tbody></table>' +
-        body +
+        banner + '<h1>' + esc(title) + '</h1>' + body + banner +
         '</body></html>';
     }
 
-    App.report = { wrapReport: wrapReport };
+    /**
+     * Shared report table builder (spec §20.3). Emits `<h2>` + a fixed-width `<table>`
+     * with a colgroup (widths from per-cell weights) and the single "None." empty row
+     * (GEN-5). All text is escaped.
+     * @param {string} title
+     * @param {Array<string|{label:string,w?:number}>} headerCells  key col first
+     * @param {string} rowsHtml  pre-built <tr> rows (already escaped); '' ⇒ "None." row
+     * @returns {string}
+     */
+    function renderTable(title, headerCells, rowsHtml) {
+      var cells = headerCells.map(function (h) { return (typeof h === 'string') ? { label: h, w: 1 } : h; });
+      var total = cells.reduce(function (a, c) { return a + (c.w || 1); }, 0) || cells.length;
+      var cols = cells.map(function (c) { return '<col style="width:' + Math.round((c.w || 1) / total * 100) + '%">'; }).join('');
+      var head = '<tr>' + cells.map(function (c) { return '<th>' + esc(c.label) + '</th>'; }).join('') + '</tr>';
+      var body = rowsHtml || ('<tr><td colspan="' + cells.length + '">None.</td></tr>');
+      return '<h2>' + esc(title) + '</h2><table><colgroup>' + cols + '</colgroup><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+    }
+
+    /**
+     * Build one dataset report section — column- and group-aware (spec §20.3).
+     * @param {string} sectionLabel
+     * @param {{label:string,w?:number,get:Function}} keyCol  always-present first column
+     * @param {Array<{id,label,optional?,w?,get:Function}>} columns  post-key columns
+     * @param {RegisterItem[]} items
+     * @param {{columns?:Object,groups?:Object}} [opts]  per-column / per-group include maps (missing ⇒ shown)
+     * @param {DeviceContext} ctx
+     * @param {?{field:string,options:Array<{value,label}>}} [groups]  reportGroups or null
+     * @returns {string}
+     */
+    function buildSection(sectionLabel, keyCol, columns, items, opts, ctx, groups) {
+      opts = opts || {};
+      var colOpts = opts.columns || {};
+      var visible = columns.filter(function (c) { return !c.optional || colOpts[c.id] !== false; });
+      var headerCols = [keyCol].concat(visible);
+      var headerCells = headerCols.map(function (c) { return { label: c.label, w: c.w || 1 }; });
+      function rowsFor(list) {
+        return list.slice().sort(function (a, b) { return a.key < b.key ? -1 : a.key > b.key ? 1 : 0; }).map(function (it) {
+          return '<tr>' + headerCols.map(function (c) { return '<td>' + esc(c.get(it, ctx) == null ? '' : c.get(it, ctx)) + '</td>'; }).join('') + '</tr>';
+        }).join('');
+      }
+      if (groups && groups.field) {
+        var groupOpts = opts.groups || {};
+        return groups.options.filter(function (g) { return groupOpts[g.value] !== false; }).map(function (g) {
+          var list = items.filter(function (it) { return it.decision && it.decision[groups.field] === g.value; });
+          return renderTable(sectionLabel + ' — ' + g.label, headerCells, rowsFor(list));
+        }).join('');
+      }
+      return renderTable(sectionLabel, headerCells, rowsFor(items));
+    }
+
+    App.report = { wrapReport: wrapReport, renderTable: renderTable, buildSection: buildSection, metaTable: metaTable };
   })(App);
   </script>
 
@@ -4161,9 +4227,34 @@
       var genName = command === 'implementation' ? 'generateImplementation' : 'generateVerification';
       var ext = platform.scriptExtension;
       var files = [];
+      // v1.3 (§20.6/§20.7): optional CSV verification-results scaffold accumulates rows.
+      var csvRows = [];
+      // Only-deviations (§20.7): the set of deviating keys per dataset, once.
+      var devKeysByDs = {};
+      if (opts.onlyDeviations && App.overrides) {
+        App.overrides.deviceDeviations(project, deviceId).forEach(function (d) {
+          (devKeysByDs[d.datasetId] = devKeysByDs[d.datasetId] || {})[d.key] = true;
+        });
+      }
       try {
         platform.datasets.forEach(function (ds) {
+          // Dataset include filter (§20.6/§20.7) — skip an unticked dataset entirely.
+          if (opts.datasets && opts.datasets[ds.id] === false) return;
+          var adapter = App.registry.getDataset(project.platformProfileId, ds.id);
           var items = gather(project, deviceId, ds.id);
+          // Action subset (§20.6, enum datasets only) — discovered data-drivenly.
+          if (opts.actions && opts.actions[ds.id]) {
+            var enumField = ((adapter.decisionSchema || []).filter(function (f) { return f.kind === 'enum'; })[0] || {}).name;
+            if (enumField) {
+              var amap = opts.actions[ds.id];
+              items = items.filter(function (it) { return it.decision && amap[it.decision[enumField]] !== false; });
+            }
+          }
+          // Only items that deviate from default (§20.7).
+          if (opts.onlyDeviations) {
+            var dk = devKeysByDs[ds.id] || {};
+            items = items.filter(function (it) { return dk[it.key]; });
+          }
           (ds[genName](items, ctx) || []).forEach(function (f) {
             var isScript = ext && endsWith(f.name, ext);
             // Wrap script files (per platform.scriptExtension) with preamble/postamble;
@@ -4174,7 +4265,17 @@
             var name = (isScript && opts.scriptsAsTxt) ? f.name.slice(0, -ext.length) + '.txt' : f.name;
             files.push({ name: name, content: content });
           });
+          // CSV results scaffold (§20.7): expected = adapter decision-column display.
+          if (opts.csvResults) {
+            var get = decisionColGet(adapter);
+            var dispKey = (adapter && adapter.displayKey) || function (k) { return k; };
+            items.forEach(function (it) { csvRows.push({ dataset: ds.label, key: dispKey(it.key), expected: String(get(it)), actual: '', result: '' }); });
+          }
         });
+        if (opts.csvResults) {
+          var cols = [{ key: 'dataset', label: 'dataset' }, { key: 'key', label: 'key' }, { key: 'expected', label: 'expected' }, { key: 'actual', label: 'actual' }, { key: 'result', label: 'result' }];
+          files.push({ name: 'verification-results.csv', content: App.util.csv.toCsv(csvRows, cols) });
+        }
       } catch (e) {
         return { issues: [{ category: 'generation', severity: 'error', message: 'Generation failed: ' + e.message }] };
       }
@@ -4233,16 +4334,7 @@
       return header + '<table><colgroup><col style="width:24%"><col style="width:12%"><col style="width:12%"><col style="width:52%"></colgroup><thead><tr><th>Key</th><th>Dataset</th><th>Source</th><th>Default &rarr; Group &rarr; Device</th></tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
-    /** @returns {{blob:Blob,name:string,issues:Issue[],files?:Object[]}} */
-    function buildReport(project, deviceId) {
-      var platform = App.registry.getPlatform(project.platformProfileId);
-      var dc = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
-      if (!platform || !dc) return { issues: [{ category: 'generation', severity: 'error', message: 'Unknown device or platform.', location: deviceId }] };
-      var generatedUtc = App.util.clock.nowIso();
-      var ctx = ctxFor(project, dc, generatedUtc);
-      var sections = platform.datasets.map(function (ds) { return ds.renderReportSection(gather(project, deviceId, ds.id), ctx); });
-      sections.push(buildControlSection(project, deviceId, platform));
-      sections.push(buildDeviationsSection(project, deviceId, platform));
+    function deviceMeta(project, dc, generatedUtc) {
       var meta = [
         { label: 'Project platform', value: project.platformProfileId },
         { label: 'Device', value: dc.name }, { label: 'Model', value: dc.model },
@@ -4251,15 +4343,131 @@
         { label: 'Project SHA-256', value: sha(App.projectIo.serializeProject(project)) }
       ];
       Object.keys(dc.snapshots).sort().forEach(function (dsId) { meta.push({ label: dsId + ' snapshot SHA-256', value: dc.snapshots[dsId].sha256 }); });
-      var html = App.report.wrapReport('CH Configuration Report — ' + dc.name, meta, sections);
+      return meta;
+    }
+
+    /**
+     * Ordered candidate-section descriptor (spec §20.4 / GEN-4): the "Sections included"
+     * table and the body are built from THIS, so the UI and report never drift.
+     * @returns {Array<{label:string,included:boolean}>}
+     */
+    function reportSectionDescriptor(project, platform, opts) {
+      var sec = opts.sections || {}, dsSecAll = opts.datasetSections || {}, d = [];
+      d.push({ label: 'Device Config Information', included: sec.meta !== false });
+      platform.datasets.forEach(function (ds) {
+        var adapter = App.registry.getDataset(project.platformProfileId, ds.id);
+        var dsSec = dsSecAll[ds.id] || {};
+        if (adapter && adapter.reportGroups && adapter.reportGroups.field) {
+          adapter.reportGroups.options.forEach(function (g) { d.push({ label: ds.label + ' — ' + g.label, included: dsSec[g.value] !== false }); });
+        } else {
+          d.push({ label: ds.label, included: dsSec._all !== false });
+        }
+      });
+      d.push({ label: 'Control coverage', included: sec.control !== false });
+      d.push({ label: 'Deviations from default', included: sec.deviations !== false });
+      return d;
+    }
+
+    /**
+     * @param {Project} project @param {string} deviceId
+     * @param {Object} [opts]  `_gen.report`-shaped (undefined ⇒ include everything).
+     * @returns {{blob:Blob,name:string,issues:Issue[],files?:Object[]}}
+     */
+    function buildReport(project, deviceId, opts) {
+      opts = opts || {};
+      var esc = App.util.html.esc;
+      var platform = App.registry.getPlatform(project.platformProfileId);
+      var dc = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      if (!platform || !dc) return { issues: [{ category: 'generation', severity: 'error', message: 'Unknown device or platform.', location: deviceId }] };
+      var sec = opts.sections || {}, dsSecAll = opts.datasetSections || {}, colsAll = opts.columns || {};
+      var generatedUtc = App.util.clock.nowIso();
+      var ctx = ctxFor(project, dc, generatedUtc);
+
+      // "Sections included" table (GEN-4), always first — self-documents composition.
+      var descriptor = reportSectionDescriptor(project, platform, opts);
+      var incRows = descriptor.map(function (x) { return '<tr><td>' + esc(x.label) + '</td><td>' + (x.included ? 'Included' : 'Omitted') + '</td></tr>'; }).join('');
+      var sections = [App.report.renderTable('Sections included', [{ label: 'Section', w: 3 }, { label: 'Status', w: 1 }], incRows)];
+
+      if (sec.meta !== false) sections.push(App.report.metaTable(deviceMeta(project, dc, generatedUtc)));
+      platform.datasets.forEach(function (ds) {
+        var adapter = App.registry.getDataset(project.platformProfileId, ds.id);
+        var items = gather(project, deviceId, ds.id);
+        var dsSec = dsSecAll[ds.id] || {}, colOpts = colsAll[ds.id];
+        if (adapter && adapter.reportGroups && adapter.reportGroups.field) {
+          var html = adapter.renderReportSection(items, ctx, { columns: colOpts, groups: dsSec });
+          if (html) sections.push(html);
+        } else if (dsSec._all !== false) {
+          sections.push(adapter.renderReportSection(items, ctx, { columns: colOpts }));
+        }
+      });
+      if (sec.control !== false) sections.push(buildControlSection(project, deviceId, platform));
+      if (sec.deviations !== false) sections.push(buildDeviationsSection(project, deviceId, platform));
+
+      var html = App.report.wrapReport('CH Configuration Report — ' + dc.name, sections, { classification: opts.classification ? 'OFFICIAL: Sensitive' : null });
       var files = [{ name: 'report.html', content: html }];
       files.push({ name: 'manifest.json', content: buildManifest(project, dc, 'reporting', generatedUtc, platform, files) });
       return { blob: App.util.zip.zip(files), name: dc.id + '-reporting-' + stamp(generatedUtc) + '.zip', issues: [], files: files };
     }
 
+    /** The adapter's decision-column display getter (generic; no adapter change). */
+    function decisionColGet(adapter) {
+      var col = (adapter.columns || []).filter(function (c) { return c.key === 'decision'; })[0];
+      return (col && col.get) ? col.get : function (it) { return it.decision ? stable(it.decision) : ''; };
+    }
+
+    /**
+     * Standalone control-keyed report (spec §20.5 / GEN-7): one section per control
+     * APPLIED to the device (referenced by ≥1 decided applicable item), each listing the
+     * satisfying items (Dataset · Key · Decision). Items with no control fall under
+     * "(no control)" only if opts.includeUncontrolled.
+     * @param {Project} project @param {string} deviceId @param {Object} [opts]
+     * @returns {{blob:Blob,name:string,issues:Issue[],files?:Object[]}}
+     */
+    function buildControlReport(project, deviceId, opts) {
+      opts = opts || {};
+      var esc = App.util.html.esc;
+      var platform = App.registry.getPlatform(project.platformProfileId);
+      var dc = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      if (!platform || !dc) return { issues: [{ category: 'generation', severity: 'error', message: 'Unknown device or platform.', location: deviceId }] };
+      var generatedUtc = App.util.clock.nowIso();
+      var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
+      var NONE = '__none__', byCtl = {};
+      platform.datasets.forEach(function (ds) {
+        var adapter = App.registry.getDataset(project.platformProfileId, ds.id);
+        var get = decisionColGet(adapter);
+        var dispKey = (adapter && adapter.displayKey) || function (k) { return k; };
+        gather(project, deviceId, ds.id).forEach(function (it) {
+          var refs = (it.controlRefs && it.controlRefs.length) ? it.controlRefs : [NONE];
+          refs.forEach(function (ref) { (byCtl[ref] = byCtl[ref] || []).push({ dsLabel: ds.label, key: dispKey(it.key), decision: String(get(it)) }); });
+        });
+      });
+      function labelFor(ref) { if (ref === NONE) return '(no control)'; var c = controlsById[ref]; return c ? (c.title + ' (' + c.type + ')') : ref; }
+      var refs = Object.keys(byCtl).filter(function (ref) { return ref !== NONE || opts.includeUncontrolled; });
+      refs.sort(function (a, b) { var la = labelFor(a), lb = labelFor(b); return la < lb ? -1 : la > lb ? 1 : 0; });
+
+      var sections = [App.report.metaTable(deviceMeta(project, dc, generatedUtc))];
+      if (!refs.length) {
+        sections.push('<h2>Applied controls</h2><p class="muted">No controls are satisfied by this device\'s decided items.</p>');
+      } else {
+        refs.forEach(function (ref) {
+          var c = controlsById[ref];
+          var descP = (ref !== NONE && c && c.description) ? '<p class="muted">' + esc(c.description) + '</p>' : '';
+          var rows = byCtl[ref].slice().sort(function (a, b) { return (a.dsLabel + a.key) < (b.dsLabel + b.key) ? -1 : 1; })
+            .map(function (r) { return '<tr><td>' + esc(r.dsLabel) + '</td><td>' + esc(r.key) + '</td><td>' + esc(r.decision) + '</td></tr>'; }).join('');
+          var table = '<table><colgroup><col style="width:20%"><col style="width:40%"><col style="width:40%"></colgroup>' +
+            '<thead><tr><th>Dataset</th><th>Key</th><th>Decision</th></tr></thead><tbody>' + (rows || '<tr><td colspan="3">None.</td></tr>') + '</tbody></table>';
+          sections.push('<h2>' + esc(labelFor(ref)) + '</h2>' + descP + table);
+        });
+      }
+      var html = App.report.wrapReport('Control Report — ' + dc.name, sections, { classification: opts.classification ? 'OFFICIAL: Sensitive' : null });
+      var files = [{ name: 'control-report.html', content: html }];
+      files.push({ name: 'manifest.json', content: buildManifest(project, dc, 'control', generatedUtc, platform, files) });
+      return { blob: App.util.zip.zip(files), name: dc.id + '-control-' + stamp(generatedUtc) + '.zip', issues: [], files: files };
+    }
+
     App.generate = {
       buildImplementation: buildImplementation, buildVerification: buildVerification, buildReport: buildReport,
-      _gather: gather
+      buildControlReport: buildControlReport, _gather: gather
     };
   })(App);
   </script>
@@ -4824,14 +5032,85 @@
   (function (App) {
     'use strict';
     var esc = App.util.html.esc;
-    var _gen = { deviceId: null, scriptsAsTxt: false };
+    // v1.3 (§20.2): four independent, session-only option blocks. Include-maps default
+    // to "included" on a missing key; boolean toggles default to false.
+    var _gen = {
+      deviceId: null, scriptsAsTxt: false, openOptions: {},
+      report: { sections: {}, datasetSections: {}, columns: {}, classification: false },
+      control: { classification: false, includeUncontrolled: false },
+      implementation: { datasets: {}, actions: {} },
+      verification: { datasets: {}, onlyDeviations: false, csvResults: false }
+    };
     var _ctx = null;
 
     var COMMANDS = [
-      { id: 'implementation', label: 'Implementation', build: 'buildImplementation' },
-      { id: 'verification', label: 'Verification', build: 'buildVerification' },
-      { id: 'reporting', label: 'Reporting', build: 'buildReport' }
+      { id: 'implementation', label: 'Implementation', build: 'buildImplementation', block: 'implementation' },
+      { id: 'verification', label: 'Verification', build: 'buildVerification', block: 'verification' },
+      { id: 'reporting', label: 'Reporting', build: 'buildReport', block: 'report' },
+      { id: 'control', label: 'Control report', build: 'buildControlReport', block: 'control' }
     ];
+
+    // ---- option checkbox helpers (missing-key ⇒ included for include-maps) ----
+    function incMapOn(block, map, ds, key) {
+      var m = (_gen[block][map]) || {};
+      if (key != null) { var d = m[ds] || {}; return d[key] !== false; }
+      return m[ds] !== false;
+    }
+    function cb(attrs, label, on) {
+      return '<label class="gen-opt"><input type="checkbox" ' + attrs + (on ? ' checked' : '') + '> ' + esc(label) + '</label>';
+    }
+
+    /** Per-command options panel (spec §20.8), fully data-driven from the platform. */
+    function renderOptions(cmd, project, platform) {
+      var dss = platform.datasets, parts = [];
+      function adapterFor(dsId) { return App.registry.getDataset(project.platformProfileId, dsId); }
+      if (cmd.id === 'reporting') {
+        parts.push('<div class="gen-opt-grp"><strong>Sections</strong>');
+        parts.push(cb('data-gen-block="report" data-gen-flag="sections.meta"', 'Device Config Information', _gen.report.sections.meta !== false));
+        dss.forEach(function (ds) {
+          var a = adapterFor(ds.id);
+          if (a && a.reportGroups && a.reportGroups.field) {
+            parts.push('<div class="gen-opt-sub"><em>' + esc(ds.label) + '</em>' +
+              a.reportGroups.options.map(function (g) { return cb('data-gen-block="report" data-gen-map="datasetSections" data-gen-ds="' + esc(ds.id) + '" data-gen-key="' + esc(g.value) + '"', g.label, incMapOn('report', 'datasetSections', ds.id, g.value)); }).join('') + '</div>');
+          } else {
+            parts.push(cb('data-gen-block="report" data-gen-map="datasetSections" data-gen-ds="' + esc(ds.id) + '" data-gen-key="_all"', ds.label, incMapOn('report', 'datasetSections', ds.id, '_all')));
+          }
+        });
+        parts.push(cb('data-gen-block="report" data-gen-flag="sections.control"', 'Control coverage', _gen.report.sections.control !== false));
+        parts.push(cb('data-gen-block="report" data-gen-flag="sections.deviations"', 'Deviations from default', _gen.report.sections.deviations !== false));
+        parts.push('</div>');
+        var colGrp = ['<div class="gen-opt-grp"><strong>Columns</strong>'];
+        dss.forEach(function (ds) {
+          var a = adapterFor(ds.id); var optCols = ((a && a.reportColumns) || []).filter(function (c) { return c.optional; });
+          if (!optCols.length) return;
+          colGrp.push('<div class="gen-opt-sub"><em>' + esc(ds.label) + '</em>' +
+            optCols.map(function (c) { return cb('data-gen-block="report" data-gen-map="columns" data-gen-ds="' + esc(ds.id) + '" data-gen-key="' + esc(c.id) + '"', c.label, incMapOn('report', 'columns', ds.id, c.id)); }).join('') + '</div>');
+        });
+        colGrp.push('</div>'); parts.push(colGrp.join(''));
+        parts.push(cb('data-gen-block="report" data-gen-flag="classification"', 'OFFICIAL: Sensitive header/footer', _gen.report.classification === true));
+      } else if (cmd.id === 'control') {
+        parts.push(cb('data-gen-block="control" data-gen-flag="classification"', 'OFFICIAL: Sensitive header/footer', _gen.control.classification === true));
+        parts.push(cb('data-gen-block="control" data-gen-flag="includeUncontrolled"', 'Include items with no control', _gen.control.includeUncontrolled === true));
+      } else if (cmd.id === 'implementation') {
+        parts.push('<div class="gen-opt-grp"><strong>Datasets</strong>');
+        dss.forEach(function (ds) {
+          parts.push(cb('data-gen-block="implementation" data-gen-map="datasets" data-gen-ds="' + esc(ds.id) + '"', ds.label, incMapOn('implementation', 'datasets', ds.id, null)));
+          var a = adapterFor(ds.id); var enumF = ((a && a.decisionSchema) || []).filter(function (f) { return f.kind === 'enum'; })[0];
+          if (enumF) {
+            parts.push('<div class="gen-opt-sub"><em>actions</em>' +
+              enumF.options.map(function (o) { return cb('data-gen-block="implementation" data-gen-map="actions" data-gen-ds="' + esc(ds.id) + '" data-gen-key="' + esc(o) + '"', o, incMapOn('implementation', 'actions', ds.id, o)); }).join('') + '</div>');
+          }
+        });
+        parts.push('</div>');
+      } else if (cmd.id === 'verification') {
+        parts.push('<div class="gen-opt-grp"><strong>Datasets</strong>');
+        dss.forEach(function (ds) { parts.push(cb('data-gen-block="verification" data-gen-map="datasets" data-gen-ds="' + esc(ds.id) + '"', ds.label, incMapOn('verification', 'datasets', ds.id, null))); });
+        parts.push('</div>');
+        parts.push(cb('data-gen-block="verification" data-gen-flag="onlyDeviations"', 'Only items that deviate from default', _gen.verification.onlyDeviations === true));
+        parts.push(cb('data-gen-block="verification" data-gen-flag="csvResults"', 'Also emit results CSV', _gen.verification.csvResults === true));
+      }
+      return parts.join('');
+    }
 
     function latest(project) { return App.ui.model.getLatestConfigs(project); }
     function selectedId(project) {
@@ -4861,12 +5140,17 @@
         ? '<span class="gen-ready">Ready — all applicable items decided.</span>'
         : '<span class="gen-blocked">Blocked: ' + esc(why) + '.</span>';
 
+      var platform = App.registry.getPlatform(project.platformProfileId);
       var cards = COMMANDS.map(function (cmd) {
         var dis = readiness.ready ? '' : ' disabled';
+        var open = !!_gen.openOptions[cmd.id];
+        var optsPanel = open ? '<div class="gen-options">' + renderOptions(cmd, project, platform) + '</div>' : '';
         return '<div class="gen-card">' +
           '<h3>' + esc(cmd.label) + '</h3>' +
           '<button class="primary" data-generate-action="' + cmd.id + '"' + dis + '>Generate ' + esc(cmd.label) + '</button>' +
+          ' <button class="gen-options-toggle" data-gen-options-toggle="' + cmd.id + '" aria-expanded="' + open + '">' + (open ? 'Hide options' : 'Options ▾') + '</button>' +
           '<div class="why">' + (readiness.ready ? '' : esc(why)) + '</div>' +
+          optsPanel +
           '</div>';
       }).join('');
 
@@ -4890,7 +5174,10 @@
       var cmd = COMMANDS.filter(function (c) { return c.id === cmdId; })[0];
       if (App.generate && typeof App.generate[cmd.build] === 'function') {
         try {
-          var out = App.generate[cmd.build](project, selId, { scriptsAsTxt: _gen.scriptsAsTxt });
+          // Pass the command's own option block; impl/verify also carry the global scriptsAsTxt.
+          var block = _gen[cmd.block] || {};
+          var opts = (cmd.id === 'implementation' || cmd.id === 'verification') ? Object.assign({}, block, { scriptsAsTxt: _gen.scriptsAsTxt }) : block;
+          var out = App.generate[cmd.build](project, selId, opts);
           if (out && out.blob) { App.util.dom.download(out.blob, out.name); App.ui.activity.log({ severity: 'success', message: 'Generated ' + cmd.label + ': ' + out.name }); }
           (out && out.issues || []).forEach(function (i) { App.ui.activity.log(i); });
         } catch (err) { App.ui.activity.log({ severity: 'error', message: 'Generation failed: ' + (err && err.message) }); }
@@ -4901,14 +5188,33 @@
 
     function wire(ctx) {
       _ctx = ctx;
-      App.util.dom.on(ctx.root, 'change', '[data-generate-device]', function (e, el) { _gen.deviceId = el.value; ctx.refreshMain(); });
-      App.util.dom.on(ctx.root, 'change', '[data-generate-txt]', function (e, el) { _gen.scriptsAsTxt = el.checked; });
-      App.util.dom.on(ctx.root, 'click', '[data-generate-action]', function (e, el) { doGenerate(el.getAttribute('data-generate-action')); });
+      var dom = App.util.dom;
+      dom.on(ctx.root, 'change', '[data-generate-device]', function (e, el) { _gen.deviceId = el.value; ctx.refreshMain(); });
+      dom.on(ctx.root, 'change', '[data-generate-txt]', function (e, el) { _gen.scriptsAsTxt = el.checked; });
+      dom.on(ctx.root, 'click', '[data-generate-action]', function (e, el) { doGenerate(el.getAttribute('data-generate-action')); });
+      // v1.3 options (§20.8) — collapse toggle + option checkboxes (session-only, no project write).
+      dom.on(ctx.root, 'click', '[data-gen-options-toggle]', function (e, el) {
+        var id = el.getAttribute('data-gen-options-toggle');
+        _gen.openOptions[id] = !_gen.openOptions[id]; ctx.refreshMain();
+      });
+      dom.on(ctx.root, 'change', '[data-gen-flag]', function (e, el) {
+        var block = el.getAttribute('data-gen-block'), field = el.getAttribute('data-gen-flag');
+        var obj = _gen[block], parts = field.split('.');
+        for (var i = 0; i < parts.length - 1; i++) { obj[parts[i]] = obj[parts[i]] || {}; obj = obj[parts[i]]; }
+        obj[parts[parts.length - 1]] = el.checked; ctx.refreshMain();
+      });
+      dom.on(ctx.root, 'change', '[data-gen-map]', function (e, el) {
+        var block = el.getAttribute('data-gen-block'), map = el.getAttribute('data-gen-map'), ds = el.getAttribute('data-gen-ds'), key = el.getAttribute('data-gen-key');
+        var m = _gen[block]; m[map] = m[map] || {};
+        if (key != null) { m[map][ds] = m[map][ds] || {}; m[map][ds][key] = el.checked; }
+        else { m[map][ds] = el.checked; }
+        ctx.refreshMain();
+      });
     }
 
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
-    App.ui.views.generate = { render: render, wire: wire };
+    App.ui.views.generate = { render: render, wire: wire, _gen: _gen };
   })(App);
   </script>
 
@@ -6930,17 +7236,24 @@
     function fileNamed(files, name) { return files.filter(function (f) { return f.name === name; })[0]; }
 
     T.suite('report.wrapReport (Word HTML)', function (s) {
-      s.test('produces a full HTML doc with meta table + sections', function () {
-        var html = App.report.wrapReport('T', [{ label: 'Device', value: 'Dev' }], ['<h2>S1</h2><table></table>', '<h2>S2</h2>']);
+      s.test('produces a full HTML doc with ordered sections (meta is a section fragment)', function () {
+        var meta = App.report.metaTable([{ label: 'Device', value: 'Dev' }]);
+        var html = App.report.wrapReport('T', [meta, '<h2>S1</h2><table></table>', '<h2>S2</h2>']);
         T.assert(/^<!DOCTYPE html>/.test(html));
         T.assert(/<table class="meta">/.test(html) && />Device</.test(html));
         T.assert(/page-break-before:always/.test(html), 'no Word page-break CSS');
         T.assert(/class="section"/.test(html), 'subsequent sections not page-broken');
       });
-      s.test('escapes dynamic meta values', function () {
-        var html = App.report.wrapReport('T', [{ label: 'x', value: '<script>' }], []);
-        T.assert(html.indexOf('<script>') === html.indexOf('<script>x') /* none from value */ || html.indexOf('&lt;script&gt;') !== -1);
+      s.test('escapes dynamic section text', function () {
+        var html = App.report.wrapReport('T', [App.report.metaTable([{ label: 'x', value: '<script>' }])]);
         T.assert(/&lt;script&gt;/.test(html));
+      });
+      s.test('classification banner appears top & bottom only when set (GEN-6)', function () {
+        var off = App.report.wrapReport('T', ['<h2>S</h2>']);
+        T.assert(off.indexOf('class="classification"') === -1, 'no banner without classification');
+        var on = App.report.wrapReport('T', ['<h2>S</h2>'], { classification: 'OFFICIAL: Sensitive' });
+        T.assertEqual((on.match(/class="classification"/g) || []).length, 2, 'banner should appear twice (top+bottom)');
+        T.assert(on.indexOf('OFFICIAL: Sensitive') !== -1, 'banner text missing');
       });
     });
 
@@ -7030,6 +7343,96 @@
         T.assert(/table\{[^}]*width:100%[^}]*table-layout:fixed/.test(html), 'tables not width:100% + table-layout:fixed');
         T.assert((html.match(/<colgroup>/g) || []).length >= 5, 'expected colgroups on the meta + section tables');
         T.assert(/<h2>Settings<\/h2><table><colgroup>/.test(html), 'settings table lacks a colgroup');
+      });
+    });
+
+    T.suite('T11 (v1.3) generation customisation', function (s) {
+      var FIX = function () { return new Date('2026-01-01T00:00:00.000Z'); };
+      function report(p, opts) { App.util.clock.setClock(FIX); var f = App.generate.buildReport(p, 'dev-m1', opts); App.util.clock.resetClock(); return fileNamed(f.files, 'report.html').content; }
+
+      s.test('GEN-2/GEN-1: packages split into Removed/Disabled/Kept; excluding a group drops it', function () {
+        var p = readyProject(); // com.a keep, com.b disable
+        var h = report(p, {});
+        T.assert(/<h2>Packages — Removed<\/h2>/.test(h) && /<h2>Packages — Disabled<\/h2>/.test(h) && /<h2>Packages — Kept<\/h2>/.test(h), 'packages not split into 3 sub-tables');
+        var h2 = report(p, { datasetSections: { 'android.packages': { keep: false } } });
+        T.assert(!/<h2>Packages — Kept<\/h2>/.test(h2) && /<h2>Packages — Disabled<\/h2>/.test(h2), 'Kept should be omitted, Disabled kept');
+      });
+      s.test('GEN-5: an enabled-but-empty group renders a single None. row', function () {
+        var h = report(readyProject(), {}); // no remove-action packages
+        T.assert(/<h2>Packages — Removed<\/h2><table>[\s\S]*?None\.[\s\S]*?<\/table>/.test(h), 'empty group should show None.');
+      });
+      s.test('GEN-3: dropping the Rationale column removes its <th>', function () {
+        var p = readyProject();
+        T.assert(/<th>Rationale<\/th>/.test(report(p, {})), 'rationale present by default');
+        var dropped = report(p, { columns: { 'android.packages': { rationale: false }, 'android.settings': { rationale: false }, 'android.tactical': { rationale: false } } });
+        T.assert(!/<th>Rationale<\/th>/.test(dropped), 'rationale column should be dropped');
+      });
+      s.test('GEN-1/GEN-4: excluding meta/settings/deviations removes sections; sections-included reflects it', function () {
+        var h = report(readyProject(), { sections: { meta: false, deviations: false }, datasetSections: { 'android.settings': { _all: false } } });
+        T.assert(!/<h2>Device Config Information<\/h2>/.test(h), 'meta section should be omitted');
+        T.assert(!/<h2>Settings<\/h2>/.test(h), 'settings section should be omitted');
+        T.assert(!/<h2>Deviations from default<\/h2>/.test(h), 'deviations section should be omitted');
+        T.assert(/Sections included/.test(h), 'sections-included table missing');
+        T.assert(/<td>Settings<\/td><td>Omitted<\/td>/.test(h) && /<td>Device Config Information<\/td><td>Omitted<\/td>/.test(h), 'omitted rows wrong');
+        T.assert(/<td>Control coverage<\/td><td>Included<\/td>/.test(h), 'still-included row wrong');
+      });
+      s.test('GEN-6: classification banner top & bottom when enabled', function () {
+        var h = report(readyProject(), { classification: true });
+        T.assertEqual((h.match(/class="classification"/g) || []).length, 2);
+        T.assert(/OFFICIAL: Sensitive/.test(h));
+      });
+      s.test('GEN-7: control report lists applied controls + satisfying items; (no control) gated; command=control', function () {
+        readyProject();
+        var cid = App.store.addControl({ title: 'Debloat', type: 'AHG', description: 'strip bloat' }).id;
+        App.store.addControl({ title: 'Unused', type: 'ISM' }); // defined but not applied
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [cid] });
+        var p = App.store.getProject();
+        App.util.clock.setClock(FIX);
+        var f = App.generate.buildControlReport(p, 'dev-m1', {});
+        App.util.clock.resetClock();
+        T.assert(/^dev-m1-control-\d{8}T\d{6}Z\.zip$/.test(f.name), 'bad zip name: ' + f.name);
+        var ch = fileNamed(f.files, 'control-report.html').content;
+        T.assert(/<h2>Debloat \(AHG\)<\/h2>/.test(ch) && ch.indexOf('strip bloat') !== -1, 'applied control/desc missing');
+        T.assert(ch.indexOf('com.a') !== -1, 'satisfying item missing');
+        T.assert(ch.indexOf('Unused') === -1, 'unreferenced control must not appear');
+        T.assert(ch.indexOf('(no control)') === -1, '(no control) hidden by default');
+        var ch2 = fileNamed(App.generate.buildControlReport(p, 'dev-m1', { includeUncontrolled: true }).files, 'control-report.html').content;
+        T.assert(/\(no control\)/.test(ch2), '(no control) shown when included');
+        T.assertEqual(JSON.parse(fileNamed(f.files, 'manifest.json').content).command, 'control');
+      });
+      s.test('GEN-8: implementation dataset include + action subset', function () {
+        var p = readyProject(); // com.a keep, com.b disable
+        var noSettings = App.generate.buildImplementation(p, 'dev-m1', { datasets: { 'android.settings': false } });
+        var n1 = noSettings.files.map(function (f) { return f.name; });
+        T.assert(n1.indexOf('settings.impl.ps1') === -1 && n1.indexOf('packages.impl.ps1') !== -1, 'dataset include filter failed');
+        var disableOnly = App.generate.buildImplementation(p, 'dev-m1', { actions: { 'android.packages': { keep: false, remove: false } } });
+        var pkg = fileNamed(disableOnly.files, 'packages.impl.ps1').content;
+        T.assert(/disable-user/.test(pkg) && pkg.indexOf('# keep com.a') === -1, 'action subset (disable-only) failed');
+      });
+      s.test('GEN-9: verification dataset include + results CSV + only-deviations', function () {
+        var p = readyProject();
+        var v = App.generate.buildVerification(p, 'dev-m1', { datasets: { 'android.tactical': false }, csvResults: true });
+        var vn = v.files.map(function (f) { return f.name; });
+        T.assert(vn.indexOf('verification-results.csv') !== -1 && vn.indexOf('tactical.verify.txt') === -1, 'CSV/dataset-include failed');
+        var csv = fileNamed(v.files, 'verification-results.csv').content;
+        T.assert(/^dataset,key,expected,actual,result/.test(csv), 'CSV header wrong');
+        T.assert(/Packages,com\.a,keep,,/.test(csv), 'CSV expected/blank row wrong');
+        var od = App.generate.buildVerification(p, 'dev-m1', { onlyDeviations: true });
+        // No deviations → no per-item verify CALL lines (the Verify-Package helper def in
+        // the preamble stays); check the item keys are gone.
+        T.assert(fileNamed(od.files, 'packages.verify.ps1').content.indexOf("'com.a'") === -1, 'only-deviations should drop non-deviating items');
+      });
+      s.test('GEN-10: _gen has four independent blocks; the Control report command is present', function () {
+        var g = App.ui.views.generate._gen;
+        T.assert(g.report && g.control && g.implementation && g.verification, 'four blocks missing');
+        g.report.classification = true; T.assertEqual(g.control.classification, false, 'blocks not independent'); g.report.classification = false;
+        readyProject(); // fully decided
+        T.assert(/data-generate-action="control"/.test(App.ui.views.generate.render(App.store.getProject())), 'Control report card missing');
+      });
+      s.test('GEN-11: report is byte-deterministic for a fixed clock + fixed options', function () {
+        var p = readyProject();
+        var o = { classification: true, sections: { deviations: false } };
+        T.assertEqual(report(p, o), report(p, o), 'report not deterministic for fixed options');
       });
     });
 

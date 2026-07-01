@@ -23,11 +23,12 @@ Process per task (build phase): **build → review → devise tests → log defe
 | 8 | Hardening & polish | ✅ complete | all DOD verified |
 | 9 | v1.1: dark mode · set-from-files · Control Manager | ✅ complete | theme UI-only; exact-set assign; controls + schema v2 |
 | 10 | v1.2: per-config decision overrides (schemaVersion 3) | ✅ complete | default→group→device resolver; groups; override UI; report deviations |
+| 11 | v1.3: generation customisation | ✅ complete | per-command options; report section/column/group + classification; Control report; impl/verify shaping |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–8 +
-report-gen. **202/202 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
+COMPLETE** + reviews 1–8 + report-gen. **213/213 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
 Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
@@ -392,6 +393,49 @@ cleanly into Microsoft Word:
 Determinism (DOD-7) unaffected (static CSS/markup).
 
 **Defects:** none.
+
+### 2026-07-01 — Phase 11 (v1.3): generation customisation — ✅ COMPLETE
+
+Built per spec §20 / task breakdown Phase 11 (T11.1–T11.8). Per-command **session-only** output
+shaping (four independent in-memory option blocks; no persistence, no `schemaVersion` bump; adapters
+stay core-blind via declarative metadata). Everything defaults to "include all" so a fresh session
+reproduces the full output.
+
+- **T11.1 report helpers + adapter metadata.** `App.report.renderTable`/`buildSection` (colgroup widths,
+  the GEN-5 `None.` empty-row rule). Adapters gained `reportColumns` (incl. Description — folds in the
+  report-gen change) and `reportGroups` (packages → Removed/Disabled/Kept). The three
+  `renderReportSection(items, ctx, opts)` are now column- and group-aware.
+- **T11.2 `buildReport(project, deviceId, opts)`.** Include/exclude each section (meta, per-dataset /
+  per-group, Control coverage, Deviations) + drop optional columns; a "Sections included" table
+  self-documents composition (GEN-4). `wrapReport(title, sections, {classification})` injects an
+  "OFFICIAL: Sensitive" banner top & bottom (GEN-6); meta is now a toggleable section fragment.
+- **T11.3 `buildControlReport`** (new 4th command). One section per **applied** control
+  (Dataset · Key · Decision), "(no control)" gated by `includeUncontrolled`; zips
+  `control-report.html` + manifest as `<device>-control-<stamp>.zip` (`command:'control'`).
+- **T11.4 implementation shaping.** `buildScripts` skips unticked datasets and, for enum datasets
+  (packages), filters to a chosen **action subset** (e.g. remove-only) — data-driven off the enum
+  decision field. Manifest still records the full effective decisions.
+- **T11.5 verification shaping.** Dataset include; **only-deviations** (via
+  `App.overrides.deviceDeviations`); optional **`verification-results.csv`**
+  (`dataset,key,expected,actual,result`, expected pre-filled).
+- **T11.6/T11.7 Generate view.** `_gen` gains four option blocks + the `control` command; `doGenerate`
+  passes `_gen[block]` (impl/verify also carry the global `scriptsAsTxt`). Each command card gets a
+  collapsible, fully data-driven **Options** panel wired to `_gen` (session-only; never touches the
+  project or dirty state).
+
+**Tests:** +13 self-tests (GEN-1…GEN-11: section/column/group selection, sections-included, None rule,
+classification banner, control report, impl action subset, verify only-deviations + CSV, four
+independent blocks, determinism) + updated the `wrapReport` tests for the new signature.
+**213/213 self-tests pass.**
+
+**Review:** real-data run (438/803/132) — report with excluded sections + dropped columns + package
+group split + classification banner (×2); control report (correct name + applied-control section +
+`command:'control'`); remove-only implementation script; verification results CSV with tactical
+excluded; byte-deterministic report for fixed clock + options. DOD-11 portability green (mock adapter
+declares neither new field → renders one plain table).
+
+**Defects:** none in the product (two test-assertion fixes only: the preamble's `Verify-Package` helper
+def, and an undefined test helper).
 
 ---
 
