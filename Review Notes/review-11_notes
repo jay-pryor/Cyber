@@ -1,0 +1,2 @@
+1. Add a way to manually switch from decided back to undecided in all the tables
+2. Add a column in all the tables that lists the device configs (only the name, not the type) that diverge from that default settings, put this column to the right of status.
