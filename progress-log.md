@@ -26,10 +26,11 @@ Process per task (build phase): **build → review → devise tests → log defe
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE.** 136/136 embedded self-tests pass. Validated
-end-to-end against the real reference captures (incl. v1→v2 migration). Remaining: two manual checks
-only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html`
-in Microsoft Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–5.
+**190/190 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
+`ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
+Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
 
 ### 2026-06-30 — Phase 9 (v1.1): dark mode · set-from-files · Control Manager — ✅ COMPLETE
 
