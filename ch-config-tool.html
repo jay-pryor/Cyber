@@ -2027,6 +2027,7 @@
       if (!name) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Device name is required.', location: 'name', fix: 'Enter a non-empty device name.' }] };
       var model = input.model || '', firmware = input.firmware || '';
       var snapshots = input.snapshots || {};
+      var descriptions = input.descriptions || {};  // review-10 #3: per-dataset {key: description} imported at onboard
       var datasetIds = App.registry.datasetIds(_project.platformProfileId);
       var baseId = slugify(name + '-' + model) || slugify(name);
       if (!baseId) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Could not derive a device id from the name/model.', location: 'name' }] };
@@ -2097,6 +2098,14 @@
         datasetIds.forEach(function (dsId) {
           if (!p.items[dsId]) p.items[dsId] = [];
           newItemsByDs[dsId].forEach(function (it) { p.items[dsId].push(it); });
+          // review-10 #3: apply imported descriptions to the register items (new and
+          // existing) for this dataset. Only non-empty descriptions are present in the
+          // map, so nothing clobbers an existing description with a blank.
+          var dmap = descriptions[dsId];
+          if (dmap) {
+            var byKey = {}; p.items[dsId].forEach(function (it) { byKey[it.key] = it; });
+            Object.keys(dmap).forEach(function (k) { if (byKey[k]) byKey[k].description = dmap[k]; });
+          }
         });
       });
 
@@ -3224,7 +3233,7 @@
       id: 'android.settings',
       label: 'Settings',
       inputKind: 'text',
-      captureHint: 'Concatenate `adb shell settings list system|secure|global`, each section preceded by a "<namespace>:" header line (key=value pairs).',
+      captureHint: 'Concatenate `adb shell settings list system|secure|global`, each section preceded by a "<namespace>:" header line (key=value pairs). OR a "setting,description,value" CSV (imports descriptions too).',
 
       /**
        * Parse the sectioned `settings list` capture format (spec §9, adapted to the
@@ -3235,6 +3244,22 @@
        * @param {string} raw @returns {ParseResult}
        */
       parse: function (raw) {
+        // review-10 #3: also accept the "setting,description,value" CSV here (not just
+        // in parseAssignment), so onboarding can import descriptions alongside captured
+        // values. Detected by the header row; any other input falls through to the §9
+        // sectioned capture format below.
+        var csvRows = null;
+        try { csvRows = parseCsv(raw); } catch (e) { csvRows = null; }
+        if (csvRows && csvRows.length && isSettingsCsvHeader(csvRows[0])) {
+          var pa = parseSettingsCsvAssignment(csvRows);
+          var ckeys = [], cvalues = {}, cdesc = {};
+          pa.assignments.forEach(function (a) {
+            ckeys.push(a.key); cvalues[a.key] = a.decision.value;
+            if (a.fields && a.fields.description) cdesc[a.key] = a.fields.description;
+          });
+          ckeys.sort();
+          return { items: ckeys.map(function (k) { return { key: k, defaultValue: cvalues[k] }; }), keys: ckeys, values: cvalues, descriptions: cdesc, warnings: pa.warnings, errors: pa.errors };
+        }
         var warnings = [], errors = [], values = {}, seen = {}, keys = [];
         var lines = String(raw).split(/\r?\n/);
         var ns = null; // current namespace section
@@ -3510,11 +3535,21 @@
         'Set-StrictMode -Version Latest',
         '$ErrorActionPreference = "Stop"',
         '',
+        '# --- ADB on PATH (READ THIS IF YOU GET "adb not found on PATH") ---',
+        '# If you PASTE this script into a PowerShell window (instead of running the',
+        '# .ps1 file), note that PowerShell does NOT search the current folder for',
+        '# adb.exe the way cmd does — so a bare "adb" fails even when you opened',
+        '# PowerShell inside the platform-tools folder. To fix, add the folder that',
+        '# contains adb.exe to PATH for THIS session: uncomment ONE line below',
+        '# (edit the path if adb.exe lives elsewhere), then paste the rest.',
+        '#   $env:PATH += ";$PWD"                  # PowerShell was opened IN the platform-tools folder',
+        '#   $env:PATH += ";C:\\platform-tools"    # explicit path to the folder holding adb.exe',
+        '',
         '# --- ADB presence check ---',
         'if (-not (Get-Command adb -ErrorAction SilentlyContinue)) { throw "adb not found on PATH." }',
         '',
         '# --- Single target-device guard ---',
-        '$devices = (adb devices) | Select-String -Pattern "\\tdevice$"',
+        '$devices = @((adb devices) | Select-String -Pattern "\\tdevice$")',  // @() forces an array so .Count is valid under StrictMode even for a single match
         'if ($devices.Count -ne 1) { throw "Exactly one ADB device must be attached (found $($devices.Count))." }',
         '$Serial = ($devices[0].ToString() -split "\\t")[0]',
         '',
@@ -3550,6 +3585,12 @@
         '#   4. Run this file with:',
         '#        powershell -ExecutionPolicy Bypass -File .\\' + name,
         (isTxt ? '#      (This file has a .txt extension — rename it to .ps1 first.)' : '#'),
+        '#',
+        '#   ALTERNATIVELY, if you paste the script CONTENTS into a PowerShell',
+        '#   window: PowerShell will not find adb.exe in the current folder the way',
+        '#   cmd does. Before pasting, add the platform-tools folder to PATH for the',
+        '#   session (see the "ADB on PATH" note in the script body), e.g.:',
+        '#        $env:PATH += ";$PWD"     # when PowerShell is open in that folder',
         '# =============================================================',
         ''
       ].join('\n');
@@ -5021,16 +5062,18 @@
       // Onboarding from scratch: create an empty project for the active platform.
       if (!project) { App.store.init(App.store.empty(activePlatform().id)); }
 
-      var snapshots = {};
+      var snapshots = {}, descriptions = {};
       ds.forEach(function (d) {
         var s = slotState(d.id), pr = s.parse;
         var snap = { capturedUtc: App.util.clock.nowIso(), sourceFilename: s.filename, sha256: s.sha256, keys: pr.keys };
         if (pr.values) snap.values = pr.values;
         if (pr.template !== undefined) snap.template = pr.template;
         snapshots[d.id] = snap;
+        // review-10 #3: carry any imported descriptions (e.g. from a settings CSV).
+        if (pr.descriptions && Object.keys(pr.descriptions).length) descriptions[d.id] = pr.descriptions;
       });
 
-      var res = App.store.onboardDevice({ name: _ob.fields.name, model: _ob.fields.model, firmware: _ob.fields.firmware, snapshots: snapshots });
+      var res = App.store.onboardDevice({ name: _ob.fields.name, model: _ob.fields.model, firmware: _ob.fields.firmware, snapshots: snapshots, descriptions: descriptions });
       App.ui.activity.logIssues(res.issues);
       if (!res.ok) return;
 
@@ -5200,8 +5243,13 @@
       return '<div style="max-width:820px"><h2>Generate</h2>' +
         '<label class="platform">Device <select data-generate-device>' + opts + '</select></label>' +
         '<p>' + statusLine + '</p>' +
-        '<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 8px">' +
+        '<label style="display:inline-flex;align-items:center;gap:6px;margin:4px 0 4px">' +
           '<input type="checkbox" data-generate-txt' + (_gen.scriptsAsTxt ? ' checked' : '') + '> Output scripts as <code>.txt</code> instead of <code>.ps1</code></label>' +
+        // review-10 #1: HighCom-network warning about .ps1 handling (theme-aware box).
+        '<div class="warning" style="margin:0 0 10px;padding:8px 10px;border:1px solid var(--c-undecided-border);border-left-width:4px;border-radius:6px;background:var(--c-warn-bg);color:var(--c-text);font-size:13px">' +
+          '<strong style="color:var(--c-warn)">⚠ HighCom network note:</strong> HighCom computers block opening a folder that contains <code>.ps1</code> files. ' +
+          'Generate the scripts as <code>.txt</code> (tick the box above), transfer them to a non-HighCom machine, then rename them back to <code>.ps1</code> before running.' +
+        '</div>' +
         '<div class="gen-grid">' + cards + '</div>' +
         '<p class="muted">Each command produces a single <code>.zip</code> download. Outputs are deterministic for identical inputs.</p>' +
         '</div>';
@@ -6037,7 +6085,9 @@
       // review-4 #3: the add-type + import tools sit to the RIGHT of the title, not beneath it.
       // review-4 #4: a searchable table (search box outside #ctl-table-host so it keeps focus).
       var toolbar = '<div class="ctl-toolbar"><input type="search" class="ctl-search" data-ctl-search placeholder="Search controls (title / type / description)…" value="' + esc(_cm.search) + '" aria-label="Search controls"></div>';
-      return '<div style="max-width:1100px">' +
+      // review-10 #2: no max-width cap so the table can span the full screen width
+      // when columns are widened (the .main content area is already full-width).
+      return '<div>' +
         '<div class="ctl-header"><h2>Control Manager</h2>' + tools + '</div>' +
         '<p class="muted">Controls are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs).</p>' +
         addForm +
@@ -7570,6 +7620,52 @@
         var b = App.generate.buildReport(p, 'dev-m1').files;
         T.assertDeepEqual(a, b);
         App.util.clock.resetClock();
+      });
+    });
+
+    T.suite('review-10 (settings CSV onboard + .ps1 warning + control width)', function (s) {
+      function settingsAdapter() { ensureAndroid(); return App.registry.getDataset('android-adb', 'android.settings'); }
+
+      s.test('#3 settings.parse accepts a "setting,description,value" CSV (values + descriptions)', function () {
+        var pr = settingsAdapter().parse('setting,description,value\nsecure/location_mode,GPS off,0\nglobal/foo,"desc, comma",hi there');
+        T.assertEqual(pr.errors.length, 0);
+        T.assertDeepEqual(pr.keys, ['global/foo', 'secure/location_mode']);
+        T.assertEqual(pr.values['secure/location_mode'], '0');
+        T.assertEqual(pr.values['global/foo'], 'hi there');
+        T.assertEqual(pr.descriptions['secure/location_mode'], 'GPS off');
+        T.assertEqual(pr.descriptions['global/foo'], 'desc, comma');
+      });
+
+      s.test('#3 the §9 sectioned capture still parses and carries no descriptions', function () {
+        var pr = settingsAdapter().parse('secure:\nx=0\ny=1');
+        T.assertEqual(pr.errors.length, 0);
+        T.assertDeepEqual(pr.keys, ['secure/x', 'secure/y']);
+        T.assert(!pr.descriptions || Object.keys(pr.descriptions).length === 0, 'sectioned capture must not invent descriptions');
+      });
+
+      s.test('#3 onboarding a settings CSV imports descriptions onto register items (no decision)', function () {
+        var a = settingsAdapter();
+        App.store.init(App.store.empty('android-adb'));
+        var raw = 'setting,description,value\nsecure/location_mode,GPS off,0\nglobal/foo,keep bar,1';
+        var pr = a.parse(raw);
+        var snap = { capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: 'android.settings', sha256: App.util.hash.sha256Hex(raw), keys: pr.keys, values: pr.values };
+        var res = App.store.onboardDevice({ name: 'CsvDev', model: 'M1', snapshots: { 'android.settings': snap }, descriptions: { 'android.settings': pr.descriptions } });
+        T.assertEqual(res.ok, true);
+        var items = App.store.getProject().items['android.settings'];
+        var loc = items.filter(function (i) { return i.key === 'secure/location_mode'; })[0];
+        T.assertEqual(loc.description, 'GPS off');
+        T.assertEqual(loc.decision, null, 'onboarding must not set a decision, only the description');
+        T.assertEqual(items.filter(function (i) { return i.key === 'global/foo'; })[0].description, 'keep bar');
+      });
+
+      s.test('#1 Generate tab shows the HighCom .ps1-handling warning', function () {
+        var html = App.ui.views.generate.render(readyProject());
+        T.assert(/HighCom/.test(html) && /rename/i.test(html), 'HighCom .ps1 warning missing from Generate tab');
+      });
+
+      s.test('#2 Control Manager is no longer capped at 1100px (table can span full width)', function () {
+        var html = App.ui.views.controls.render(readyProject());
+        T.assert(html.indexOf('max-width:1100px') === -1, 'Control Manager still capped at max-width:1100px');
       });
     });
 
