@@ -3107,11 +3107,14 @@
         return [{ name: 'packages.verify.ps1', content: lines.join('\n') }];
       },
       renderReportSection: function (items, ctx) {
+        // report-gen #1: keep the package description in the report.
         var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? it.decision.action : '') +
+          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.description || '') + '</td><td>' + esc(it.decision ? it.decision.action : '') +
             '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
-        return '<h2>Packages</h2><table><thead><tr><th>Package</th><th>Action</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        // report-gen #6: colgroup widths so the table fits the Word page.
+        return '<h2>Packages</h2><table><colgroup><col style="width:20%"><col style="width:30%"><col style="width:10%"><col style="width:20%"><col style="width:20%"></colgroup>' +
+          '<thead><tr><th>Package</th><th>Description</th><th>Action</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
       },
       // ---- bulk assignment (spec §18.2): a CSV of package,action,description ----
       assignmentHint: 'CSV with a header row exactly "package,action,description". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas).',
@@ -3288,11 +3291,13 @@
         return [{ name: 'settings.verify.ps1', content: lines.join('\n') }];
       },
       renderReportSection: function (items, ctx) {
+        // report-gen #1: keep the setting description in the report.
         var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.decision ? it.decision.value : '') +
+          return '<tr><td>' + esc(it.key) + '</td><td>' + esc(it.description || '') + '</td><td>' + esc(it.decision ? it.decision.value : '') +
             '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
-        return '<h2>Settings</h2><table><thead><tr><th>Key</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        return '<h2>Settings</h2><table><colgroup><col style="width:22%"><col style="width:28%"><col style="width:20%"><col style="width:15%"><col style="width:15%"></colgroup>' +
+          '<thead><tr><th>Key</th><th>Description</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
       },
       /** Captured value/type per key, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
@@ -3412,11 +3417,13 @@
         return [{ name: 'tactical.verify.txt', content: lines.join('\n') }];
       },
       renderReportSection: function (items, ctx) {
+        // report-gen #2: add a Description column to the tactical section.
         var rows = items.slice().sort(byKey).map(function (it) {
-          return '<tr><td>' + esc(stripPolicyPrefix(it.key)) + '</td><td>' + esc(it.decision ? stableStringify(it.decision.value) : '') +
+          return '<tr><td>' + esc(stripPolicyPrefix(it.key)) + '</td><td>' + esc(it.description || '') + '</td><td>' + esc(it.decision ? stableStringify(it.decision.value) : '') +
             '</td><td>' + esc(controlTitles(it.controlRefs, ctx)) + '</td><td>' + esc(it.rationale || '') + '</td></tr>';
         }).join('');
-        return '<h2>Tactical</h2><table><thead><tr><th>Path</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
+        return '<h2>Tactical</h2><table><colgroup><col style="width:22%"><col style="width:28%"><col style="width:20%"><col style="width:15%"><col style="width:15%"></colgroup>' +
+          '<thead><tr><th>Path</th><th>Description</th><th>Value</th><th>Control</th><th>Rationale</th></tr></thead><tbody>' + rows + '</tbody></table>';
       },
       /** Captured value/type per leaf path, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
@@ -4016,13 +4023,24 @@
     'use strict';
     var esc = App.util.html.esc;
 
-    // Inline CSS limited to what Word's HTML import honours.
+    // Inline CSS limited to what Word's HTML import honours. Notes on the choices
+    // (report-gen review): Word ignores `body{margin}` for the page box and keeps its
+    // own 1-inch margins, so we set the page box explicitly via @page and zero the body
+    // margin (#4); Word wraps every cell in its "Normal" style (~8pt space-after,
+    // 1.08 line-height) which inflates rows, so we pin margin:0/line-height and trim
+    // padding on p/td/th (#3); Word reapplies theme fonts unless declared per element,
+    // so Arial (bold on headings) is set explicitly everywhere (#5); and long unbroken
+    // values blew the settings table to ~2.5x page width, so tables are width:100% +
+    // table-layout:fixed with per-table colgroup widths and word-break on every cell (#6).
     var REPORT_CSS =
-      'body{font-family:Calibri,Arial,sans-serif;font-size:11pt;color:#000;margin:24pt;}' +
-      'h1{font-size:20pt;}h2{font-size:15pt;border-bottom:1px solid #888;padding-bottom:3pt;}' +
-      'table{border-collapse:collapse;width:100%;margin:8pt 0;}' +
-      'th,td{border:1px solid #888;padding:4pt 6pt;text-align:left;vertical-align:top;font-size:10pt;}' +
-      'th{background:#e6e6e6;}' +
+      '@page{margin:1in;}' +
+      'body{font-family:Arial,sans-serif;font-size:11pt;color:#000;margin:0;line-height:1.05;}' +
+      'h1{font-family:Arial,sans-serif;font-weight:bold;font-size:20pt;margin:0 0 8pt;line-height:1.05;}' +
+      'h2{font-family:Arial,sans-serif;font-weight:bold;font-size:15pt;border-bottom:1px solid #888;padding-bottom:3pt;margin:12pt 0 6pt;line-height:1.05;}' +
+      'p{font-family:Arial,sans-serif;margin:0;line-height:1.05;}' +
+      'table{border-collapse:collapse;width:100%;table-layout:fixed;margin:6pt 0;}' +
+      'th,td{border:1px solid #888;padding:2pt 4pt;text-align:left;vertical-align:top;font-size:10pt;font-family:Arial,sans-serif;line-height:1.05;margin:0;word-wrap:break-word;overflow-wrap:break-word;word-break:break-word;}' +
+      'th{background:#e6e6e6;font-weight:bold;}' +
       '.meta td{border:1px solid #bbb;}' +
       '.section{page-break-before:always;}' +
       '.muted{color:#555;}';
@@ -4036,8 +4054,10 @@
      */
     function wrapReport(title, meta, sections) {
       var metaRows = meta.map(function (m) {
-        return '<tr><th style="width:200pt">' + esc(m.label) + '</th><td>' + esc(m.value) + '</td></tr>';
+        return '<tr><th>' + esc(m.label) + '</th><td>' + esc(m.value) + '</td></tr>';
       }).join('');
+      // report-gen #6: fixed column widths so long hashes wrap and the table fits the page.
+      var metaCols = '<colgroup><col style="width:190pt"><col></colgroup>';
       // First section flows after the meta table; subsequent sections start on a new page.
       var body = sections.map(function (sec, i) {
         return '<div class="' + (i === 0 ? '' : 'section') + '">' + sec + '</div>';
@@ -4045,7 +4065,7 @@
       return '<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>' + esc(title) + '</title>' +
         '<style>' + REPORT_CSS + '</style></head><body>' +
         '<h1>' + esc(title) + '</h1>' +
-        '<table class="meta"><tbody>' + metaRows + '</tbody></table>' +
+        '<table class="meta">' + metaCols + '<tbody>' + metaRows + '</tbody></table>' +
         body +
         '</body></html>';
     }
@@ -4193,7 +4213,7 @@
         }).join('<br>');
         return '<tr><td>' + esc(ctlLabel[ref]) + '</td><td>' + parts + '</td></tr>';
       }).join('');
-      return '<h2>Control coverage</h2><table><thead><tr><th>Control</th><th>Items (by dataset)</th></tr></thead><tbody>' +
+      return '<h2>Control coverage</h2><table><colgroup><col style="width:28%"><col style="width:72%"></colgroup><thead><tr><th>Control</th><th>Items (by dataset)</th></tr></thead><tbody>' +
         (rows || '<tr><td colspan="2" class="muted">No decided items.</td></tr>') + '</tbody></table>';
     }
 
@@ -4210,7 +4230,7 @@
         return '<tr><td>' + esc(d.displayKey) + '</td><td>' + esc(dsLabel[d.datasetId] || d.datasetId) + '</td><td>' + esc(d.source) + '</td>' +
           '<td>' + esc(val(d.defaultValue)) + ' &rarr; ' + esc(val(d.groupValue)) + ' &rarr; ' + esc(val(d.deviceValue)) + '</td></tr>';
       }).join('');
-      return header + '<table><thead><tr><th>Key</th><th>Dataset</th><th>Source</th><th>Default &rarr; Group &rarr; Device</th></tr></thead><tbody>' + rows + '</tbody></table>';
+      return header + '<table><colgroup><col style="width:24%"><col style="width:12%"><col style="width:12%"><col style="width:52%"></colgroup><thead><tr><th>Key</th><th>Dataset</th><th>Source</th><th>Default &rarr; Group &rarr; Device</th></tr></thead><tbody>' + rows + '</tbody></table>';
     }
 
     /** @returns {{blob:Blob,name:string,issues:Issue[],files?:Object[]}} */
@@ -6972,6 +6992,44 @@
         T.assert(/<!DOCTYPE html>/.test(html) && /<h1>/.test(html) && /<table/.test(html));
         T.assert(/Control coverage/.test(html) && /ISM-1234/.test(html), 'Control coverage missing');
         T.assert(fileNamed(r.files, 'manifest.json') != null);
+      });
+    });
+
+    T.suite('report-gen: descriptions + Word CSS + fixed table widths', function (s) {
+      function withDesc() {
+        var p = readyProject();
+        App.store.setItemFields('android.packages', 'com.a', { description: 'Alpha bloatware' });
+        App.store.setItemFields('android.settings', 'secure/x', { description: 'Location toggle' });
+        App.store.setItemFields('android.tactical', 'enabled', { description: 'Master enable' });
+        return App.store.getProject();
+      }
+      function reportHtml(p) {
+        App.util.clock.setClock(function () { return new Date('2026-01-01T00:00:00.000Z'); });
+        var h = fileNamed(App.generate.buildReport(p, 'dev-m1').files, 'report.html').content;
+        App.util.clock.resetClock();
+        return h;
+      }
+      s.test('#1/#2 packages/settings/tactical sections have a Description column with the text', function () {
+        var html = reportHtml(withDesc());
+        T.assert(/<th>Package<\/th><th>Description<\/th><th>Action<\/th>/.test(html), 'packages Description column missing');
+        T.assert(/<th>Key<\/th><th>Description<\/th><th>Value<\/th>/.test(html), 'settings Description column missing');
+        T.assert(/<th>Path<\/th><th>Description<\/th><th>Value<\/th>/.test(html), 'tactical Description column missing');
+        T.assert(html.indexOf('Alpha bloatware') !== -1 && html.indexOf('Location toggle') !== -1 && html.indexOf('Master enable') !== -1, 'description text not in the report');
+      });
+      s.test('#3/#4/#5 Word CSS: @page 1in, body margin 0, Arial (bold headings), pinned line-height, trimmed padding', function () {
+        var html = reportHtml(readyProject());
+        T.assert(/@page\{margin:1in;\}/.test(html), 'no @page 1in margin (#4)');
+        T.assert(/body\{font-family:Arial[^}]*margin:0/.test(html), 'body margin should be 0 with Arial (#4/#5)');
+        T.assert(/h1\{font-family:Arial,sans-serif;font-weight:bold/.test(html) && /h2\{font-family:Arial,sans-serif;font-weight:bold/.test(html), 'headings not Arial bold (#5)');
+        T.assert(/th,td\{[^}]*line-height:1\.05[^}]*word-break:break-word/.test(html), 'cells missing line-height/word-break (#3/#6)');
+        T.assert(/th,td\{[^}]*padding:2pt 4pt/.test(html), 'cell padding not trimmed (#3)');
+        T.assert(!/Calibri/.test(html), 'Calibri should be replaced by Arial (#5)');
+      });
+      s.test('#6 tables are fixed-layout width:100% with colgroups (fit page + wrap)', function () {
+        var html = reportHtml(readyProject());
+        T.assert(/table\{[^}]*width:100%[^}]*table-layout:fixed/.test(html), 'tables not width:100% + table-layout:fixed');
+        T.assert((html.match(/<colgroup>/g) || []).length >= 5, 'expected colgroups on the meta + section tables');
+        T.assert(/<h2>Settings<\/h2><table><colgroup>/.test(html), 'settings table lacks a colgroup');
       });
     });
 

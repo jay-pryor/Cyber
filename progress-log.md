@@ -26,8 +26,8 @@ Process per task (build phase): **build → review → devise tests → log defe
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–8.
-**199/199 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–8 +
+report-gen. **202/202 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
 Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
@@ -367,6 +367,31 @@ action assigning a control to exactly the 50 `remove`-action packages (and only 
 panel exposing an editable, resizable Override column all verified.
 
 **Defects:** none (only the expected review-5 panel-header test update).
+
+### 2026-07-01 — Report-gen changes (Word report formatting) — ✅ COMPLETE
+
+Actioned the six `report-gen_notes` items (spec §19.12 RG-1…RG-6) so the generated report imports
+cleanly into Microsoft Word:
+1/2. **Descriptions in the report (RG-1/RG-2).** Added a **Description** column to the packages,
+   settings AND tactical report sections (the item `description`).
+3. **Compact rows (RG-3).** Report CSS now zeroes `p`/`td`/`th` margins, pins `line-height:1.05`, and
+   trims cell padding to `2pt 4pt` (Word no longer inflates every row).
+4. **Page box (RG-4).** Added `@page{margin:1in}` and `body{margin:0}` (was `body{margin:24pt}`, which
+   Word added on top of its own 1-inch margins → the document sat too far right).
+5. **Fonts (RG-5).** Body/cells are **Arial**, headings **Arial Bold**, declared explicitly per element
+   (h1/h2/body/p/td/th) — replaced Calibri.
+6. **Fit-to-page + wrapping (RG-6).** Tables are `width:100%` + `table-layout:fixed` with per-table
+   `<colgroup>` widths and `word-break`/`overflow-wrap` on every cell, so the settings table no longer
+   blows out to ~2.5x page width and all cells wrap.
+
+**Tests:** +3 self-tests (Description columns + text; @page/margin/Arial/line-height/padding CSS; fixed
+`width:100%`+`table-layout:fixed`+colgroups). **202/202 self-tests pass.**
+
+**Review:** real-data report generated from the reference captures (438/803/132) — @page 1in, Arial
+(bold headings), fixed-width tables with 5 colgroups, Description columns populated, no Calibri.
+Determinism (DOD-7) unaffected (static CSS/markup).
+
+**Defects:** none.
 
 ---
 

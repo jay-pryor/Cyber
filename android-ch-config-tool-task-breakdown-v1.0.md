@@ -1078,3 +1078,132 @@ Changes from `Review Notes/review-8_notes`; spec §19.11. All land in the single
 - **Self-tests:** panels are `dev-panel-table` with per-dataset resize handles (incl. settings Override);
   settings exposes an editable `data-ov-kind="string"` override; stored widths apply independently per
   dataset.
+
+## Phase 11 — Generation customisation (v1.3)
+
+Per-command output shaping (spec §20). **Session-only** (Generate-view state; no persistence, no
+`schemaVersion` bump), **four independent option blocks** (Implementation / Verification / Reporting /
+new Control report). Adapters stay core-blind (DOD-11): new behaviour rides on declarative adapter
+metadata + generic orchestrator filters. All lands in the single `ch-config-tool.html`. Everything below
+defaults to "include all", so a fresh session reproduces today's full output byte-for-byte.
+
+### T11.1 · Report table helper + declarative adapter metadata
+- **Depends on:** T7.5 (existing `renderReportSection`)
+- **Spec:** §20.3, GEN-2/GEN-3/GEN-5
+- **Objective:** Make report rendering column- and group-aware without hard-coding datasets.
+- **Build:**
+  - Add `App.report.renderTable(title, headerCells, rowsHtml)` — a shared table builder that emits the
+    `<h2>` + `<table>` markup and the single `None.` empty-row (GEN-5); route all text through `esc()`.
+  - Add optional adapter fields: `reportColumns` (packages/settings/tactical — `{id,label,optional}` for
+    the post-key columns) and `reportGroups` (packages only — `{field:'action', options:[Removed/
+    Disabled/Kept]}`) per §20.3.
+  - Rewrite each `renderReportSection(items, ctx, opts)` to accept `opts = {columns, groups}`: build the
+    visible column set from `reportColumns` ∩ `opts.columns` (key column always shown); for packages,
+    emit one sub-table per **enabled** group (`"Packages — Removed"`, …), each with the `None.` rule;
+    settings/tactical emit their single table honouring column toggles.
+- **Self-tests:** packages renders three sub-tables split by action with correct rows; an enabled-but-
+  empty group shows exactly one `None.` row; dropping the `rationale`/`control`/`value` column removes
+  that `<th>` and cells; an adapter with neither field (mock) renders one all-columns table (portability).
+
+### T11.2 · `buildReport` options + included-sections table + classification
+- **Depends on:** T11.1
+- **Spec:** §20.4, GEN-1/GEN-3/GEN-4/GEN-6
+- **Objective:** Thread report options through the orchestrator and self-document composition.
+- **Build (`App.generate.buildReport(project, deviceId, opts)`):**
+  - Resolve `opts = _gen.report`-shaped (undefined ⇒ include all). Gate the metadata block on
+    `opts.sections.meta`, Control-coverage on `opts.sections.control`, Deviations on
+    `opts.sections.deviations`; pass `{columns: opts.columns[ds.id], groups: opts.datasetSections[ds.id]}`
+    into each `renderReportSection`.
+  - Prepend a **"Sections included"** table (always rendered) listing every candidate section with
+    `Included`/`Omitted`, built from a shared descriptor (also consumed by the UI in T11.7).
+  - Extend `App.report.wrapReport(title, meta, sections, wrapOpts)` with `wrapOpts.classification`:
+    inject a `<div class="classification">` banner top and bottom of `<body>` + Word-safe `@page` style.
+    Handle an omitted metadata block cleanly (no empty table).
+- **Self-tests:** excluding Settings/Deviations/meta removes exactly those sections; the sections-included
+  table reflects the flags; classification banner appears top & bottom only when set; report bytes are
+  deterministic for a fixed clock + fixed options, and differ only in the intended files when options
+  change.
+
+### T11.3 · `buildControlReport` (new command)
+- **Depends on:** T11.1, T7.5 (`buildControlSection` for reference), T10.4 (effective `gather`)
+- **Spec:** §20.5, GEN-7
+- **Objective:** A standalone control-keyed report for a device.
+- **Build (`App.generate.buildControlReport(project, deviceId, opts)`):** group effective applicable+
+  complete items by `controlRefs`; emit one section per **applied** control (sorted by label) with its
+  title/type/description and a `Dataset · Key · Decision` table (decision via the adapter's decision-
+  column getter); collect empty-`controlRefs` items under "(no control)", shown only if
+  `opts.includeUncontrolled`; metadata block + classification per §20.4/§20.5. Zip `control-report.html`
+  + `manifest.json` as `<device>-control-<stamp>.zip` with `command:'control'`. Register in `App.generate`.
+- **Self-tests:** every applied control appears with its satisfying items and shown decisions; an
+  unreferenced defined control is absent; "(no control)" hidden by default and shown when toggled;
+  byte-deterministic for fixed clock + options; gated by `deviceReady`.
+
+### T11.4 · Implementation shaping (dataset include + action subset)
+- **Depends on:** T7.3 (`buildScripts`)
+- **Spec:** §20.6, GEN-8
+- **Objective:** Emit only chosen datasets/actions.
+- **Build (`buildScripts`):** before `ds.generateImplementation`, apply two generic filters from `opts`:
+  skip a dataset when `opts.datasets[ds.id] === false`; when `opts.actions[ds.id]` is present, discover
+  the adapter's **enum** `decisionSchema` field (as RV8-2) and drop items whose
+  `decision[enumField]` is unticked. `manifest.decisions` still records the full effective set (§20.9).
+- **Self-tests:** unticking a dataset omits its script; a remove-only filter yields a packages script with
+  only `uninstall` guards (no disable/keep); settings/tactical (no enum) ignore the action filter;
+  determinism holds for fixed options.
+
+### T11.5 · Verification shaping (dataset include + only-deviations + results CSV)
+- **Depends on:** T7.4 (`buildVerification`), T10.4 (`App.overrides.deviceDeviations`)
+- **Spec:** §20.7, GEN-9
+- **Objective:** Narrow verification scope and add a results scaffold.
+- **Build (`buildScripts`):** dataset include as T11.4; when `opts.onlyDeviations`, restrict each
+  dataset's items to keys in `deviceDeviations(...)` for that dataset; when `opts.csvResults`, append a
+  non-script `verification-results.csv` (`dataset,key,expected,actual,result`; expected = adapter
+  decision-column display; actual/result blank; RFC-4180 quoted via `App.util.csv`). MISSING/EVIDENCED
+  unchanged.
+- **Self-tests:** dataset toggle omits its verify script; only-deviations restricts to deviating keys (and
+  emits header-only when none); the CSV has the header + one row per included item with expected filled
+  and actual/result blank; determinism holds.
+
+### T11.6 · Generate-view session state (`_gen` blocks)
+- **Depends on:** —
+- **Spec:** §20.2, GEN-10
+- **Objective:** Hold the four independent option objects in memory.
+- **Build (`App.ui.views.generate`):** extend `_gen` with `report`, `control`, `implementation`,
+  `verification` blocks per §20.2 (include-maps default to "included" on missing key). Keep the existing
+  global `scriptsAsTxt`. Add `'control'` to `COMMANDS` (`build:'buildControlReport'`). `doGenerate` passes
+  `_gen[block]` as `opts` to the resolved builder. No project/dirty-state writes.
+- **Self-tests:** default `_gen` reproduces full output (all blocks include-all); each block is
+  independent (mutating one leaves the others unchanged); the Control-report command dispatches to
+  `buildControlReport`.
+
+### T11.7 · Generate-tab options UI (four collapsible panels)
+- **Depends on:** T11.1, T11.6
+- **Spec:** §20.8, §11.5, GEN-1/GEN-3/GEN-6/GEN-7/GEN-8/GEN-9
+- **Objective:** Render the per-command option panels, fully data-driven.
+- **Build (`App.ui.views.generate`):** under each command button render a collapsible **Options** panel;
+  add a fourth **Control report** card after Reporting. Reporting panel: Device Config Information
+  checkbox; per-dataset group checkboxes (from `reportGroups`) or a single dataset checkbox; per-dataset
+  optional-column checkboxes (from `reportColumns`); Control-coverage + Deviations checkboxes;
+  classification checkbox. Control panel: classification + include-no-control. Implementation panel:
+  per-dataset include + (enum datasets) action-subset checkboxes. Verification panel: per-dataset include
+  + only-deviations + results-CSV. All wired to `_gen` with re-render only; no hard-coded dataset ids.
+- **Self-tests (DOM-light):** the Reporting panel renders one checkbox per package action group + the
+  optional-column toggles for the active platform; a mock platform with no `reportGroups`/`reportColumns`
+  renders a single dataset checkbox and no column toggles; toggling a box updates `_gen` and re-renders
+  without touching the project.
+
+### T11.8 · v1.3 acceptance suite & DOD pass
+- **Depends on:** T11.1–T11.7
+- **Spec:** §20.1 (GEN-1…GEN-11), DOD-7/DOD-11
+- **Objective:** Lock the feature behind self-tests and confirm invariants.
+- **Build:** end-to-end suite covering all GEN criteria: section/column/group selection; included-sections
+  table; empty-`None` rule; classification banner; the four independent blocks; implementation action
+  subset; verification only-deviations + CSV; control report composition; **byte-determinism** for fixed
+  clock+options across all four commands and "options change only intended files"; **portability** with a
+  mock dataset declaring neither new adapter field.
+- **Definition of done:** GEN-1…GEN-11 green; no core/store/schema edits beyond the declared adapter
+  metadata + orchestrator threading; existing Phase 0–10 + review suites remain green.
+
+### Phase 11 dependency map
+- **T11.1** (helper + adapter metadata) → **T11.2** (report opts), **T11.3** (control report).
+- **T7.3/T7.4** → **T11.4/T11.5** (impl/verify shaping). **T10.4** → **T11.3/T11.5**.
+- **T11.6** (state) → **T11.7** (UI). **T11.1–T11.7** → **T11.8** (acceptance).

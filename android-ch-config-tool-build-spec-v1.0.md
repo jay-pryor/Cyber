@@ -1433,3 +1433,267 @@ change.
   editor — including **settings** (a string value editor). The three panel tables MUST use fixed-layout
   columns that are **independently drag-resizable per dataset** (widths persisted in UI state), and long
   values MUST wrap, so a long settings value no longer squeezes the Override column out of view.
+
+## 19.12 Report-generation refinements (report-gen notes; amends §10.3)
+
+Formatting/content fixes for the Word-targeted report so it imports cleanly into Microsoft Word:
+
+- **RG-1 Descriptions in the report.** The **packages** and **settings** report sections MUST include a
+  **Description** column (the item's `description`).
+- **RG-2 Tactical description column.** The **tactical** report section MUST also include a **Description**
+  column.
+- **RG-3 Compact rows.** Word wraps each cell in its "Normal" style (~8pt space-after, 1.08 line-height),
+  inflating rows. The report CSS MUST zero paragraph/cell margins, pin `line-height` (~1.05) on
+  `p`/`td`/`th`, and trim cell padding.
+- **RG-4 Page box.** `body{margin}` does not set Word's page margins (Word adds it on top of its own
+  1-inch margins). The CSS MUST set the page box explicitly (`@page{margin:1in}`) and `body{margin:0}`.
+- **RG-5 Fonts.** Headings MUST be **Arial Bold** and body/cells **Arial**, declared **explicitly per
+  element** (`h1`/`h2`/`body`/`p`/`td`/`th`) — Word reapplies its theme fonts otherwise.
+- **RG-6 Fit-to-page tables + wrapping.** Tables MUST fit the page width (`width:100%` +
+  `table-layout:fixed` + per-table `<colgroup>` widths) and **all cells MUST wrap** (`word-break`/
+  `overflow-wrap`) so a long unbroken value no longer blows a table past the page width.
+
+Determinism (DOD-7) is unchanged — these are static CSS/markup changes.
+
+---
+
+# 20. Generation customisation (v1.3)
+
+Each of the generators (§10) gains a **per-command configuration block** on the Generate tab so the
+operator can shape the output without editing the project. This is a **presentation/output-shaping**
+feature only: it changes *which* items/sections/columns an artifact contains and how it is framed, never
+the underlying decisions.
+
+**Design principles (binding).**
+- **Session-only.** All customisation state lives in the Generate view's in-memory state
+  (`App.ui.views.generate`). It is **never** written to the project file, never to `localStorage`, and
+  resets on reload. No `schemaVersion` bump; Appendix A is unchanged.
+- **Three (now four) separate blocks.** Implementation, Verification, Reporting, and the new Control
+  report each own an **independent** options object. There is deliberately **no** shared/global profile.
+  The one pre-existing global control — "Output scripts as `.txt`" (§11.5) — stays global (it already
+  spans Implementation + Verification) and is unchanged.
+- **Adapters stay core-blind and data-driven (DOD-11).** New behaviour is expressed through *declarative
+  adapter metadata* + generic orchestrator logic. Adding a fourth dataset or a second platform still
+  requires no core edits: a dataset that declares nothing new simply renders as a single, un-split,
+  all-columns table and offers no action-subset filter.
+- **Determinism preserved (DOD-7).** Options are pure inputs. Identical `project + device + options`
+  MUST still yield byte-identical artifacts. Excluding a section/column/dataset naturally changes the
+  emitted bytes (and therefore that file's manifest `sha256`) — that is expected and still deterministic.
+  The manifest is **not** extended to record options (the report self-documents its own composition —
+  §20.4); the determinism self-test fixes options alongside the clock.
+
+## 20.1 Definition of done (acceptance criteria — additive)
+
+- **GEN-1 Report section selection.** The Reporting block lets the operator include/exclude each report
+  section: Device Config Information (the metadata block), each package action sub-table (Removed /
+  Disabled / Kept), Settings, Tactical, Control coverage, and Deviations from default. Excluded sections
+  do not appear in `report.html`.
+- **GEN-2 Package report split.** The packages report renders as **three separate tables** — Removed,
+  Disabled, Kept — instead of one mixed Action table, each independently toggleable (GEN-1).
+- **GEN-3 Column selection.** For each report table the operator can drop optional columns (e.g.
+  Rationale, Control, and the value/action column); the key/path column is always present.
+- **GEN-4 Included-sections summary.** `report.html` opens with a small **"Sections included"** table
+  listing every candidate section and whether it was Included or Omitted, so a reader can tell an
+  intentionally-terse report from a truncated one.
+- **GEN-5 Empty tables are explicit.** A section that is toggled **on** but has no rows renders the table
+  with a single "None." row — never a bare/absent table (distinguishes "none in this class" from "class
+  excluded").
+- **GEN-6 Classification banner.** Reporting and the Control report each offer an "OFFICIAL: Sensitive"
+  toggle that, when on, renders a prominent classification banner at the **top and bottom** of the
+  document body.
+- **GEN-7 Control report command.** A **fourth** generation command, **Control report**, is available on
+  the Generate tab (device-selected, same `deviceReady` gating). It reports, for **every control applied
+  to that device configuration**, which decided items/actions satisfy it — grouped by dataset — as its
+  own standalone Word-targeted HTML document + manifest, zipped as `<device>-control-<UTCstamp>.zip`.
+- **GEN-8 Implementation shaping.** The Implementation block lets the operator (a) include/exclude each
+  dataset, and (b) for enum-decision datasets (packages) restrict output to a **subset of actions** (e.g.
+  a remove-only or disable-only script). Excluded datasets/actions produce no commands for that class.
+- **GEN-9 Verification shaping.** The Verification block lets the operator (a) include/exclude each
+  dataset, (b) restrict to **only items that deviate from default** for that device, and (c) additionally
+  emit a machine-readable **`verification-results.csv`** scaffold (`dataset,key,expected,actual,result`,
+  expected pre-filled, actual/result blank).
+- **GEN-10 Session-only, per-command, no persistence.** Customisation is four independent in-memory
+  option objects; nothing is persisted and no schema changes (per the design principles above).
+- **GEN-11 Determinism holds.** With options fixed, every command remains byte-deterministic (DOD-7).
+
+## 20.2 Session config model (`App.ui.views.generate` state)
+
+`_gen` is extended (all fields default to "everything included", so a fresh session reproduces today's
+full output):
+
+```js
+var _gen = {
+  deviceId: null,
+  scriptsAsTxt: false,                 // EXISTING global (impl + verify)
+  report: {
+    sections: {                        // include flags; missing key ⇒ included
+      meta: true,                      // Device Config Information (metadata + hashes)
+      control: true,                   // Control coverage section
+      deviations: true                 // Deviations from default section
+      // dataset/sub-table flags are keyed below, data-driven
+    },
+    datasetSections: {                 // per datasetId. For grouped datasets (packages),
+      // 'android.packages': { remove:true, disable:true, keep:true }   // one flag per group
+      // 'android.settings': { _all:true }                              // single-table datasets
+    },
+    columns: {                         // per datasetId → { columnId: bool }; missing ⇒ shown
+      // 'android.packages': { action:true, control:true, rationale:true }
+    },
+    classification: false              // OFFICIAL: Sensitive banner
+  },
+  control: { classification: false, includeUncontrolled: false },
+  implementation: {
+    datasets: {},                      // datasetId → bool; missing ⇒ included
+    actions: {}                        // datasetId → { actionValue: bool }; missing ⇒ included
+  },
+  verification: {
+    datasets: {},                      // datasetId → bool; missing ⇒ included
+    onlyDeviations: false,
+    csvResults: false
+  }
+};
+```
+
+**Missing-key semantics (MUST).** Every include-map treats an absent key as `true`/included. This keeps
+the state platform-agnostic (a newly-registered dataset is included by default) and keeps serialized
+option objects small; the UI writes a key only when the operator unticks something.
+
+## 20.3 Adapter additions (declarative report metadata)
+
+Two new **optional** adapter fields make report shaping data-driven; the `renderReportSection` signature
+gains a third argument. Adapters that omit the new fields keep today's behaviour.
+
+- **`reportColumns: Array<{ id, label, optional:boolean }>`** — the table columns **after** the always-
+  present key column, in order. Drives both the column-selection checkboxes (only `optional:true`
+  entries are toggleable) and rendering. Android:
+  - packages → `[{id:'action',label:'Action',optional:true},{id:'control',label:'Control',optional:true},{id:'rationale',label:'Rationale',optional:true}]`
+  - settings → `[{id:'value',…},{id:'control',…},{id:'rationale',…}]`
+  - tactical → `[{id:'value',…},{id:'control',…},{id:'rationale',…}]`
+- **`reportGroups?: { field:string, options:Array<{ value, label }> }`** — declares that the section
+  splits into sub-tables by a decision field. Packages only:
+  `{ field:'action', options:[{value:'remove',label:'Removed'},{value:'disable',label:'Disabled'},{value:'keep',label:'Kept'}] }`.
+  Settings/tactical omit it → single un-split table.
+
+**`renderReportSection(items, ctx, opts)`** — new `opts` shape
+`{ columns:{id:bool}, groups:{value:bool} }` (either may be undefined → all included). The adapter MUST:
+1. Build the visible column set from `reportColumns` filtered by `opts.columns` (absent ⇒ shown; the key
+   column is never dropped).
+2. If it declares `reportGroups`, emit **one `<h2>` sub-table per enabled group** (heading
+   `"<Label> — <group.label>"`, e.g. `"Packages — Removed"`), skipping groups whose flag is `false`;
+   otherwise emit the single table. An enabled table with no matching rows MUST render one
+   `<tr><td colspan=…>None.</td></tr>` row (GEN-5).
+3. Continue to route **all** dynamic text through `esc()` (§10.3).
+
+A shared helper `App.report.renderTable(title, headerCells, rowsHtml)` SHOULD be added so the three
+adapters and the control/coverage builders don't duplicate table markup or the empty-"None" rule.
+
+## 20.4 Reporting generator (`buildReport(project, deviceId, opts)`)
+
+`opts` is `_gen.report` (or an equivalent). Order of the emitted document:
+
+1. **Title** (`h1`, always) + **classification banner** at top if `opts.classification`.
+2. **Sections included** table (GEN-4) — always rendered; lists each candidate section
+   (Device Config Information, Packages — Removed/Disabled/Kept, Settings, Tactical, Control coverage,
+   Deviations) with `Included`/`Omitted`, computed from the resolved flags. Built from the same
+   descriptor the UI uses, so UI and report never drift.
+3. **Metadata block** (device/model/firmware/version/generated-UTC + project & snapshot SHA-256) — only
+   if `opts.sections.meta`. Hashes remain inside this block (they are not separately toggleable).
+4. **Per-dataset sections** — for each platform dataset, call
+   `ds.renderReportSection(gather(...), ctx, { columns: opts.columns[ds.id], groups: opts.datasetSections[ds.id] })`.
+   A grouped dataset with all groups off contributes nothing.
+5. **Control coverage** if `opts.sections.control`; **Deviations from default** if
+   `opts.sections.deviations`.
+6. **Classification banner** at the bottom if `opts.classification`.
+
+`App.report.wrapReport(title, meta, sections, wrapOpts)` gains a `wrapOpts.classification` string;
+when set it injects a `<div class="classification">…</div>` banner immediately inside `<body>` and again
+before `</body>`, plus a print/Word `@page`-friendly style. A `null`/absent metadata block (section 3
+omitted) MUST be handled without emitting an empty table.
+
+## 20.5 Control report generator (`buildControlReport(project, deviceId, opts)`)
+
+A standalone document keyed on **controls**, complementary to the report's Control-coverage section:
+
+- For the device, gather effective applicable+complete items across datasets (reusing `gather`, so it is
+  override-blind). Group by each item's `controlRefs`.
+- Emit **one section per control that is applied** (referenced by ≥1 such item), sorted by control label.
+  Each control shows its title/type (and description if present) and a table of the satisfying items:
+  `Dataset · Key · Decision` (the decision rendered via the adapter's existing decision-column getter, so
+  the reader sees *which action/value* satisfies the control). Controls that are defined but unreferenced
+  for this device are **not** listed (it is an "applied controls" report).
+- Items whose `controlRefs` is empty are collected under **"(no control)"** and shown only if
+  `opts.includeUncontrolled` (default off).
+- Metadata block (device info) as in §20.4; classification banner per `opts.classification`.
+- Output: `control-report.html` + `manifest.json`, zipped as `<device>-control-<UTCstamp>.zip`
+  (`command: 'control'` in the manifest). Same `deviceReady` gating and determinism guarantees.
+
+## 20.6 Implementation generator options (`buildImplementation(project, deviceId, opts)`)
+
+Threaded through the shared `buildScripts` path (§10.1). Two generic, adapter-blind filters applied to
+each dataset's `gather`-ed items **before** calling `ds.generateImplementation`:
+
+- **Dataset include** — skip dataset `ds.id` entirely when `opts.datasets[ds.id] === false` (no script
+  emitted for that class).
+- **Action subset** — when `opts.actions[ds.id]` is present, drop items whose decision value for the
+  adapter's **enum decision field** is unticked:
+  `items.filter(it => it.decision && opts.actions[ds.id][it.decision[enumField]] !== false)`.
+  The enum field is discovered from the adapter's `decisionSchema` (same data-driven route as RV8-2), so
+  only packages exposes it; settings/tactical have no enum field and are unaffected. Excluding `keep`
+  merely drops the no-op comment lines; excluding `disable`/`remove` yields the useful single-action
+  scripts.
+
+The `manifest.decisions` block continues to record the **full** effective decision set for the device
+(the manifest documents the device's state, not the filtered emission); the emitted script files reflect
+the filters. This is intentional and noted in §20.9.
+
+## 20.7 Verification generator options (`buildVerification(project, deviceId, opts)`)
+
+Same `buildScripts` path, with:
+
+- **Dataset include** — as §20.6.
+- **Only deviations** — when `opts.onlyDeviations`, restrict each dataset's items to keys that appear in
+  `App.overrides.deviceDeviations(project, deviceId)` for that dataset (a fast re-check of just the
+  device/group divergences). With no deviations, the class emits an empty (header-only) verify script.
+- **CSV results scaffold** — when `opts.csvResults`, additionally emit `verification-results.csv` with
+  header `dataset,key,expected,actual,result` and one row per included item: `dataset` = dataset label,
+  `key` = display key, `expected` = the adapter's decision-column display value (generic; no adapter
+  change), `actual`/`result` blank for the operator/runner to fill. The CSV is a normal (non-script) file
+  → not shell-wrapped, and its cells are RFC-4180 quoted via the existing CSV util. MISSING/EVIDENCED
+  semantics are unchanged (no strictness mode in v1.3).
+
+## 20.8 Generate tab UI (§11.5 amended)
+
+The tab keeps the device selector, the ready/blocked line, and the global "scripts as `.txt`" checkbox.
+Each command card gains a **collapsible "Options" panel** beneath its Generate button, driven by that
+command's `_gen` block; a **fourth card, "Control report"**, is added after Reporting. All controls are
+data-driven from the active platform's datasets/adapters (no hard-coded dataset ids):
+
+- **Reporting options:** a "Device Config Information" checkbox; for each dataset either one checkbox per
+  `reportGroups` option (Packages: Removed / Disabled / Kept) or a single dataset checkbox
+  (Settings, Tactical); per-dataset **column** checkboxes from the adapter's `optional` `reportColumns`;
+  "Control coverage" and "Deviations from default" checkboxes; and an "OFFICIAL: Sensitive header/footer"
+  checkbox.
+- **Control report options:** "OFFICIAL: Sensitive header/footer" and "Include items with no control".
+- **Implementation options:** a per-dataset include checkbox; for enum datasets (packages) an action-
+  subset checkbox group (Keep / Disable / Remove).
+- **Verification options:** a per-dataset include checkbox; "Only items that deviate from default"; and
+  "Also emit results CSV".
+
+`doGenerate(cmdId)` passes the matching `_gen[block]` object as the `opts` argument to the resolved
+`App.generate[cmd.build]`. Gating, the single-zip download, and Activity-drawer logging are unchanged.
+Toggling any option only updates session state (+ re-render of the panel); it never touches the project
+or dirty state.
+
+## 20.9 Determinism, manifest & schema (unchanged surfaces)
+
+- **Schema:** no change. `schemaVersion` stays at 3; Appendix A untouched. Options are not part of project
+  state.
+- **Manifest:** shape unchanged (§10.4). It records the device's full effective decisions and the actual
+  output files with their `sha256`; it does **not** record the customisation options (the report's
+  "Sections included" table self-documents composition; scripts self-evidently contain only what was
+  emitted). The Control report adds `command: 'control'` as a new manifest command value.
+- **Determinism self-test (§15):** extend the report/impl/verify determinism assertions to fix an
+  `options` object alongside the injected clock; assert byte-equality across two runs of identical
+  `(project, device, options)`, and add coverage that a **different** options object changes only the
+  intended files. Mock-platform portability (DOD-11) MUST stay green with a dataset that declares neither
+  `reportGroups` nor `reportColumns`.

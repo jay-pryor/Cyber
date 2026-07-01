@@ -1,0 +1,1 @@
+1. With the Apply To in the Apply Control Mode, it currently applies the selected control to all items with a specific action setting, but can you make it so that if they all already have it, clicking it again will remove it from all of them. If only some of them have it however, it should add it to the rest of them.
