@@ -964,3 +964,51 @@ Post-review-4 changes from `Review Notes/review-5_notes`; spec §18.7. All land 
   round-trip identity + byte-determinism with overrides/groups; mock-platform portability still green.
 - **Definition of done:** all OVR-1…OVR-9 covered green; no adapter edited; existing Phase 0–9 suites
   remain green.
+
+## Review-6 follow-ups (UI refinements)
+
+Presentation-only changes from `Review Notes/review-6_notes`; spec §19.9. All land in the single
+`ch-config-tool.html` file. No engine/schema/determinism change.
+
+#### T-RV6.1 · Group members via a toggle dropdown
+- **Spec:** §19.9 RV6-1, §19.4
+- **Build (`App.ui.views.devices`):** replace `memberCheckboxes` with `memberSelect(g)` — a
+  `[data-group-member-select]` `<select>` (placeholder + one `<option value="baseId">` per device, a
+  member marked `✓ … — remove`, a non-member `… — add`). Show current member names as text
+  (`.grp-member-names`). Wire `change` → toggle the baseId in `group.deviceBaseIds` via
+  `store.updateGroup`, then `refreshMain` (the select resets). Remove the old `[data-group-member]`
+  checkbox handler.
+- **Self-tests:** the group section renders `data-group-member-select` with member/add-remove option
+  labels and the member-names text (no member checkboxes).
+
+#### T-RV6.2 · Bigger group-deviations modal + clean value columns
+- **Spec:** §19.9 RV6-2, §19.4
+- **Build:** give the group modal `<div class="modal modal-wide">` (`.modal.modal-wide{max-width:96vw;
+  width:96vw;max-height:92vh}`). In `renderGroupModal`, the override rows become `Key · Default ·
+  Deviation setting · (remove)`; the Default cell shows the plain value via the adapter's decision
+  display (`decisionGet(adapter)({decision: default})`), not the decision JSON.
+- **Self-tests:** the modal has `modal modal-wide`, `Default`/`Deviation setting` headers, a plain
+  default value (e.g. `keep`) and no raw decision JSON.
+
+#### T-RV6.3 · Searchable key picker in the add-deviation form
+- **Spec:** §19.9 RV6-3, §19.4
+- **Build:** replace the add-override key `<select>` with `<input class="gov-add-key" data-gov-add-key
+  list="gov-add-keylist">` + a `<datalist id="gov-add-keylist">` of `<option value="storedKey">
+  displayKey</option>` (applicable union, not-yet-overridden). The change/Set handlers read the input
+  value (unchanged logic).
+- **Self-tests:** the add form renders the searchable input + datalist (with the full key list).
+
+#### T-RV6.4 · Resizable Control Manager columns
+- **Spec:** §19.9 RV6-4, §18.6 RV4-4
+- **Build (`App.ui.views.controls`):** add `_cm.colWidths`; render `table.data.ctl-table.resizable`
+  with data-driven `<th data-cm-col style="width:Npx">` + `.col-resize` handles
+  (`data-cm-col-resize`). Add a `mousedown[data-cm-col-resize]` handler in `wire` that live-resizes the
+  `<th>` and persists to `_cm.colWidths`. Drop the fixed `max-width` on the applies/description cells.
+- **Self-tests:** the table is `data ctl-table resizable` with resize handles, per-column width styles,
+  and a stored width override applied.
+
+#### T-RV6.5 · Control-ref labels on one line
+- **Spec:** §19.9 RV6-5, §18.3 CTL-5
+- **Build:** `.control-multiselect .ctl-opt{white-space:nowrap}` + checkbox `flex:0 0 auto` (left) +
+  span `white-space:nowrap`; widen the box and allow horizontal scroll for very long names.
+- **Self-tests:** covered by the existing CTL-5 render test (checkbox list unchanged structurally).

@@ -1375,3 +1375,27 @@ Deviation = {
   (after `App.completeness`/before `App.generate`, since both depend on it).
 - **DOD-11 (portability).** No `DatasetAdapter` edits are required; the mock-platform portability
   self-test (§15) MUST still pass.
+
+## 19.9 Review-6 amendments (UI refinements)
+
+Presentation-only refinements to the v1.1/v1.2 UI; no engine, schema, determinism, or portability
+change.
+
+- **RV6-1 Group members via a toggle dropdown.** In a Devices-tab group section (§19.4), member
+  management MUST be a **toggle-able dropdown** (a `<select>`), not a checkbox grid: choosing a device
+  **adds** it to the group; choosing a current member **removes** it (single-group move still applies).
+  The current members MUST also be shown as text so membership is legible at a glance.
+- **RV6-2 Group deviations modal — larger + clean value columns.** The group "Deviations" modal (§19.4 /
+  OVR-6) MUST be **near-full-screen** (so overrides are not cramped). Each override row MUST show the
+  **default value alone** in a *Default* column (e.g. `0`, not the raw decision object
+  `{"value":"0","type":"string"}`) and the deviation value in a separate *Deviation setting* column
+  (the schema-driven editor). Use the adapter's decision-display for the default value.
+- **RV6-3 Searchable key picker when adding a deviation.** In the add-override form (§19.4), the setting/
+  key picker MUST be **type-to-search** (e.g. an `<input list>` + `<datalist>`), because the applicable
+  key list is long. The dataset selector and schema editor are unchanged.
+- **RV6-4 Resizable Control Manager columns.** The Control Manager table (§18.6 RV4-4) MUST support
+  **drag-to-resize column widths**, consistent with the data tables (§11.2 / review-2): per-column
+  drag handles, `table-layout:fixed`, widths persisted in the view's UI state (never the project file).
+- **RV6-5 Control-ref list on one line.** In the data-table Control Refs multi-select (§18.3 CTL-5 /
+  review-5 #2), each control's name MUST render on a **single line** with the checkbox at the **left**
+  (no two-line wrap when space allows).

@@ -258,16 +258,19 @@
   .ctl-search { width: 100%; max-width: 420px; font: inherit; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
   table.ctl-table th, table.ctl-table td { vertical-align: top; }
   table.ctl-table td input[type="text"], table.ctl-table td select { font: inherit; font-size: 13px; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
-  table.ctl-table .ctl-applies-cell { font-size: 12px; color: var(--c-text-muted); max-width: 260px; }
-  table.ctl-table .ctl-desc-cell { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 360px; font-size: 12px; }
+  table.ctl-table .ctl-applies-cell { font-size: 12px; color: var(--c-text-muted); }
+  table.ctl-table .ctl-desc-cell { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
   .ctl-detail-actions { padding-top: 2px; }
   button.danger { border-color: var(--c-undecided-border); }
 
   /* Control-refs multi-select (review-5 #2): searchable checkbox list. */
-  .control-multiselect { border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); padding: 6px; max-width: 360px; }
+  .control-multiselect { border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); padding: 6px; max-width: 520px; }
   .control-multiselect .ctl-opt-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 4px 6px; margin-bottom: 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
-  .control-multiselect .ctl-opts { max-height: 150px; overflow-y: auto; }
-  .control-multiselect .ctl-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; }
+  .control-multiselect .ctl-opts { max-height: 180px; overflow-y: auto; overflow-x: auto; }
+  /* review-6 #5: keep the checkbox at the LEFT and the control name on ONE line. */
+  .control-multiselect .ctl-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; white-space: nowrap; }
+  .control-multiselect .ctl-opt input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
+  .control-multiselect .ctl-opt span { white-space: nowrap; }
   .control-multiselect .ctl-opt-count { margin-top: 4px; }
 
   /* Collapsible device panels (review-5 #1). */
@@ -285,6 +288,8 @@
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
   .modal { background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 10px; max-width: 900px; width: 100%; max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
+  /* review-6 #2: a near-full-screen modal for the group deviations editor. */
+  .modal.modal-wide { max-width: 96vw; width: 96vw; max-height: 92vh; }
   .modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--c-border); }
   .modal-head h3 { margin: 0; font-size: 16px; }
   .modal-head .modal-sub { color: var(--c-text-muted); font-size: 12px; }
@@ -314,9 +319,14 @@
   .dev-group-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
   .dev-group-head .grp-name { font: inherit; font-weight: 600; padding: 3px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
   .grp-members { width: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
-  .grp-member { font-size: 12px; display: inline-flex; align-items: center; gap: 4px; }
+  .grp-member-names { font-size: 12px; }
+  .grp-member-select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
   .gov-add { margin-top: 12px; padding: 10px; border: 1px dashed var(--c-border); border-radius: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .gov-add select, .gov-add textarea, .gov-add input { font: inherit; font-size: 13px; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .gov-add .gov-add-key { min-width: 260px; }
+  /* Group deviations tables use the modal's full width; keep values on one line. */
+  .modal-wide .panel table { font-size: 12px; }
+  .modal-wide .panel td .val-edit { min-height: 1.7em; }
 
   /* Draft restore banner */
   .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
@@ -4914,22 +4924,29 @@
       var nameOf = {}; App.ui.model.getLatestConfigs(project).forEach(function (c) { if (nameOf[c.baseId] === undefined) nameOf[c.baseId] = c.name; });
       var allBases = order.slice().sort(function (a, b) { return (nameOf[a] || a) < (nameOf[b] || b) ? -1 : 1; });
 
-      function memberCheckboxes(g) {
+      // review-6 #1: a toggle-able dropdown to add/remove a member device (pick a
+      // device to add it; pick a current member to remove it). Members are also shown
+      // as text so the current membership is clear at a glance.
+      function memberSelect(g) {
         var inG = {}; (g.deviceBaseIds || []).forEach(function (b) { inG[b] = true; });
-        return allBases.map(function (b) {
-          return '<label class="grp-member"><input type="checkbox" data-group-member data-group-id="' + esc(g.id) + '" data-baseid="' + esc(b) + '"' + (inG[b] ? ' checked' : '') + '> ' + esc(nameOf[b] || b) + '</label>';
-        }).join('');
+        return '<select class="grp-member-select" data-group-member-select data-group-id="' + esc(g.id) + '" aria-label="add or remove a device">' +
+          '<option value="">+ / − device…</option>' +
+          allBases.map(function (b) {
+            return '<option value="' + esc(b) + '">' + (inG[b] ? '✓ ' : '') + esc(nameOf[b] || b) + (inG[b] ? ' — remove' : ' — add') + '</option>';
+          }).join('') + '</select>';
       }
       function groupSection(g) {
         var members = allBases.filter(function (b) { return groupOf[b] && groupOf[b].id === g.id; });
         var stacks = members.length ? members.map(stackHtml).join('') : '<p class="muted" style="padding:6px 10px">No devices in this group yet.</p>';
         var nDev = App.overrides.groupDeviations(project, g.id).length;
+        var memberNames = members.map(function (b) { return nameOf[b] || b; }).join(', ') || '(none)';
         var head = '<div class="dev-group-head">' +
           '<input class="grp-name" data-group-name data-group-id="' + esc(g.id) + '" value="' + esc(g.name) + '" aria-label="group name">' +
           '<span class="muted" style="font-size:12px">' + members.length + ' device' + (members.length === 1 ? '' : 's') + '</span>' +
           '<button data-group-deviations="' + esc(g.id) + '">Deviations (' + nDev + ')</button>' +
           '<button class="danger" data-group-remove="' + esc(g.id) + '">Delete group</button>' +
-          '<div class="grp-members"><span class="muted" style="font-size:12px">Members: </span>' + (allBases.length ? memberCheckboxes(g) : '<span class="muted">none</span>') + '</div>' +
+          '<div class="grp-members"><span class="muted" style="font-size:12px">Members: </span><span class="grp-member-names">' + esc(memberNames) + '</span>' +
+            (allBases.length ? memberSelect(g) : '<span class="muted">no devices onboarded</span>') + '</div>' +
           '</div>';
         return '<section class="dev-group-section"><h3 class="grp-title">' + esc(g.name) + '</h3>' + head + stacks + '</section>';
       }
@@ -4994,37 +5011,41 @@
       var sections = datasets(project).map(function (d) {
         var adapter = App.registry.getDataset(project.platformProfileId, d.id);
         var dispKey = adapter.displayKey || function (k) { return k; };
+        var get = decisionGet(adapter);
         var ovMap = (g.overrides && g.overrides[d.id]) || {};
         var keys = Object.keys(ovMap).sort();
         var rows = keys.map(function (key) {
           var dV = (project.items[d.id] || []).filter(function (it) { return it.key === key; })[0];
-          var defText = dV && dV.decision != null ? JSON.stringify(dV.decision) : '(undecided)';
-          return '<tr><td>' + esc(dispKey(key)) + '</td><td class="muted">' + esc(defText) + ' →</td>' +
+          // review-6 #2: show the DEFAULT value alone (e.g. 0), not the raw decision JSON.
+          var defText = dV && dV.decision != null ? String(get({ decision: dV.decision })) : '(undecided)';
+          return '<tr><td>' + esc(dispKey(key)) + '</td><td>' + esc(defText) + '</td>' +
             '<td>' + govControl(adapter, ovMap[key], 'data-gov data-gov-ds="' + esc(d.id) + '" data-gov-key="' + esc(key) + '"') + '</td>' +
             '<td><button class="ov-revert" data-gov-remove data-ds="' + esc(d.id) + '" data-key="' + esc(key) + '">Remove</button></td></tr>';
         }).join('');
         var table = keys.length
-          ? '<table><thead><tr><th>Key</th><th>Default →</th><th>Group value</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
+          ? '<table><thead><tr><th>Key</th><th>Default</th><th>Deviation setting</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>'
           : '<div class="empty">No group overrides for ' + esc(d.label) + '.</div>';
         return '<div class="panel"><h3>' + esc(d.label) + ' (' + keys.length + ')</h3>' + table + '</div>';
       }).join('');
 
-      // Add-override form: dataset select + key select (union, not-yet-overridden) + editor + Set.
+      // Add-override form: dataset select + a SEARCHABLE key input (review-6 #3) + editor + Set.
       var addDs = _dev.groupAdd.dsId || (datasets(project)[0] && datasets(project)[0].id);
       var addAdapter = App.registry.getDataset(project.platformProfileId, addDs);
       var dsSel = datasets(project).map(function (d) { return '<option value="' + esc(d.id) + '"' + (d.id === addDs ? ' selected' : '') + '>' + esc(d.label) + '</option>'; }).join('');
       var ovKeys = (g.overrides && g.overrides[addDs]) || {};
       var addDispKey = (addAdapter && addAdapter.displayKey) || function (k) { return k; };
+      // A <datalist> makes the (long) key list type-to-filter searchable natively.
       var keyOpts = groupUnionKeys(project, g, addDs).filter(function (k) { return !(k in ovKeys); }).sort()
-        .map(function (k) { return '<option value="' + esc(k) + '"' + (k === _dev.groupAdd.key ? ' selected' : '') + '>' + esc(addDispKey(k)) + '</option>'; }).join('');
+        .map(function (k) { return '<option value="' + esc(k) + '">' + esc(addDispKey(k)) + '</option>'; }).join('');
       var addForm = '<div class="gov-add"><strong>Add override:</strong> ' +
         '<select data-gov-add-ds aria-label="dataset">' + dsSel + '</select> ' +
-        '<select data-gov-add-key aria-label="key"><option value="">— key —</option>' + keyOpts + '</select> ' +
+        '<input class="gov-add-key" data-gov-add-key list="gov-add-keylist" placeholder="type to search a key…" value="' + esc(_dev.groupAdd.key || '') + '" aria-label="key">' +
+        '<datalist id="gov-add-keylist">' + keyOpts + '</datalist> ' +
         (addAdapter ? govControl(addAdapter, null, 'data-gov-add-field-ctl') : '') +
         ' <button class="primary" data-gov-add-set data-ds="' + esc(addDs) + '">Set</button></div>';
 
       return '<div class="modal-overlay" data-group-modal>' +
-        '<div class="modal" role="dialog" aria-modal="true" aria-label="Group deviations for ' + esc(g.name) + '">' +
+        '<div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="Group deviations for ' + esc(g.name) + '">' +
           '<div class="modal-head"><div><h3>' + esc(g.name) + ' — deviations from default</h3>' +
             '<div class="modal-sub">Group overrides apply to every member device (default → group → device).</div></div>' +
             '<button type="button" class="modal-close" data-group-modal-close aria-label="Close">×</button></div>' +
@@ -5295,11 +5316,15 @@
         App.ui.activity.logIssues(res.issues);
         ctx.refreshMain();
       });
-      App.util.dom.on(ctx.root, 'change', '[data-group-member]', function (e, el) {
-        var id = el.getAttribute('data-group-id'), baseId = el.getAttribute('data-baseid');
+      // review-6 #1: a toggle dropdown — selecting a device adds it, selecting a
+      // current member removes it. The select resets to the placeholder on re-render.
+      App.util.dom.on(ctx.root, 'change', '[data-group-member-select]', function (e, el) {
+        var id = el.getAttribute('data-group-id'), baseId = el.value;
+        if (!baseId) return;
         var g = (App.store.getProject().groups || []).filter(function (x) { return x.id === id; })[0]; if (!g) return;
+        var isMember = (g.deviceBaseIds || []).indexOf(baseId) !== -1;
         var set = (g.deviceBaseIds || []).filter(function (b) { return b !== baseId; });
-        if (el.checked) set.push(baseId);
+        if (!isMember) set.push(baseId); // toggle membership
         App.store.updateGroup(id, { deviceBaseIds: set });
         ctx.refreshMain();
       });
@@ -5440,8 +5465,15 @@
     var _newType = '';
     var _ctx = null;
     // review-4 #4: Control Manager is a searchable table with a per-row expander.
-    var _cm = { search: '', expanded: {} };
+    // review-6 #4: per-column widths (drag-resizable), persisted in UI state.
+    var _cm = { search: '', expanded: {}, colWidths: {} };
     var _cmSearchTimer = null;
+    var CM_COLS = [
+      { key: 'title', label: 'Title', w: 200 },
+      { key: 'type', label: 'Type', w: 120 },
+      { key: 'applies', label: 'Applies to', w: 200 },
+      { key: 'description', label: 'Description', w: 340 }
+    ];
 
     function typeOptions(cur) {
       var opts = App.store.knownControlTypes(); // seed + user-added + types in use
@@ -5482,7 +5514,13 @@
         if (!q) return true;
         return ((c.title || '') + ' ' + (c.type || '') + ' ' + (c.description || '')).toLowerCase().indexOf(q) !== -1;
       });
-      var head = '<tr><th class="lead-col" aria-label="expand"></th><th>Title</th><th>Type</th><th>Applies to</th><th>Description</th></tr>';
+      // review-6 #4: data-driven headers with drag-to-resize handles + stored widths.
+      var colWidths = _cm.colWidths || {};
+      var head = '<tr><th class="lead-col" aria-label="expand"></th>' + CM_COLS.map(function (c) {
+        var w = colWidths[c.key] || c.w;
+        return '<th data-cm-col="' + c.key + '" scope="col" style="width:' + w + 'px">' + esc(c.label) +
+          '<span class="col-resize" data-cm-col-resize="' + c.key + '" title="Drag to resize"></span></th>';
+      }).join('') + '</tr>';
       var body = filtered.map(function (c) {
         var open = !!_cm.expanded[c.id];
         var lead = '<td><button class="expand-btn" data-ctl-expand="' + esc(c.id) + '" aria-expanded="' + open + '" title="Edit / remove">' + (open ? '▾' : '▸') + '</button></td>';
@@ -5509,7 +5547,7 @@
       }).join('');
       if (!filtered.length) body = '<tr><td colspan="5" class="muted">No matching controls.</td></tr>';
       var count = '<div class="muted" style="font-size:12px;margin-bottom:4px">' + filtered.length + ' of ' + controls.length + ' shown</div>';
-      return count + '<table class="data ctl-table"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
+      return count + '<table class="data ctl-table resizable"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
     }
 
     function render(project) {
@@ -5551,6 +5589,21 @@
     function wire(ctx) {
       _ctx = ctx;
       var dom = App.util.dom;
+      // review-6 #4: drag-to-resize the Control Manager columns (persist to _cm.colWidths).
+      dom.on(ctx.root, 'mousedown', '[data-cm-col-resize]', function (e, el) {
+        e.preventDefault(); e.stopPropagation();
+        var col = el.getAttribute('data-cm-col-resize');
+        var th = el; while (th && th.tagName !== 'TH') th = th.parentNode;
+        if (!th) return;
+        var startX = e.clientX, startW = th.offsetWidth;
+        function onMove(ev) { th.style.width = Math.max(60, startW + (ev.clientX - startX)) + 'px'; }
+        function onUp(ev) {
+          document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp);
+          _cm.colWidths = _cm.colWidths || {};
+          _cm.colWidths[col] = Math.max(60, startW + (ev.clientX - startX));
+        }
+        document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
+      });
       dom.on(ctx.root, 'input', '[data-ctl-add]', function (e, el) { _add[el.getAttribute('data-ctl-add')] = el.value; });
       dom.on(ctx.root, 'change', 'select[data-ctl-add="type"]', function (e, el) { _add.type = el.value; });
       dom.on(ctx.root, 'click', '[data-action="ctl-add"]', function () {
@@ -7377,7 +7430,7 @@
           'android.settings': snapB('android.settings', 'secure:\ny=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
       }
-      s.test('renderList shows group sections (+ Ungrouped), Add group, member checkboxes and a deviation count', function () {
+      s.test('renderList shows group sections (+ Ungrouped), Add group, a member dropdown and a deviation count', function () {
         twoDevices();
         var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['alpha-m1'] });
         App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
@@ -7386,19 +7439,31 @@
         T.assert(/data-action="add-group"/.test(html), 'no Add group control');
         T.assert(/class="grp-title">Rugged</.test(html) && /Ungrouped/.test(html), 'group/ungrouped sections missing');
         T.assert(new RegExp('data-group-deviations="' + g.id + '">Deviations \\(1\\)').test(html), 'deviation count wrong');
-        T.assert(/data-baseid="alpha-m1"[^>]*checked/.test(html), 'alpha should be a checked member of Rugged');
-        // Bravo is not in Rugged -> appears in Ungrouped (and as an unchecked member checkbox).
+        // review-6 #1: members are a toggle dropdown; Alpha is a member (marked remove), Bravo is add.
+        T.assert(/data-group-member-select/.test(html), 'no member dropdown');
+        T.assert(/<option value="alpha-m1">✓ Alpha — remove<\/option>/.test(html), 'Alpha should show as a removable member');
+        T.assert(/<option value="bravo-m2">Bravo — add<\/option>/.test(html), 'Bravo should show as addable');
+        T.assert(/Members: <\/span><span class="grp-member-names">Alpha<\/span>/.test(html), 'member names not shown');
         T.assert(/data-device-view="bravo-m2"/.test(html), 'bravo stack should render (Ungrouped)');
       });
-      s.test('group deviations modal lists overrides + an add-override form', function () {
+      s.test('group deviations modal: wide, clean Default column, add-override form with a searchable key', function () {
         twoDevices();
         var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['alpha-m1'] });
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' }); // default
         App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' });
         App.ui.views.devices._dev.groupAdd = { dsId: null, key: '' };
         var html = App.ui.views.devices.renderGroupModal(App.store.getProject(), g.id);
         T.assert(/modal-overlay/.test(html) && /data-group-modal-close/.test(html), 'no modal / close button');
+        T.assert(/class="modal modal-wide"/.test(html), 'group modal should be the near-full-screen variant (review-6 #2)');
         T.assert(/data-gov-remove[^>]*data-key="com.a"/.test(html), 'existing override row missing');
+        // review-6 #2: Default column shows the plain value ("keep"), not the decision JSON.
+        T.assert(/<th>Default<\/th><th>Deviation setting<\/th>/.test(html), 'clean Default/Deviation headers missing');
+        T.assert(html.indexOf('{"action"') === -1, 'Default should not render raw decision JSON');
+        T.assert(/<td>keep<\/td>/.test(html), 'Default value "keep" not shown plainly');
+        // review-6 #3: the key picker is a searchable input backed by a <datalist>.
         T.assert(/data-gov-add-ds/.test(html) && /data-gov-add-set/.test(html), 'no add-override form');
+        T.assert(/<input class="gov-add-key" data-gov-add-key list="gov-add-keylist"/.test(html), 'key picker is not a searchable input');
+        T.assert(/<datalist id="gov-add-keylist">/.test(html), 'no datalist for key search');
       });
       s.test('a group override added then removed updates the modal list', function () {
         twoDevices();
@@ -7553,7 +7618,10 @@
         CV._cm.search = ''; CV._cm.expanded = {};
         var collapsed = CV.render(project);
         T.assert(/data-ctl-search/.test(collapsed), 'no search box');
-        T.assert(/class="data ctl-table"/.test(collapsed), 'controls not rendered as a table');
+        T.assert(/class="data ctl-table resizable"/.test(collapsed), 'controls not rendered as a resizable table');
+        // review-6 #4: columns are drag-resizable (handles + width styles) like the data tables.
+        T.assert(/data-cm-col-resize="title"/.test(collapsed) && /data-cm-col-resize="description"/.test(collapsed), 'no column resize handles');
+        T.assert(/data-cm-col="title" scope="col" style="width:\d+px"/.test(collapsed), 'no per-column width styles');
         T.assert(/ctl-desc-cell/.test(collapsed) && collapsed.indexOf('a long description that should wrap') !== -1, 'no wrapping description column');
         T.assert(new RegExp('data-ctl-expand="' + id + '"').test(collapsed), 'no per-row expander');
         T.assert(!/<input[^>]*data-ctl-field="description"/.test(collapsed), 'description must never be a one-line input');
@@ -7563,7 +7631,10 @@
         var open = CV.render(project);
         T.assert(/<textarea class="ctl-desc" data-ctl-field="description"/.test(open), 'dropdown has no wrapping description textarea');
         T.assert(/class="detail-row"[\s\S]*data-ctl-remove="/.test(open), 'Remove button not inside the dropdown');
-        CV._cm.expanded = {};
+        // review-6 #4: a stored column width overrides the default.
+        CV._cm.expanded = {}; CV._cm.colWidths = { title: 333 };
+        T.assert(/data-cm-col="title" scope="col" style="width:333px"/.test(CV.render(project)), 'stored column width not applied');
+        CV._cm.colWidths = {};
       });
       s.test('#4 controls table search filters by title/type/description', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));

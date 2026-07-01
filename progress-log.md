@@ -26,7 +26,7 @@ Process per task (build phase): **build → review → devise tests → log defe
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
-**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–5.
+**v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + reviews 1–6.
 **190/190 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
@@ -284,6 +284,36 @@ report's Deviations section (group named), and the project round-trips byte-iden
 generated zip deterministic.
 
 **Defects:** none in the product. **190/190 self-tests pass.**
+
+### 2026-07-01 — Review-6 changes (UI refinements) — ✅ COMPLETE
+
+Actioned the five review-6 notes (spec §19.9 / task breakdown T-RV6.1–T-RV6.5) — presentation only,
+no engine/schema/determinism change:
+1. **Group members via a toggle dropdown (RV6-1).** The group section's member checkboxes are now a
+   toggle `<select>` (pick a device to add; pick a current member — shown `✓ … — remove` — to remove).
+   Current members are also listed as text. `store.updateGroup` still enforces single-group membership.
+2. **Bigger group modal + clean value columns (RV6-2).** The group "Deviations" modal is now
+   near-full-screen (`modal-wide`, 96vw/92vh). Each override row shows the **Default** value alone
+   (e.g. `0` / `keep`) via the adapter's decision display — not the raw `{"value":"0","type":"string"}`
+   — in a *Default* column, with the deviation editor in a separate *Deviation setting* column.
+3. **Searchable key picker (RV6-3).** The add-override key `<select>` became an `<input list>` +
+   `<datalist>`, so the (long) applicable-key list is type-to-search.
+4. **Resizable Control Manager columns (RV6-4).** The Control Manager table gained drag-to-resize
+   column handles (`table-layout:fixed`, per-column widths persisted in `_cm.colWidths`), consistent
+   with the data tables.
+5. **Control-ref labels on one line (RV6-5).** The data-tab Control Refs multi-select keeps each control
+   name on a single line with the checkbox at the left (nowrap + wider box).
+
+**Tests:** updated the T10.5 group tests (member dropdown, wide modal, clean Default column, searchable
+key input) and the review-4 #4 Control Manager test (resizable headers + stored-width). **190/190
+self-tests pass.**
+
+**Review:** real-data render smoke checks (438/803/132) confirm the member dropdown + member-names text,
+the `modal-wide` group modal with a JSON-free Default column, and the searchable key input backed by an
+810-option datalist. Phase-10 engine behaviour (effective resolution, generation, manifest, report,
+round-trip determinism) re-verified unchanged.
+
+**Defects:** none in the product (only the expected T10.5 / review-4 #4 test updates).
 
 ---
 
