@@ -28,7 +28,7 @@ Process per task (build phase): **build → review → devise tests → log defe
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
-COMPLETE** + reviews 1–8 + report-gen. **213/213 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+COMPLETE** + reviews 1–9 + report-gen. **217/217 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
 Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
@@ -436,6 +436,32 @@ declares neither new field → renders one plain table).
 
 **Defects:** none in the product (two test-assertion fixes only: the preamble's `Verify-Package` helper
 def, and an undefined test helper).
+
+### 2026-07-01 — Review-9 changes — ✅ COMPLETE
+
+Actioned the five review-9 notes (spec §19.13 / task breakdown T-RV9.1–T-RV9.5):
+1. **Apply-to toggle (RV9-1).** The Apply-Control-Mode "Apply to <action>" now **toggles**: if every item
+   with the chosen action already has the control it is removed from all of them; otherwise it is added to
+   the ones missing it. Logic extracted to the testable pure `App.ui.app.applyToTogglePlan`.
+2. **Control-ref checkbox spacing (RV9-2).** The `.detail-form input{width:100%}` rule was stretching the
+   control-ref checkboxes, pushing the name off-screen — fixed with `width:auto;padding:0` on the checkbox.
+3. **Script timestamp in AEST (RV9-3).** The generated PowerShell header now shows `Generated (AEST):`
+   (UTC+10) via a new pure `App.util.clock.toAest`; the UI `toAest` delegates to it. Deterministic.
+4. **How-to-run comment (RV9-4).** Each generated script begins with a how-to-run block (open Command
+   Prompt in the platform-tools folder via the address-bar `cmd` trick) + the exact
+   `powershell -ExecutionPolicy Bypass -File .\<name>` command for that file, via a new
+   `platform.runInstructions(name)` hook (Android only, core stays generic); data files get none.
+5. **Name the save file (RV9-5).** "Save project" opens a small modal to enter the file name (Confirm /
+   Cancel / × / Enter) before downloading; `.json` appended if absent.
+
+**Tests:** +4 self-tests (apply-to plan toggle; toAest + AEST header/no-UTC; how-to-run header + exact
+command + data-files-exempt; .txt run note). **217/217 self-tests pass.**
+
+**Review:** real-data run (438 packages) — apply-to adds to all 30 remove-action packages, tops up the
+one removed, then toggles all off; the script header shows AEST + the how-to-run command. Determinism
+(DOD-7) holds (AEST + how-to-run are pure functions of the fixed timestamp/filename).
+
+**Defects:** none.
 
 ---
 

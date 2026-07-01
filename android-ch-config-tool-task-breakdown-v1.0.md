@@ -998,6 +998,36 @@ Presentation-only changes from `Review Notes/review-6_notes`; spec §19.9. All l
   value (unchanged logic).
 - **Self-tests:** the add form renders the searchable input + datalist (with the full key list).
 
+## Review-9 follow-ups
+
+Changes from `Review Notes/review-9_Notes`; spec §19.13. All land in `ch-config-tool.html`.
+
+#### T-RV9.1 · Apply-to is a toggle
+- **Build:** extract `App.ui.app.applyToTogglePlan(items, field, action, controlId)` → `{matching,
+  removing}` (removing when all matching items already have the control); the `[data-apply-to]` handler
+  removes from all when `removing`, else adds to the ones missing it. Log which happened.
+- **Self-tests:** plan returns removing=false when some missing, true when all have it, false when no items match.
+
+#### T-RV9.2 · Control-ref checkbox spacing
+- **Build:** `.control-multiselect .ctl-opt input[type="checkbox"]{width:auto;padding:0}` to override the
+  `.detail-form input{width:100%}` stretch.
+
+#### T-RV9.3 · Script header timestamp in AEST
+- **Build:** add pure `App.util.clock.toAest(iso)`; the PowerShell preamble prints `Generated (AEST):`;
+  the UI `toAest` delegates to it.
+- **Self-tests:** toAest UTC→UTC+10; the script header shows AEST and no `Generated (UTC)`.
+
+#### T-RV9.4 · How-to-run comment
+- **Build:** optional `platform.runInstructions(name)` (androidAdb) returns the how-to-run block +
+  `powershell -ExecutionPolicy Bypass -File .\<name>`; `buildScripts` prepends it to each script file
+  (using the emitted name; a `.txt` note when renamed). Data files get none.
+- **Self-tests:** the header + exact command are present at the top; tactical.json has none; `.txt` output
+  references `.txt` + the rename note.
+
+#### T-RV9.5 · Name the save file
+- **Build:** `saveProject(name)` appends `.json` if absent; the Save button opens a `_state.saveModal`
+  modal (name input + Confirm/Cancel/×/Enter) that downloads with the entered name.
+
 #### T-RV6.4 · Resizable Control Manager columns
 - **Spec:** §19.9 RV6-4, §18.6 RV4-4
 - **Build (`App.ui.views.controls`):** add `_cm.colWidths`; render `table.data.ctl-table.resizable`

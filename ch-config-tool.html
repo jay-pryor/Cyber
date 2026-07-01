@@ -284,7 +284,9 @@
   .control-multiselect .ctl-opts { max-height: 180px; overflow-y: auto; overflow-x: auto; }
   /* review-6 #5: keep the checkbox at the LEFT and the control name on ONE line. */
   .control-multiselect .ctl-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; white-space: nowrap; }
-  .control-multiselect .ctl-opt input[type="checkbox"] { flex: 0 0 auto; margin: 0; }
+  /* review-9 #2: keep the checkbox its natural size (the .detail-form input{width:100%}
+     rule would otherwise stretch it, pushing the control name off-screen). */
+  .control-multiselect .ctl-opt input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 0; padding: 0; }
   .control-multiselect .ctl-opt span { white-space: nowrap; }
   .control-multiselect .ctl-opt-count { margin-top: 4px; }
 
@@ -310,6 +312,7 @@
   .modal-head .modal-sub { color: var(--c-text-muted); font-size: 12px; }
   .modal-close { margin-left: auto; background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--c-text); padding: 0 4px; }
   .modal-body { padding: 14px 16px; overflow-y: auto; }
+  .save-name-input { flex: 1; font: inherit; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
 
   /* Device-config override editing + divergence highlighting (Phase 10 / §19.5). */
   .dev-detail-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -528,7 +531,21 @@
     function resetClock() { _clock = function () { return new Date(); }; }
 
     App.util = App.util || {};
-    App.util.clock = { nowIso: nowIso, setClock: setClock, resetClock: resetClock };
+    /**
+     * Format a UTC ISO timestamp as AEST (UTC+10, no DST) — pure, deterministic.
+     * Parses the given ISO (not the wall clock), so it is safe in generated artifacts.
+     * @param {string} iso @returns {string} e.g. "2026-07-01 11:00:00 AEST"
+     */
+    function toAest(iso) {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      var t = new Date(d.getTime() + 10 * 3600 * 1000); // UTC+10 = AEST
+      var p = function (n) { return ('0' + n).slice(-2); };
+      return t.getUTCFullYear() + '-' + p(t.getUTCMonth() + 1) + '-' + p(t.getUTCDate()) + ' ' +
+        p(t.getUTCHours()) + ':' + p(t.getUTCMinutes()) + ':' + p(t.getUTCSeconds()) + ' AEST';
+    }
+
+    App.util.clock = { nowIso: nowIso, setClock: setClock, resetClock: resetClock, toAest: toAest };
   })(App);
   </script>
 
@@ -3488,7 +3505,7 @@
         '# =============================================================',
         '# CH Config Tool ' + ctx.toolVersion + ' — generated PowerShell',
         '# Project device: ' + d.name + '  Model: ' + d.model + '  Firmware: ' + d.firmware,
-        '# Generated (UTC): ' + ctx.generatedUtc,
+        '# Generated (AEST): ' + App.util.clock.toAest(ctx.generatedUtc),  // review-9 #3
         '# =============================================================',
         'Set-StrictMode -Version Latest',
         '$ErrorActionPreference = "Stop"',
@@ -3515,6 +3532,29 @@
       return ['', '# --- End ---', 'Stop-Transcript | Out-Null'].join('\n');
     }
 
+    /**
+     * A "how to run" comment block prepended to each generated script (review-9 #4).
+     * Includes the exact command for THIS file's emitted name.
+     * @param {string} name  the emitted filename (e.g. "packages.impl.ps1")
+     */
+    function runInstructions(name) {
+      var isTxt = /\.txt$/.test(name);
+      return [
+        '# =============================================================',
+        '# HOW TO RUN THIS SCRIPT (Windows + ADB / platform-tools)',
+        '#   1. Enable USB debugging on the device and connect it by USB.',
+        '#   2. In File Explorer, open the folder that contains adb.exe',
+        '#      (the Android platform-tools folder); put this file there.',
+        '#   3. Click the File Explorer address bar, type  cmd  and press',
+        '#      Enter — a Command Prompt opens in that folder.',
+        '#   4. Run this file with:',
+        '#        powershell -ExecutionPolicy Bypass -File .\\' + name,
+        (isTxt ? '#      (This file has a .txt extension — rename it to .ps1 first.)' : '#'),
+        '# =============================================================',
+        ''
+      ].join('\n');
+    }
+
     var captureInstructions =
       'Capture three files from the target device (the tool never contacts a device):\n' +
       '  1. Packages (packages.txt): adb -s <serial> shell pm list packages\n' +
@@ -3533,7 +3573,8 @@
       datasets: [A.packages, A.settings, A.tactical],
       captureInstructions: captureInstructions,
       scriptPreamble: scriptPreamble,
-      scriptPostamble: scriptPostamble
+      scriptPostamble: scriptPostamble,
+      runInstructions: runInstructions
     };
   })(App);
   </script>
@@ -4257,12 +4298,14 @@
           }
           (ds[genName](items, ctx) || []).forEach(function (f) {
             var isScript = ext && endsWith(f.name, ext);
-            // Wrap script files (per platform.scriptExtension) with preamble/postamble;
-            // leave data files (e.g. tactical.json) unwrapped (spec §10.1).
-            var content = isScript ? platform.scriptPreamble(ctx) + '\n' + f.content + '\n' + platform.scriptPostamble(ctx) : f.content;
             // review-3 #1: optionally rename generated SCRIPT files to .txt (wrapping
             // is decided on the original extension first, so the preamble is kept).
             var name = (isScript && opts.scriptsAsTxt) ? f.name.slice(0, -ext.length) + '.txt' : f.name;
+            // review-9 #4: a platform-provided "how to run" header for THIS file (if any).
+            var runc = (isScript && typeof platform.runInstructions === 'function') ? platform.runInstructions(name) + '\n' : '';
+            // Wrap script files (per platform.scriptExtension) with preamble/postamble;
+            // leave data files (e.g. tactical.json) unwrapped (spec §10.1).
+            var content = isScript ? runc + platform.scriptPreamble(ctx) + '\n' + f.content + '\n' + platform.scriptPostamble(ctx) : f.content;
             files.push({ name: name, content: content });
           });
           // CSV results scaffold (§20.7): expected = adapter decision-column display.
@@ -6161,7 +6204,7 @@
 
     var TOOL_VERSION = '1.0';
     var _root = null;
-    var _state = { activeTab: null, ui: {}, drawerCollapsed: false, draftDismissed: false };
+    var _state = { activeTab: null, ui: {}, drawerCollapsed: false, draftDismissed: false, saveModal: false, saveName: 'ch-project' };
     var DRAFT_KEY = 'ch-config-draft-v1';
     var THEME_KEY = 'ch-config-theme';
     var _draftTimer = null;
@@ -6210,10 +6253,31 @@
     // ---- top-level render ----
     function render() {
       if (!_root) return;
-      _root.innerHTML = renderShell();
+      _root.innerHTML = renderShell() + renderSaveModal();
       renderMain();
       renderDrawer();
       updateThemeButton(); // reflect current theme on the freshly-rendered toggle
+      if (_state.saveModal) { var n = _root.querySelector('[data-save-name]'); if (n) { n.focus(); n.select(); } }
+    }
+
+    /** review-9 #5: a small modal to name the project file before it downloads. */
+    function renderSaveModal() {
+      if (!_state.saveModal) return '';
+      return '<div class="modal-overlay" data-save-modal>' +
+        '<div class="modal" role="dialog" aria-modal="true" aria-label="Save project" style="max-width:440px">' +
+          '<div class="modal-head"><h3>Save project</h3><button type="button" class="modal-close" data-save-cancel aria-label="Close">×</button></div>' +
+          '<div class="modal-body">' +
+            '<label style="display:block;font-size:13px;margin-bottom:6px" for="">File name</label>' +
+            '<div style="display:flex;gap:6px;align-items:center">' +
+              '<input type="text" data-save-name value="' + esc(_state.saveName || 'ch-project') + '" class="save-name-input" aria-label="Project file name">' +
+              '<span class="muted">.json</span>' +
+            '</div>' +
+            '<div style="margin-top:14px;display:flex;gap:8px;justify-content:flex-end">' +
+              '<button data-save-cancel>Cancel</button>' +
+              '<button class="primary" data-save-confirm>Confirm &amp; save</button>' +
+            '</div>' +
+          '</div>' +
+        '</div></div>';
     }
 
     function renderShell() {
@@ -6265,15 +6329,20 @@
     }
 
     /** Offer to restore a local draft autosave if one exists and hasn't been dismissed. */
-    /** Format a UTC ISO timestamp as AEST (UTC+10, no DST) for display only (review-2 #1).
-     *  Canonical timestamps in state/artifacts stay UTC; this is a presentation helper. */
-    function toAest(iso) {
-      var d = new Date(iso);
-      if (isNaN(d.getTime())) return iso;
-      var t = new Date(d.getTime() + 10 * 3600 * 1000); // UTC+10 = AEST
-      var p = function (n) { return ('0' + n).slice(-2); };
-      return t.getUTCFullYear() + '-' + p(t.getUTCMonth() + 1) + '-' + p(t.getUTCDate()) + ' ' +
-        p(t.getUTCHours()) + ':' + p(t.getUTCMinutes()) + ':' + p(t.getUTCSeconds()) + ' AEST';
+    /** Format a UTC ISO timestamp as AEST for display (review-2 #1) — delegates to the
+     *  pure util.clock.toAest (review-9 #3 unified the two copies). */
+    function toAest(iso) { return App.util.clock.toAest(iso); }
+
+    /**
+     * Decide the Apply-to-action toggle (review-9 #1): the items whose decision has the
+     * chosen action, and whether we should REMOVE the control (all of them already have
+     * it) or ADD it (to those still missing it).
+     * @returns {{matching:RegisterItem[], removing:boolean}}
+     */
+    function applyToTogglePlan(items, field, action, controlId) {
+      var matching = items.filter(function (it) { return it.decision && it.decision[field] === action; });
+      var have = matching.filter(function (it) { return (it.controlRefs || []).indexOf(controlId) !== -1; }).length;
+      return { matching: matching, removing: matching.length > 0 && have === matching.length };
     }
 
     function renderRestoreBanner() {
@@ -6399,25 +6468,28 @@
         uiFor(dsId).applyControlId = c ? c.id : null;
         renderMain();   // enable/disable the "Apply to" control + refresh checkbox states
       });
-      // review-8 #2: apply the selected control to ALL items with the chosen decision action.
+      // review-8 #2 / review-9 #1: apply the selected control to all items with the chosen
+      // action — but TOGGLE: if every matching item already has it, remove it from all;
+      // otherwise add it to the ones still missing it.
       dom.on(_root, 'change', '[data-apply-to]', function (e, el) {
         var dsId = el.getAttribute('data-apply-to'), field = el.getAttribute('data-field'), action = el.value;
         var ui = uiFor(dsId);
         if (!action || !ui.applyControlId) { el.value = ''; return; }
         var controlId = ui.applyControlId;
         var project = App.store.getProject();
+        var plan = applyToTogglePlan(project.items[dsId] || [], field, action, controlId);
+        var matching = plan.matching, removing = plan.removing;
         var count = 0;
         _suppressRender = true;
         try {
-          (project.items[dsId] || []).forEach(function (it) {
-            if (it.decision && it.decision[field] === action && (it.controlRefs || []).indexOf(controlId) === -1) {
-              App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).concat([controlId]) });
-              count++;
-            }
+          matching.forEach(function (it) {
+            var has = (it.controlRefs || []).indexOf(controlId) !== -1;
+            if (removing && has) { App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).filter(function (r) { return r !== controlId; }) }); count++; }
+            else if (!removing && !has) { App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).concat([controlId]) }); count++; }
           });
         } finally { _suppressRender = false; }
         var ctrl = (project.controls || []).filter(function (c) { return c.id === controlId; })[0];
-        App.ui.activity.log({ severity: 'info', message: 'Applied control "' + ((ctrl && ctrl.title) || controlId) + '" to ' + count + ' item(s) with ' + field + '=' + action + '.' });
+        App.ui.activity.log({ severity: 'info', message: (removing ? 'Removed' : 'Applied') + ' control "' + ((ctrl && ctrl.title) || controlId) + '" ' + (removing ? 'from' : 'to') + ' ' + count + ' item(s) with ' + field + '=' + action + '.' });
         renderMain(); // refresh checkbox states + reset the "Apply to" select
       });
       // Tick/untick a row's box: add/remove the selected control from that item's
@@ -6479,7 +6551,13 @@
       dom.on(_root, 'click', '[data-action="toggle-drawer"]', function () { _state.drawerCollapsed = !_state.drawerCollapsed; render(); });
       dom.on(_root, 'click', '[data-action="clear-drawer"]', function () { App.ui.activity.clear(); });
       dom.on(_root, 'click', '[data-action="load"]', function () { var i = document.getElementById('file-load'); if (i) i.click(); });
-      dom.on(_root, 'click', '[data-action="save"]', function () { saveProject(); });
+      // review-9 #5: Save opens a name-the-file modal instead of a fixed download.
+      dom.on(_root, 'click', '[data-action="save"]', function () { if (!App.store.getProject()) return; _state.saveModal = true; render(); });
+      dom.on(_root, 'input', '[data-save-name]', function (e, el) { _state.saveName = el.value; });
+      dom.on(_root, 'keydown', '[data-save-name]', function (e, el) { if (e.key === 'Enter') { saveProject(el.value); _state.saveModal = false; render(); } });
+      dom.on(_root, 'click', '[data-save-confirm]', function () { saveProject(_state.saveName); _state.saveModal = false; render(); });
+      dom.on(_root, 'click', '[data-save-cancel]', function () { _state.saveModal = false; render(); });
+      dom.on(_root, 'click', '[data-save-modal]', function (e, el) { if (e.target === el) { _state.saveModal = false; render(); } });
       dom.on(_root, 'click', '[data-action="export-csv"]', function () { exportCsv(); });
       dom.on(_root, 'change', '[data-action="platform"]', function (e, el) {
         try { App.registry.setActivePlatform(el.value); _state.activeTab = defaultTab(); render(); } catch (err) { logErr(err); }
@@ -6569,15 +6647,17 @@
       }).catch(function (err) { logErr(err); });
     }
 
-    function saveProject() {
+    function saveProject(name) {
       var project = App.store.getProject();
       if (!project) return;
       var text = App.projectIo.serializeProject(project);
       var blob = new Blob([text], { type: 'application/json' });
-      dom.download(blob, 'ch-project.json');
+      var fname = (name && String(name).trim()) ? String(name).trim() : 'ch-project';
+      if (!/\.json$/i.test(fname)) fname += '.json';
+      dom.download(blob, fname);
       App.store.markSaved();
       clearDraft(); // the downloaded file is now canonical; drop the crash-insurance draft
-      App.ui.activity.log({ severity: 'success', message: 'Saved project (' + text.length + ' bytes).' });
+      App.ui.activity.log({ severity: 'success', message: 'Saved project as ' + fname + ' (' + text.length + ' bytes).' });
     }
 
     // ---- localStorage DRAFT autosave (spec §6.6, C-4): non-canonical crash
@@ -6676,7 +6756,7 @@
     }
 
     App.ui = App.ui || {};
-    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme, toAest: toAest };
+    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme, toAest: toAest, applyToTogglePlan: applyToTogglePlan };
   })(App);
   </script>
 
@@ -7433,6 +7513,42 @@
         var p = readyProject();
         var o = { classification: true, sections: { deviations: false } };
         T.assertEqual(report(p, o), report(p, o), 'report not deterministic for fixed options');
+      });
+    });
+
+    T.suite('review-9 apply-to toggle + AEST header + how-to-run', function (s) {
+      s.test('#1 apply-to plan: add when some missing, remove when all have it', function () {
+        var plan = App.ui.app.applyToTogglePlan;
+        var items = [
+          { key: 'a', decision: { action: 'remove' }, controlRefs: ['c1'] },
+          { key: 'b', decision: { action: 'remove' }, controlRefs: [] },
+          { key: 'c', decision: { action: 'keep' }, controlRefs: [] }
+        ];
+        var p1 = plan(items, 'action', 'remove', 'c1');
+        T.assertEqual(p1.matching.length, 2, 'only remove-action items match');
+        T.assertEqual(p1.removing, false, 'some are missing -> add, not remove');
+        // now both remove-action items have c1 -> removing
+        items[1].controlRefs = ['c1'];
+        T.assertEqual(plan(items, 'action', 'remove', 'c1').removing, true, 'all have it -> remove');
+        // no matching items -> not removing
+        T.assertEqual(plan(items, 'action', 'disable', 'c1').removing, false);
+      });
+      s.test('#3 script header shows Generated (AEST) not UTC; util.clock.toAest is UTC+10', function () {
+        T.assertEqual(App.util.clock.toAest('2026-06-30T00:00:00.000Z'), '2026-06-30 10:00:00 AEST');
+        var pk = fileNamed(App.generate.buildImplementation(readyProject(), 'dev-m1').files, 'packages.impl.ps1').content;
+        T.assert(/# Generated \(AEST\): \d{4}-\d\d-\d\d \d\d:\d\d:\d\d AEST/.test(pk), 'no AEST generated line');
+        T.assert(pk.indexOf('# Generated (UTC)') === -1, 'UTC line should be gone');
+      });
+      s.test('#4 scripts carry a how-to-run header with the exact command; data files do not', function () {
+        var r = App.generate.buildImplementation(readyProject(), 'dev-m1');
+        var pk = fileNamed(r.files, 'packages.impl.ps1').content;
+        T.assert(/HOW TO RUN THIS SCRIPT/.test(pk) && pk.indexOf('powershell -ExecutionPolicy Bypass -File .\\packages.impl.ps1') !== -1, 'how-to-run/command missing');
+        T.assert(pk.indexOf('HOW TO RUN') < pk.indexOf('generated PowerShell'), 'how-to-run should be at the very top');
+        T.assert(fileNamed(r.files, 'tactical.json').content.indexOf('HOW TO RUN') === -1, 'data files should not get a how-to-run header');
+      });
+      s.test('#4 .txt output references the .txt name + a rename note', function () {
+        var pk = fileNamed(App.generate.buildImplementation(readyProject(), 'dev-m1', { scriptsAsTxt: true }).files, 'packages.impl.txt').content;
+        T.assert(pk.indexOf('.\\packages.impl.txt') !== -1 && /rename it to \.ps1/.test(pk), 'txt run note wrong');
       });
     });
 

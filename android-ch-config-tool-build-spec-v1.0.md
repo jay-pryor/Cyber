@@ -1455,6 +1455,28 @@ Formatting/content fixes for the Word-targeted report so it imports cleanly into
 
 Determinism (DOD-7) is unchanged — these are static CSS/markup changes.
 
+## 19.13 Review-9 amendments
+
+- **RV9-1 Apply-to is a toggle.** The Apply-Control-Mode "Apply to <action>" (RV8-2) MUST toggle: if
+  **every** item with the chosen action already has the selected control, clicking removes it from all of
+  them; otherwise it adds the control to the ones still missing it.
+- **RV9-2 Control-ref checkbox spacing.** The data-table Control Refs multi-select checkbox MUST render at
+  its natural size (the generic `.detail-form input{width:100%}` rule was stretching it, pushing the
+  control name off-screen).
+- **RV9-3 Script timestamp in AEST.** The generated implementation/verification script header MUST show
+  the generated time in **AEST** (UTC+10), not UTC. A pure `App.util.clock.toAest(iso)` provides the
+  deterministic conversion (parses the ISO; no wall-clock), so determinism (DOD-7) is preserved.
+- **RV9-4 How-to-run comment.** Each generated script MUST begin with a "how to run" comment: open a
+  Command Prompt in the platform-tools folder (via the File Explorer address-bar `cmd` trick) and the
+  **exact** command to run **this** file (`powershell -ExecutionPolicy Bypass -File .\<emitted-name>`).
+  Provided by an optional `platform.runInstructions(name)` hook (Android only) so core stays generic;
+  data files (e.g. `tactical.json`) get no header.
+- **RV9-5 Name the save file.** "Save project" MUST open a small modal to enter the file name, with a
+  Confirm action, before the download (`.json` appended if absent). Default `ch-project`.
+
+Determinism (DOD-7): the AEST string and how-to-run header are pure functions of the (fixed-clock)
+timestamp and the emitted filename, so byte-determinism holds.
+
 ---
 
 # 20. Generation customisation (v1.3)
