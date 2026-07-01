@@ -4175,6 +4175,22 @@
         (rows || '<tr><td colspan="2" class="muted">No decided items.</td></tr>') + '</tbody></table>';
     }
 
+    /** Build the per-device "Deviations from default" section (spec §19.6 / OVR-7). */
+    function buildDeviationsSection(project, deviceId, platform) {
+      var esc = App.util.html.esc;
+      var devs = App.overrides ? App.overrides.deviceDeviations(project, deviceId) : [];
+      var group = App.overrides ? App.overrides.groupForDevice(project, deviceId) : null;
+      var dsLabel = {}; platform.datasets.forEach(function (d) { dsLabel[d.id] = d.label; });
+      function val(v) { return v == null ? '(undecided)' : (typeof v === 'object' ? stable(v) : String(v)); }
+      var header = '<h2>Deviations from default</h2>' + (group ? '<p class="muted">Device group: ' + esc(group.name) + '</p>' : '');
+      if (!devs.length) return header + '<p class="muted">No deviations from default.</p>';
+      var rows = devs.map(function (d) {
+        return '<tr><td>' + esc(d.displayKey) + '</td><td>' + esc(dsLabel[d.datasetId] || d.datasetId) + '</td><td>' + esc(d.source) + '</td>' +
+          '<td>' + esc(val(d.defaultValue)) + ' &rarr; ' + esc(val(d.groupValue)) + ' &rarr; ' + esc(val(d.deviceValue)) + '</td></tr>';
+      }).join('');
+      return header + '<table><thead><tr><th>Key</th><th>Dataset</th><th>Source</th><th>Default &rarr; Group &rarr; Device</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    }
+
     /** @returns {{blob:Blob,name:string,issues:Issue[],files?:Object[]}} */
     function buildReport(project, deviceId) {
       var platform = App.registry.getPlatform(project.platformProfileId);
@@ -4184,6 +4200,7 @@
       var ctx = ctxFor(project, dc, generatedUtc);
       var sections = platform.datasets.map(function (ds) { return ds.renderReportSection(gather(project, deviceId, ds.id), ctx); });
       sections.push(buildControlSection(project, deviceId, platform));
+      sections.push(buildDeviationsSection(project, deviceId, platform));
       var meta = [
         { label: 'Project platform', value: project.platformProfileId },
         { label: 'Device', value: dc.name }, { label: 'Model', value: dc.model },
@@ -7392,6 +7409,57 @@
         App.store.clearGroupOverride(g.id, 'android.packages', 'com.a');
         var after = App.ui.views.devices.renderGroupModal(App.store.getProject(), g.id);
         T.assert(!/data-gov-remove[^>]*data-key="com.a"/.test(after), 'override should be gone after remove');
+      });
+    });
+
+    T.suite('T10.7/T10.8 report deviations + determinism (overrides/groups)', function (s) {
+      var FIXED = function () { return new Date('2026-01-01T00:00:00.000Z'); };
+      function decideAll() {
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        App.store.setDecision('android.packages', 'com.b', { action: 'keep' });
+        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
+        App.store.setDecision('android.tactical', 'enabled', { value: true });
+      }
+      function ready() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        decideAll();
+      }
+      function readyWithOverrides() {
+        ready();
+        var g = App.store.addGroup({ name: 'GroupG', deviceBaseIds: ['dev-m1'] });
+        App.store.setGroupOverride(g.id, 'android.packages', 'com.a', { action: 'disable' }); // group deviation
+        App.store.setDeviceOverride('dev-m1', 'android.packages', 'com.b', { action: 'remove' }); // device deviation
+        return App.store.getProject();
+      }
+      function reportHtml(p) {
+        App.util.clock.setClock(FIXED);
+        var html = App.generate.buildReport(p, 'dev-m1').files.filter(function (f) { return f.name === 'report.html'; })[0].content;
+        App.util.clock.resetClock();
+        return html;
+      }
+      s.test('report has a "Deviations from default" section listing group + device deviations (OVR-7)', function () {
+        var html = reportHtml(readyWithOverrides());
+        T.assert(/Deviations from default/.test(html), 'no deviations section');
+        T.assert(/Device group: GroupG/.test(html), 'group name not named in header');
+        T.assert(/com\.a/.test(html) && /<td>group<\/td>/.test(html), 'group deviation row missing');
+        T.assert(/com\.b/.test(html) && /<td>device<\/td>/.test(html), 'device deviation row missing');
+      });
+      s.test('an override-free device shows the no-deviations note', function () {
+        ready();
+        T.assert(/No deviations from default/.test(reportHtml(App.store.getProject())));
+      });
+      s.test('serialize + report are byte-deterministic with overrides/groups (DOD-2/DOD-7)', function () {
+        var p = readyWithOverrides();
+        T.assertEqual(App.projectIo.serializeProject(p), App.projectIo.serializeProject(p));
+        // round-trip identity through parse
+        var r = App.projectIo.parseProject(App.projectIo.serializeProject(p));
+        T.assertEqual(r.ok, true);
+        T.assertEqual(App.projectIo.serializeProject(r.value), App.projectIo.serializeProject(p));
+        T.assertEqual(reportHtml(p), reportHtml(p), 'report not byte-deterministic under a fixed clock');
       });
     });
 

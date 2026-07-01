@@ -22,6 +22,7 @@ Process per task (build phase): **build → review → devise tests → log defe
 | 7 | Generators | ✅ complete | valid zip; deterministic; Word HTML |
 | 8 | Hardening & polish | ✅ complete | all DOD verified |
 | 9 | v1.1: dark mode · set-from-files · Control Manager | ✅ complete | theme UI-only; exact-set assign; controls + schema v2 |
+| 10 | v1.2: per-config decision overrides (schemaVersion 3) | ✅ complete | default→group→device resolver; groups; override UI; report deviations |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
@@ -216,6 +217,72 @@ non-referencing applicable items.
 
 **Defects:** none found in the product (only the one expected T9.8 test update for the editor change).
 **158/158 self-tests pass**; clean engine load; real-data settings CSV + per-control views verified.
+
+### 2026-06-30 — Review-4 #4 (full) + control-ref label tweak — ✅ COMPLETE
+
+Two follow-ups before Phase 10:
+1. **Control Manager as a searchable table (review-4 #4, fully implemented).** The original
+   review-4 #4 asked for a *table* with a *per-row dropdown*, *Remove in the dropdown*, and a
+   *search/filter* — but §18.6 RV4-4 / T-RV4.4 had captured only the description-wrapping part, so
+   only that shipped. Now the Control Manager is a `table.data.ctl-table`: Title/Type inline, a
+   wrapping Description column, a per-row expander (dropdown) holding the editable wrapping description,
+   the device-assignment multi-select, and the **Remove** button; plus a search box (title/type/
+   description) that re-renders only the table host. Spec §18.6 RV4-4 and task T-RV4.4 rewritten to the
+   full requirement.
+2. **Control-ref label.** The data-tab control-ref checkbox list shows the control **title only**
+   (e.g. `AHG-000`), dropping the `(TYPE)` suffix.
+
+**Tests:** +1 net (review-4 #4 table structure + search; updated the prior RV4-4/T9.8 assertions).
+**159/159 self-tests pass.**
+
+### 2026-06-30 — Phase 10 (v1.2): per-config decision overrides (schemaVersion 3) — ✅ COMPLETE
+
+Built per spec §19 / task breakdown Phase 10 (T10.1–T10.8). *Decide once, inherit everywhere* is
+preserved — the register default still drives every device; an override is a value-only, opt-in
+exception resolved through one choke point.
+
+- **T10.1 schema v3.** `schemaVersion → 3`; top-level `groups` + per-config `overrides` (value-only).
+  Chained `migrate` (v1→v2→v3); group/override structural validation; **load-time self-heal**
+  (prune dangling group memberships + non-applicable/invalid overrides, with warnings, never a hard
+  error); canonical serialize (sort groups/deviceBaseIds, drop empty override maps). `store.empty`
+  seeds `groups`.
+- **T10.2 `App.overrides`** (new pure module, after completeness / before generate): `groupForDevice`,
+  `effectiveDecision`, `effectiveItem`, value-based `classify` (so a redundant override never
+  mis-colours), `deviceDeviations`, `groupDeviations`.
+- **T10.3 store mutators.** `setDeviceOverride`/`clearDeviceOverride` (no-op-clears vs the inherited
+  group-or-default value), `setGroupOverride`/`clearGroupOverride` (no-op vs default),
+  `addGroup`/`updateGroup`/`removeGroup` (single-group **move** rule). Re-onboard **carries overrides
+  forward**, pruning departed keys (logged).
+- **T10.4 effective everywhere.** `completeness.deviceReadiness` evaluates the effective decision (so an
+  override can rescue readiness even when the default is undecided); `generate.gather` yields effective
+  items; the manifest records the effective decision + its **source** per item. No adapter edited.
+- **T10.5 Devices tab groups.** `renderList` groups version-stacks into DeviceGroup sections (+
+  Ungrouped); per-group rename / delete / member multi-select / **Deviations (N)** button; an **Add
+  group** control; a group-deviations modal (× + backdrop close) to view/edit/remove group overrides
+  and add new ones (dataset + key select + schema editor).
+- **T10.6 device-config view.** Latest version lists **applicable** items with their **effective**
+  decision, a divergence class (group=yellow / device=orange) + text marker, an inline schema-driven
+  override editor (writes via `setDeviceOverride`, no-op-clears) with **Revert**, a **Deviations-first**
+  pin toggle, and a legend by the title. Superseded versions stay read-only. (DOD-9 amended per §19.5.)
+- **T10.7 report.** A per-device **"Deviations from default"** section (`displayKey · dataset · source ·
+  default → group → device`), naming the device's group; existing sections + manifest already reflect
+  effective values via T10.4.
+- **T10.8 acceptance.** End-to-end suites for precedence, override-rescued readiness/generation,
+  manifest sources, report deviations, and round-trip + byte-determinism with overrides/groups; the
+  **DOD-11 portability** test still passes on v3 (no adapter edits).
+
+**Tests:** +27 Phase-10 self-tests (T10.1 migrate/round-trip/prune; T10.2 resolver; T10.3 mutators;
+T10.4 effective completeness/generation/manifest; T10.5 group sections + modal; T10.6 divergence UI;
+T10.7/T10.8 report deviations + determinism). Updated the v1.0 fixtures to schemaVersion 3 and the
+DOD-9 / review-5 device-panel tests to the amended §19.5 semantics.
+
+**Review:** real-data integration (438 packages / 803 settings / 132 tactical) confirmed: a group
+override and a device override resolve with the correct effective values + sources, rescue readiness,
+flow into the generated script and the manifest (`source: group` / `source: device`), surface in the
+report's Deviations section (group named), and the project round-trips byte-identically with the
+generated zip deterministic.
+
+**Defects:** none in the product. **190/190 self-tests pass.**
 
 ---
 
