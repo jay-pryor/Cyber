@@ -64,6 +64,12 @@
     --c-ok-bg: #e7f5ec;
     --c-warn-bg: #fff5e0;
     --c-error-bg: #fdecea;
+    /* review-12: a distinct informational (blue) tint for the CONTEXT relevance badge. */
+    --c-info: #1f5fb0;
+    --c-info-bg: #e7eefa;
+    /* review-14: purple = REPORTING (IRRELEVANT reuses the muted/alt greys). */
+    --c-purple: #6b3fa0;
+    --c-purple-bg: #f1eafa;
     --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;  --sp-5: 24px;
     --radius: 6px;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -88,6 +94,10 @@
     --c-ok-bg: #16301f;
     --c-warn-bg: #3a2e16;
     --c-error-bg: #3a1f1d;
+    --c-info: #4f9bff;
+    --c-info-bg: #16233a;
+    --c-purple: #c39bf5;
+    --c-purple-bg: #2b2140;
   }
   html { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -161,6 +171,14 @@
   .toolbar .apply-control { min-width: 220px; }
   .toolbar .apply-to:disabled { opacity: 0.5; cursor: not-allowed; }
   table.data th.apply-col, table.data td.apply-cell { text-align: center; width: 74px; }
+  /* review-12 #2: Delete Mode (mirrors Apply Control Mode) + the shared Undo button. */
+  .toolbar button.active.danger { background: var(--c-error); color: #fff; border-color: var(--c-error); }
+  /* review-14: the parked-relevance view toggles wear their category's colours when on. */
+  .toolbar .rel-view { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border: 1px solid var(--c-border); border-radius: 10px; }
+  .toolbar .rel-view input { margin: 0; }
+  .toolbar .rel-view.rel-reporting.active { background: var(--c-purple-bg); color: var(--c-purple); border-color: var(--c-purple); }
+  .toolbar .rel-view.rel-irrelevant.active { background: var(--c-surface-alt); color: var(--c-text-muted); border-color: var(--c-text-muted); }
+  table.data th.del-col, table.data td.del-cell { text-align: center; width: 84px; }
 
   table.data { border-collapse: collapse; width: 100%; background: var(--c-surface); font-size: 13px; }
   table.data th, table.data td { border: 1px solid var(--c-border); padding: 6px 8px; text-align: left; vertical-align: top; }
@@ -175,10 +193,26 @@
   table.data td.dcell .val-edit { width: 100%; box-sizing: border-box; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.7em; font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
   table.data tbody tr.undecided { border-left: 3px solid var(--c-undecided-border); }
   table.data tbody tr:nth-child(even) { background: var(--c-surface-alt); }
+  /* review-13 #1: the delete-selection tint must beat the even-row stripe, so it is
+     declared AFTER it and matches both parities explicitly. */
+  table.data tbody tr.del-marked, table.data tbody tr.del-marked:nth-child(even) { background: var(--c-error-bg); }
   .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--c-border); }
   .badge.undecided { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
   .badge.decided { background: var(--c-ok-bg); color: var(--c-ok); border-color: var(--c-ok); }
   .badge.superseded { background: var(--c-surface-alt); color: var(--c-text-muted); }
+  /* review-12 #3: Security Relevance badges — HIGH red, MEDIUM orange, CONTEXT blue.
+     The table cell uses a <select> wearing the SAME badge skin so the value is both
+     readable at a glance and editable in place (colour is never the sole signal). */
+  .badge.rel-high, select.rel-select.rel-high { background: var(--c-error-bg); color: var(--c-error); border-color: var(--c-error); }
+  .badge.rel-medium, select.rel-select.rel-medium { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
+  .badge.rel-context, select.rel-select.rel-context { background: var(--c-info-bg); color: var(--c-info); border-color: var(--c-info); }
+  /* review-14: REPORTING purple, IRRELEVANT grey. */
+  .badge.rel-reporting, select.rel-select.rel-reporting { background: var(--c-purple-bg); color: var(--c-purple); border-color: var(--c-purple); }
+  .badge.rel-irrelevant, select.rel-select.rel-irrelevant { background: var(--c-surface-alt); color: var(--c-text-muted); border-color: var(--c-border); }
+  select.rel-select { font: inherit; font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-muted); max-width: 100%; }
+  /* review-12 #1: per-device control satisfaction. */
+  .badge.satisfied { background: var(--c-ok-bg); color: var(--c-ok); border-color: var(--c-ok); }
+  .badge.unsatisfied { background: var(--c-error-bg); color: var(--c-error); border-color: var(--c-error); }
 
   /* Activity / Errors drawer */
   .drawer { border-top: 1px solid var(--c-border); background: var(--c-surface); max-height: 30vh; display: flex; flex-direction: column; }
@@ -270,6 +304,13 @@
 
   /* Control Manager table (review-4 #4): searchable table + per-row expander. */
   .ctl-toolbar { margin: 8px 0; }
+  /* review-13 #4: the "Device columns" picker + the per-device checkbox columns. */
+  .cm-devbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; padding: 6px 8px; background: var(--c-surface-alt); border: 1px solid var(--c-border); border-radius: var(--radius); }
+  .cm-devbar .cm-devbar-label { font-size: 12px; font-weight: 600; }
+  .cm-devbar .cm-devcol-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+  .cm-devbar button { padding: 2px 8px; font-size: 12px; }
+  table.ctl-table th.cm-dev-col, table.ctl-table td.cm-dev-cell { text-align: center; }
+  table.ctl-table td.cm-dev-cell input { width: auto; }
   .ctl-search { width: 100%; max-width: 420px; font: inherit; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
   table.ctl-table th, table.ctl-table td { vertical-align: top; }
   table.ctl-table td input[type="text"], table.ctl-table td select { font: inherit; font-size: 13px; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
@@ -302,6 +343,12 @@
   .ctl-applies-item:hover { background: var(--c-surface-alt); }
   .ctl-applies-item .ctl-applies-title { font-weight: 600; }
   .ctl-applies-item .ctl-applies-count { margin-left: auto; color: var(--c-text-muted); font-size: 12px; }
+  /* review-12 #1: each assigned control carries a per-device Satisfied/Unsatisfied
+     state, shown + toggled beside the control button (buttons cannot nest). */
+  .ctl-applies-row { display: flex; align-items: center; gap: 8px; }
+  .ctl-applies-row .ctl-applies-item { flex: 1; }
+  .ctl-applies-row .ctl-state-toggle { white-space: nowrap; font-size: 12px; padding: 6px 8px; }
+  .dev-row .dev-unsat { margin-left: 4px; }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
   .modal { background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 10px; max-width: 900px; width: 100%; max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
@@ -1432,6 +1479,17 @@
     var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
     var SHA_RE = /^[0-9a-f]{64}$/;
+    // review-12 #3 / review-14: the Security Relevance vocabulary. '' means "not set"
+    // (the column is optional and may be left empty); the options are ordered
+    // most→least security-significant.
+    var RELEVANCE_OPTIONS = ['HIGH', 'MEDIUM', 'CONTEXT', 'REPORTING', 'IRRELEVANT'];
+    var RELEVANCE_VALUES = [''].concat(RELEVANCE_OPTIONS);
+    // review-14: these two are "parked" categories — items carrying them are hidden from
+    // the data tables unless their toggle is on, so the working view stays on the items
+    // that still need a security decision.
+    var RELEVANCE_PARKED = ['REPORTING', 'IRRELEVANT'];
+    // review-12 #1: per-device control satisfaction states (default = 'unsatisfied').
+    var CONTROL_STATES = ['unsatisfied', 'satisfied'];
 
     function issue(severity, message, location, fix) {
       return { category: 'validation', severity: severity, message: message, location: location, fix: fix };
@@ -1495,6 +1553,14 @@
           if (typeof c.type !== 'string' || !c.type) issues.push(issue('error', 'Control.type must be a non-empty string.', loc + '.type'));
           if (c.description !== undefined && typeof c.description !== 'string') issues.push(issue('error', 'Control.description must be a string.', loc + '.description'));
           if (c.assignedDeviceIds !== undefined && !isStringArray(c.assignedDeviceIds)) issues.push(issue('error', 'Control.assignedDeviceIds must be an array of strings.', loc + '.assignedDeviceIds'));
+          // review-12 #1: {deviceBaseId: 'satisfied'|'unsatisfied'} — device-specific
+          // satisfaction of this control. Absent/unknown baseId ⇒ 'unsatisfied'.
+          if (c.deviceStates !== undefined) {
+            if (!isPlainObject(c.deviceStates)) issues.push(issue('error', 'Control.deviceStates must be an object.', loc + '.deviceStates'));
+            else Object.keys(c.deviceStates).forEach(function (b) {
+              if (CONTROL_STATES.indexOf(c.deviceStates[b]) === -1) issues.push(issue('error', 'Control.deviceStates["' + b + '"] must be "satisfied" or "unsatisfied".', loc + '.deviceStates'));
+            });
+          }
           if (typeof c.id === 'string') {
             if (controlIds[c.id]) issues.push(issue('error', 'Duplicate Control id "' + c.id + '".', loc));
             controlIds[c.id] = true;
@@ -1576,6 +1642,11 @@
       ['description', 'rationale', 'rollback'].forEach(function (f) {
         if (it[f] !== undefined && typeof it[f] !== 'string') issues.push(issue('error', 'RegisterItem.' + f + ' must be a string when present.', loc + '.' + f));
       });
+      // review-12 #3: optional Security Relevance — '' (unset) or one of the three options.
+      if (it.relevance !== undefined) {
+        if (typeof it.relevance !== 'string') issues.push(issue('error', 'RegisterItem.relevance must be a string when present.', loc + '.relevance'));
+        else if (RELEVANCE_VALUES.indexOf(it.relevance) === -1) issues.push(issue('error', 'RegisterItem.relevance must be empty or one of ' + RELEVANCE_OPTIONS.join('/') + '.', loc + '.relevance'));
+      }
     }
 
     function validateSnapshot(sn, loc, issues) {
@@ -1876,7 +1947,10 @@
 
     App.projectIo = {
       parseProject: parseProject, serializeProject: serializeProject,
-      migrate: migrate, validateSchema: validateSchema, SCHEMA_VERSION: SCHEMA_VERSION
+      migrate: migrate, validateSchema: validateSchema, SCHEMA_VERSION: SCHEMA_VERSION,
+      // review-12: shared vocabularies (UI pickers, CSV import, store validation).
+      RELEVANCE_OPTIONS: RELEVANCE_OPTIONS, CONTROL_STATES: CONTROL_STATES,
+      RELEVANCE_PARKED: RELEVANCE_PARKED
     };
   })(App);
   </script>
@@ -2187,7 +2261,7 @@
      * Set human-authored item fields (spec §7.1). Only provided keys are changed.
      * @param {string} datasetId
      * @param {string} key
-     * @param {{description?:string, controlRefs?:string[], rationale?:string, rollback?:string}} fields
+     * @param {{description?:string, controlRefs?:string[], rationale?:string, rollback?:string, relevance?:string}} fields
      * @returns {{ok:boolean, issues:Issue[]}}
      */
     function setItemFields(datasetId, key, fields) {
@@ -2195,12 +2269,93 @@
       var items = _project.items[datasetId];
       var item = items && items.filter(function (i) { return i.key === key; })[0];
       if (!item) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown item "' + key + '".', location: datasetId }] };
+      // review-12 #3: Security Relevance is a closed vocabulary ('' clears it).
+      if ('relevance' in fields && !isRelevance(fields.relevance)) {
+        return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Security Relevance must be empty or one of ' + App.projectIo.RELEVANCE_OPTIONS.join('/') + '.', location: datasetId + ' / ' + key }] };
+      }
       commit(function (p) {
         var it = p.items[datasetId].filter(function (i) { return i.key === key; })[0];
         if ('description' in fields) it.description = fields.description;
         if ('rationale' in fields) it.rationale = fields.rationale;
         if ('rollback' in fields) it.rollback = fields.rollback;
         if ('controlRefs' in fields) it.controlRefs = (fields.controlRefs || []).slice();
+        if ('relevance' in fields) {
+          if (fields.relevance) it.relevance = fields.relevance; else delete it.relevance; // '' ⇒ unset (canonical)
+        }
+      });
+      return { ok: true, issues: [] };
+    }
+
+    /** @returns {boolean} true if v is '' (unset) or a known Security Relevance option. */
+    function isRelevance(v) {
+      return v === '' || v === undefined || v === null || App.projectIo.RELEVANCE_OPTIONS.indexOf(v) !== -1;
+    }
+
+    /**
+     * Delete register items by key (review-12 #2, "Delete Mode"). Items are normally
+     * append-only (§8.5); this is the ONE explicit, user-driven exception, so it also
+     * prunes any device/group override that referenced a deleted key (nothing may be
+     * left pointing at an item that no longer exists). Snapshots are evidence and are
+     * left untouched — a later re-onboard of the same capture re-creates the item.
+     * @param {string} datasetId
+     * @param {string[]} keys
+     * @returns {{ok:boolean, issues:Issue[], removed:number}}
+     */
+    function removeItems(datasetId, keys) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }], removed: 0 };
+      if (!_project.items[datasetId]) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown dataset "' + datasetId + '".' }], removed: 0 };
+      var kill = {}; (keys || []).forEach(function (k) { kill[k] = true; });
+      var present = _project.items[datasetId].filter(function (it) { return kill[it.key]; }).length;
+      if (!present) return { ok: false, issues: [{ category: 'state', severity: 'warning', message: 'Nothing to delete.', location: datasetId }], removed: 0 };
+      commit(function (p) {
+        p.items[datasetId] = p.items[datasetId].filter(function (it) { return !kill[it.key]; });
+        function prune(holder) {
+          var bucket = holder && holder.overrides && holder.overrides[datasetId];
+          if (!bucket) return;
+          Object.keys(bucket).forEach(function (k) { if (kill[k]) delete bucket[k]; });
+          if (!Object.keys(bucket).length) delete holder.overrides[datasetId];
+        }
+        (p.deviceConfigs || []).forEach(prune);
+        (p.groups || []).forEach(prune);
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Deleted ' + present + ' ' + datasetId + ' item(s).' }], removed: present };
+    }
+
+    /**
+     * Capture everything a dataset-scoped bulk edit can touch, for one-step undo
+     * (review-12 #2): the items array plus every device/group override bucket for it.
+     * @param {string} datasetId
+     * @returns {?{datasetId:string, items:Array, deviceOverrides:Object, groupOverrides:Object}}
+     */
+    function datasetSnapshot(datasetId) {
+      if (!_project || !_project.items[datasetId]) return null;
+      var snap = { datasetId: datasetId, items: clone(_project.items[datasetId]), deviceOverrides: {}, groupOverrides: {} };
+      (_project.deviceConfigs || []).forEach(function (dc) {
+        if (dc.overrides && dc.overrides[datasetId]) snap.deviceOverrides[dc.id] = clone(dc.overrides[datasetId]);
+      });
+      (_project.groups || []).forEach(function (g) {
+        if (g.overrides && g.overrides[datasetId]) snap.groupOverrides[g.id] = clone(g.overrides[datasetId]);
+      });
+      return snap;
+    }
+
+    /**
+     * Restore a datasetSnapshot verbatim (review-12 #2 Undo).
+     * @param {{datasetId:string, items:Array, deviceOverrides:Object, groupOverrides:Object}} snap
+     * @returns {{ok:boolean, issues:Issue[]}}
+     */
+    function restoreDatasetSnapshot(snap) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      if (!snap || !snap.datasetId || !Array.isArray(snap.items)) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Nothing to undo.' }] };
+      var dsId = snap.datasetId;
+      commit(function (p) {
+        p.items[dsId] = clone(snap.items);
+        function restore(holder, saved) {
+          if (saved) { holder.overrides = holder.overrides || {}; holder.overrides[dsId] = clone(saved); }
+          else if (holder.overrides) { delete holder.overrides[dsId]; if (!Object.keys(holder.overrides).length) delete holder.overrides; }
+        }
+        (p.deviceConfigs || []).forEach(function (dc) { restore(dc, snap.deviceOverrides[dc.id]); });
+        (p.groups || []).forEach(function (g) { restore(g, snap.groupOverrides[g.id]); });
       });
       return { ok: true, issues: [] };
     }
@@ -2248,16 +2403,37 @@
       });
       if (decErrors.length) return { ok: false, issues: decErrors };
 
+      // review-12 #4: the optional Relevance column is a closed vocabulary — refuse the
+      // whole file (atomically) rather than importing a value the column cannot hold.
+      var relErrors = [];
+      parsed.assignments.forEach(function (a) {
+        if (a.fields && 'relevance' in a.fields && !isRelevance(a.fields.relevance)) {
+          relErrors.push({ category: 'validation', severity: 'error', message: 'Invalid Relevance "' + a.fields.relevance + '" (expected empty, ' + App.projectIo.RELEVANCE_OPTIONS.join(', ') + ').', location: datasetId + ' / ' + a.key });
+        }
+      });
+      if (relErrors.length) return { ok: false, issues: relErrors };
+
       // Apply atomically (ASG-5).
+      var extras = { rationale: 0, relevance: 0 };
       commit(function (p) {
         var byKey = {}; p.items[datasetId].forEach(function (it) { byKey[it.key] = it; });
         parsed.assignments.forEach(function (a) {
           var it = byKey[a.key]; if (!it) return;
           it.decision = a.decision;
           if (a.fields && 'description' in a.fields) it.description = a.fields.description;
+          // review-12 #4: optional 4th/5th CSV columns fill the item's Rationale box and
+          // its Security Relevance column.
+          if (a.fields && 'rationale' in a.fields) { it.rationale = a.fields.rationale; extras.rationale++; }
+          if (a.fields && 'relevance' in a.fields) {
+            if (a.fields.relevance) it.relevance = a.fields.relevance; else delete it.relevance;
+            extras.relevance++;
+          }
         });
       });
-      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Applied ' + parsed.assignments.length + ' ' + adapter.label + ' decision(s) to ' + dc.name + '.' }] };
+      var extraNote = '';
+      if (extras.rationale) extraNote += ' + ' + extras.rationale + ' rationale(s)';
+      if (extras.relevance) extraNote += ' + ' + extras.relevance + ' relevance value(s)';
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Applied ' + parsed.assignments.length + ' ' + adapter.label + ' decision(s)' + extraNote + ' to ' + dc.name + '.' }] };
     }
 
     // ---- Control catalogue CRUD (spec §18.3 CTL-6) ----
@@ -2273,6 +2449,8 @@
       if (!title) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Control title is required.', location: 'title' }] };
       var id = uniqueControlId(_project, title);
       var ctl = { id: id, title: title, type: (input.type || 'Custom'), description: (input.description || ''), assignedDeviceIds: (input.assignedDeviceIds || []).slice() };
+      // review-12 #1: a control added to a device starts UNSATISFIED on that device.
+      ctl.deviceStates = {}; ctl.assignedDeviceIds.forEach(function (b) { ctl.deviceStates[b] = 'unsatisfied'; });
       commit(function (p) { if (!Array.isArray(p.controls)) p.controls = []; p.controls.push(ctl); });
       return { ok: true, issues: [], id: id };
     }
@@ -2285,9 +2463,44 @@
         if ('title' in patch) c.title = patch.title;
         if ('type' in patch) c.type = patch.type;
         if ('description' in patch) c.description = patch.description;
-        if ('assignedDeviceIds' in patch) c.assignedDeviceIds = (patch.assignedDeviceIds || []).slice();
+        if ('assignedDeviceIds' in patch) {
+          c.assignedDeviceIds = (patch.assignedDeviceIds || []).slice();
+          // review-12 #1: keep deviceStates in step with assignment — a newly-assigned
+          // device starts 'unsatisfied'; an un-assigned device's state is dropped.
+          c.deviceStates = c.deviceStates || {};
+          var keep = {};
+          c.assignedDeviceIds.forEach(function (b) { keep[b] = true; if (!c.deviceStates[b]) c.deviceStates[b] = 'unsatisfied'; });
+          Object.keys(c.deviceStates).forEach(function (b) { if (!keep[b]) delete c.deviceStates[b]; });
+        }
       });
       return { ok: true, issues: [] };
+    }
+
+    /**
+     * Set a control's per-device satisfaction state (review-12 #1). The state is keyed
+     * by device baseId, so it survives re-onboarding (a new version of the same device).
+     * @param {string} controlId
+     * @param {string} baseId  device baseId
+     * @param {'satisfied'|'unsatisfied'} state
+     * @returns {{ok:boolean, issues:Issue[]}}
+     */
+    function setControlDeviceState(controlId, baseId, state) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var c = findControl(_project, controlId);
+      if (!c) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown control "' + controlId + '".' }] };
+      if (App.projectIo.CONTROL_STATES.indexOf(state) === -1) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Control state must be satisfied or unsatisfied.', location: controlId }] };
+      if ((c.assignedDeviceIds || []).indexOf(baseId) === -1) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Control "' + controlId + '" is not assigned to device "' + baseId + '".', location: controlId }] };
+      commit(function (p) {
+        var ctl = findControl(p, controlId);
+        ctl.deviceStates = ctl.deviceStates || {};
+        ctl.deviceStates[baseId] = state;
+      });
+      return { ok: true, issues: [] };
+    }
+
+    /** @returns {'satisfied'|'unsatisfied'} a control's state on a device (default unsatisfied). */
+    function controlDeviceState(control, baseId) {
+      return (control && control.deviceStates && control.deviceStates[baseId] === 'satisfied') ? 'satisfied' : 'unsatisfied';
     }
     /** Remove a control and strip its id from every item's controlRefs (CTL-6). */
     function removeControl(id) {
@@ -2346,7 +2559,7 @@
           var base = slugify(title) || 'control', id = base, n = 2;
           while (ids[id]) { id = base + '-' + n; n++; } ids[id] = true;
           if (!known[type]) { known[type] = true; p.controlTypes.push(type); newTypes[type] = true; }
-          p.controls.push({ id: id, title: title, type: type, description: (row.description || ''), assignedDeviceIds: [] });
+          p.controls.push({ id: id, title: title, type: type, description: (row.description || ''), assignedDeviceIds: [], deviceStates: {} });
           added++;
         });
       });
@@ -2504,7 +2717,10 @@
       recomputeStatus: recomputeStatus,
       onboardDevice: onboardDevice, reonboardDevice: reonboardDevice,
       setDecision: setDecision, setItemFields: setItemFields, applyDeviceAssignment: applyDeviceAssignment,
+      // review-12 #2: explicit item deletion + the one-step undo primitives.
+      removeItems: removeItems, datasetSnapshot: datasetSnapshot, restoreDatasetSnapshot: restoreDatasetSnapshot,
       addControl: addControl, updateControl: updateControl, removeControl: removeControl,
+      setControlDeviceState: setControlDeviceState, controlDeviceState: controlDeviceState,
       addControlType: addControlType, knownControlTypes: knownControlTypes, importControls: importControls,
       setDeviceOverride: setDeviceOverride, clearDeviceOverride: clearDeviceOverride,
       setGroupOverride: setGroupOverride, clearGroupOverride: clearGroupOverride,
@@ -2910,6 +3126,53 @@
     var esc = App.util.html.esc;
     var stableStringify = App.util.stable.stableStringify;
 
+    // ---- review-12 #4: OPTIONAL trailing assignment-CSV columns -----------------
+    // Both the packages and the settings decision CSVs accept two further columns
+    // after their required ones: "rationale" (free text → the item's Rationale box)
+    // and "relevance" (→ the Security Relevance column). Either may be omitted, but
+    // they must appear in this order and be named exactly.
+    var OPTIONAL_ASSIGN_COLS = ['rationale', 'relevance'];
+
+    /**
+     * Validate a decision-CSV header that is `required` followed by 0..2 optional cols.
+     * @param {string[]} header  trimmed header cells
+     * @param {string[]} required
+     * @returns {{ok:boolean, extras:string[], expected:string}}
+     */
+    function checkAssignHeader(header, required) {
+      var out = { ok: false, extras: [], expected: required.join(',') + '[,' + OPTIONAL_ASSIGN_COLS.join('[,') + ']]' };
+      if (!header || header.length < required.length || header.length > required.length + OPTIONAL_ASSIGN_COLS.length) return out;
+      for (var i = 0; i < required.length; i++) if (header[i] !== required[i]) return out;
+      for (var j = required.length; j < header.length; j++) {
+        if (header[j] !== OPTIONAL_ASSIGN_COLS[j - required.length]) return out;
+        out.extras.push(header[j]);
+      }
+      out.ok = true;
+      return out;
+    }
+
+    /**
+     * Read the optional trailing cells of a data row into an assignment `fields` patch.
+     * A relevance cell is upper-cased and validated against the closed vocabulary;
+     * an empty cell explicitly CLEARS the field.
+     * @returns {{fields:Object, error:?string}}
+     */
+    function readOptionalAssignFields(row, firstOptionalIndex, extras) {
+      var fields = {}, error = null;
+      extras.forEach(function (name, n) {
+        var raw = row[firstOptionalIndex + n];
+        if (raw === undefined) return;                     // short row: column simply absent
+        if (name === 'rationale') { fields.rationale = String(raw); return; }
+        var rel = String(raw).trim().toUpperCase();
+        if (rel !== '' && App.projectIo.RELEVANCE_OPTIONS.indexOf(rel) === -1) {
+          error = 'Invalid relevance "' + String(raw).trim() + '" (expected empty, ' + App.projectIo.RELEVANCE_OPTIONS.join(', ') + ').';
+          return;
+        }
+        fields.relevance = rel;
+      });
+      return { fields: fields, error: error };
+    }
+
     /** Resolve an item's control ids to control titles via ctx.project.controls (§18.3). */
     function controlTitles(refs, ctx) {
       var by = {}; ((ctx && ctx.project && ctx.project.controls) || []).forEach(function (c) { by[c.id] = c.title; });
@@ -3154,27 +3417,33 @@
         return App.report.buildSection('Packages', { label: 'Package', w: 2, get: function (it) { return it.key; } }, this.reportColumns, items, opts || {}, ctx, this.reportGroups);
       },
       // ---- bulk assignment (spec §18.2): a CSV of package,action,description ----
-      assignmentHint: 'CSV with a header row exactly "package,action,description". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas).',
+      assignmentHint: 'CSV with a header row starting exactly "package,action,description", optionally followed by "rationale" and then "relevance". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas), column 4 (optional) = rationale, column 5 (optional) = HIGH|MEDIUM|CONTEXT|REPORTING|IRRELEVANT (or blank).',
       /** @param {string} raw @returns {{assignments:Array,warnings:Issue[],errors:Issue[]}} */
       parseAssignment: function (raw) {
         var rows = parseCsv(raw), errors = [], warnings = [], assignments = [], seen = {};
         if (!rows.length) { return { assignments: [], warnings: [], errors: [{ category: 'parse', severity: 'error', message: 'Empty CSV.', location: 'file' }] }; }
         var header = rows[0].map(function (h) { return String(h).trim(); });
-        if (header.length !== 3 || header[0] !== 'package' || header[1] !== 'action' || header[2] !== 'description') {
-          return { assignments: [], warnings: [], errors: [{ category: 'parse', severity: 'error', message: 'Header row must be exactly "package,action,description".', location: 'line 1', fix: 'Set the first row to: package,action,description' }] };
+        // review-12 #4: 3 required columns + optional "rationale" and "relevance".
+        var hdr = checkAssignHeader(header, ['package', 'action', 'description']);
+        if (!hdr.ok) {
+          return { assignments: [], warnings: [], errors: [{ category: 'parse', severity: 'error', message: 'Header row must be "package,action,description" (optionally followed by "rationale" and "relevance").', location: 'line 1', fix: 'Set the first row to: ' + hdr.expected }] };
         }
         for (var i = 1; i < rows.length; i++) {
           var r = rows[i], loc = 'line ' + (i + 1);
           if (r.length === 1 && String(r[0]).trim() === '') continue; // blank line
-          if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected 3 columns.', location: loc }); continue; }
+          if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected at least 3 columns.', location: loc }); continue; }
           var pkg = String(r[0]).trim();
           if (pkg.indexOf('package:') === 0) pkg = pkg.slice('package:'.length).trim();
           var action = String(r[1]).trim().toLowerCase(), desc = String(r[2]);
           if (!PKG_TOKEN_RE.test(pkg)) { errors.push({ category: 'parse', severity: 'error', message: 'Invalid package token "' + pkg + '".', location: loc }); continue; }
           if (['keep', 'disable', 'remove'].indexOf(action) === -1) { errors.push({ category: 'parse', severity: 'error', message: 'Invalid action "' + r[1] + '" (keep|disable|remove).', location: loc }); continue; }
           if (seen[pkg]) { errors.push({ category: 'parse', severity: 'error', message: 'Duplicate package "' + pkg + '".', location: loc }); continue; }
+          var opt = readOptionalAssignFields(r, 3, hdr.extras);
+          if (opt.error) { errors.push({ category: 'parse', severity: 'error', message: opt.error, location: loc }); continue; }
           seen[pkg] = true;
-          assignments.push({ key: pkg, decision: { action: action }, fields: { description: desc } });
+          var fields = { description: desc };
+          Object.keys(opt.fields).forEach(function (k) { fields[k] = opt.fields[k]; });
+          assignments.push({ key: pkg, decision: { action: action }, fields: fields });
         }
         if (!assignments.length && !errors.length) errors.push({ category: 'parse', severity: 'error', message: 'No package rows found.', location: 'file' });
         return { assignments: assignments, warnings: warnings, errors: errors };
@@ -3197,22 +3466,26 @@
     // (namespace/key, e.g. secure/location_mode), column 2 a free-text description,
     // column 3 the value (applied verbatim, type 'string'). Detected by the header;
     // any other input falls through to the §9 sectioned capture format.
+    // review-12 #4: the header may also carry the optional "rationale" and "relevance"
+    // columns (in that order) after "value".
     /** @param {string[]} row @returns {boolean} */
     function isSettingsCsvHeader(row) {
-      return !!row && row.length === 3 &&
-        String(row[0]).trim() === 'setting' &&
-        String(row[1]).trim() === 'description' &&
-        String(row[2]).trim() === 'value';
+      return !!row && settingsCsvHeader(row).ok;
+    }
+    /** @param {string[]} row @returns {{ok:boolean, extras:string[]}} */
+    function settingsCsvHeader(row) {
+      return checkAssignHeader((row || []).map(function (h) { return String(h).trim(); }), ['setting', 'description', 'value']);
     }
     /** Parse a "setting,description,value" CSV into bulk-assignment entries.
      * @param {string[][]} rows  Parsed CSV rows (row 0 is the validated header).
      * @returns {{assignments:Array,warnings:Issue[],errors:Issue[]}} */
     function parseSettingsCsvAssignment(rows) {
       var assignments = [], warnings = [], errors = [], seen = {};
+      var extras = settingsCsvHeader(rows[0] || []).extras; // review-12 #4: rationale/relevance
       for (var i = 1; i < rows.length; i++) {
         var r = rows[i], loc = 'line ' + (i + 1);
         if (r.length === 1 && String(r[0]).trim() === '') continue; // blank line
-        if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected 3 columns (setting,description,value).', location: loc }); continue; }
+        if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected at least 3 columns (setting,description,value).', location: loc }); continue; }
         var key = String(r[0]).trim(), desc = String(r[1]), value = String(r[2]);
         if (!key) { errors.push({ category: 'parse', severity: 'error', message: 'Empty setting key.', location: loc }); continue; }
         var slash = key.indexOf('/');
@@ -3222,8 +3495,12 @@
           continue;
         }
         if (seen[key]) { errors.push({ category: 'parse', severity: 'error', message: 'Duplicate setting "' + key + '".', location: loc }); continue; }
+        var opt = readOptionalAssignFields(r, 3, extras);
+        if (opt.error) { errors.push({ category: 'parse', severity: 'error', message: opt.error, location: loc }); continue; }
         seen[key] = true;
-        assignments.push({ key: key, decision: { value: value, type: 'string' }, fields: { description: desc } });
+        var fields = { description: desc };
+        Object.keys(opt.fields).forEach(function (k) { fields[k] = opt.fields[k]; });
+        assignments.push({ key: key, decision: { value: value, type: 'string' }, fields: fields });
       }
       if (!assignments.length && !errors.length) errors.push({ category: 'parse', severity: 'error', message: 'No setting rows found.', location: 'file' });
       return { assignments: assignments, warnings: warnings, errors: errors };
@@ -3360,7 +3637,7 @@
         return out;
       },
       // ---- bulk assignment (spec §18.2 + review-5 #3): two accepted formats ----
-      assignmentHint: 'Either (a) a CSV with header exactly "setting,description,value" (column 1 = namespace/key, e.g. secure/location_mode; column 3 = the value), or (b) the capture format: "<namespace>:" header lines (system/secure/global) + key=value lines. Values are applied verbatim (type defaults to string).',
+      assignmentHint: 'Either (a) a CSV with header "setting,description,value" — optionally followed by "rationale" and then "relevance" (HIGH|MEDIUM|CONTEXT|REPORTING|IRRELEVANT or blank) — where column 1 = namespace/key, e.g. secure/location_mode and column 3 = the value; or (b) the capture format: "<namespace>:" header lines (system/secure/global) + key=value lines. Values are applied verbatim (type defaults to string).',
       parseAssignment: function (raw) {
         // review-5 #3: also accept a "setting,description,value" CSV. Detect it by
         // the header row; anything else is parsed as the §9 capture format. parseCsv
@@ -4601,9 +4878,31 @@
       return (project.items[dsId] || []).filter(function (it) { return it.status !== 'decided'; }).length;
     }
 
+    // review-12 #3 / review-14: sort Security Relevance by SEVERITY (HIGH → MEDIUM →
+    // CONTEXT → REPORTING → IRRELEVANT → unset), not alphabetically — alphabetical
+    // would put CONTEXT above HIGH.
+    var RELEVANCE_RANK = { HIGH: '1', MEDIUM: '2', CONTEXT: '3', REPORTING: '4', IRRELEVANT: '5' };
+
+    /**
+     * review-14: the row predicate for the relevance view.
+     *  - no toggle on  ⇒ every item EXCEPT the parked categories (REPORTING/IRRELEVANT)
+     *  - toggles on    ⇒ ONLY items in the toggled categories (both on ⇒ either)
+     * @param {{onlyRelevance?:string[]}} ui
+     * @returns {(row:{item:RegisterItem})=>boolean}
+     */
+    function relevanceViewFilter(ui) {
+      var only = (ui && ui.onlyRelevance) || [];
+      if (only.length) {
+        return function (r) { return only.indexOf(r.item.relevance || '') !== -1; };
+      }
+      var parked = App.projectIo.RELEVANCE_PARKED;
+      return function (r) { return parked.indexOf(r.item.relevance || '') === -1; };
+    }
+
     function sortValue(r, key) {
       if (key === 'appliesTo') return r.appliesTo.join(',');
       if (key === 'status') return r.status;
+      if (key === 'relevance') return RELEVANCE_RANK[r.item.relevance] || '6';
       if (Object.prototype.hasOwnProperty.call(r.cells, key)) return String(r.cells[key] == null ? '' : r.cells[key]);
       return String(r.item[key] == null ? '' : r.item[key]);
     }
@@ -4613,7 +4912,7 @@
      * @param {Project} project
      * @param {string} dsId
      * @param {DatasetAdapter} adapter
-     * @param {{search?:string,sortKey?:string,sortDir?:string,incompleteOnly?:boolean}} ui
+     * @param {{search?:string,sortKey?:string,sortDir?:string,incompleteOnly?:boolean,onlyRelevance?:string[]}} ui
      * @returns {Array<{item:RegisterItem, appliesTo:string[], status:string, cells:Object}>}
      */
     function filterSortRows(project, dsId, adapter, ui) {
@@ -4622,8 +4921,12 @@
       var rows = (project.items[dsId] || []).map(function (it) {
         var cells = {};
         adapter.columns.forEach(function (c) { cells[c.key] = c.get ? c.get(it) : it[c.key]; });
+        cells.relevance = it.relevance || ''; // review-12 #3: Security Relevance (may be empty)
         return { item: it, appliesTo: appliesTo[it.key] || [], status: it.status, cells: cells };
       });
+      // review-14: REPORTING/IRRELEVANT items are PARKED — hidden from the working view
+      // unless their toggle is on, in which case ONLY those categories are listed.
+      rows = rows.filter(relevanceViewFilter(ui));
       if (ui.incompleteOnly) rows = rows.filter(function (r) { return r.status !== 'decided'; });
       var q = (ui.search || '').toLowerCase().trim();
       if (q) rows = rows.filter(function (r) {
@@ -4644,7 +4947,7 @@
     App.ui.model = {
       getLatestConfigs: getLatestConfigs, isLatest: isLatest,
       computeAppliesTo: computeAppliesTo, countIncomplete: countIncomplete,
-      filterSortRows: filterSortRows
+      filterSortRows: filterSortRows, relevanceViewFilter: relevanceViewFilter
     };
   })(App);
   </script>
@@ -4701,16 +5004,39 @@
     'use strict';
     var esc = App.util.html.esc;
 
+    // review-13 #3: one source of truth for the Undo/Redo button tooltips (the toolbar
+    // renders them; App.ui.app re-syncs them in place after a suppressed re-render).
+    var UNDO_OFF_TITLE = 'Nothing to undo yet — no Delete Mode or Apply Control Mode change has been made';
+    var REDO_OFF_TITLE = 'Nothing to redo — redo becomes available after an undo';
+    function undoTitle(label) { return 'Undo the ' + (label || 'last bulk change') + ' — restores this table to its state just before that change'; }
+    function redoTitle(label) { return 'Redo the ' + (label || 'undone change'); }
+
     /**
      * Render the toolbar (search/incomplete/count) for a dataset tab.
      * Kept separate from the table body so the search input is NOT re-rendered on
      * keystroke (preserves focus); only #table-host updates.
      */
-    function renderToolbar(dsId, ui, total, shown, controls) {
+    function renderToolbar(dsId, ui, total, shown, controls, undo) {
       // review-7 #2: "Apply Control Mode" — a searchable control picker + per-row
       // checkboxes for bulk-assigning one control to many items at once.
-      var applyBtn = '<button data-apply-toggle="' + esc(dsId) + '"' + (ui.applyMode ? ' class="active"' : '') +
-        ' title="Bulk-assign a control to many items via row checkboxes">' + (ui.applyMode ? 'Exit control mode' : 'Apply Control Mode') + '</button>';
+      var deleteMode = !!ui.deleteMode;
+      var applyBtn = '<button data-apply-toggle="' + esc(dsId) + '"' + (ui.applyMode ? ' class="active"' : '') + (deleteMode ? ' disabled' : '') +
+        ' title="' + (deleteMode ? 'Finish or cancel Delete Mode first' : 'Bulk-assign a control to many items via row checkboxes') + '">' + (ui.applyMode ? 'Exit control mode' : 'Apply Control Mode') + '</button>';
+      // review-12 #2: "Delete Items" mirrors Apply Control Mode — click to arm, tick the
+      // rows to remove, click again to action the selection (Cancel exits without change).
+      var selCount = Object.keys(ui.deleteSel || {}).filter(function (k) { return (ui.deleteSel || {})[k]; }).length;
+      var deleteBtn = '<button data-delete-toggle="' + esc(dsId) + '"' + (deleteMode ? ' class="active danger"' : ' class="danger"') + (ui.applyMode ? ' disabled' : '') +
+        ' title="' + (ui.applyMode ? 'Exit control mode first' : (deleteMode ? 'Delete every ticked item' : 'Tick rows, then click again to delete them')) + '">' +
+        (deleteMode ? 'Delete selected (' + selCount + ')' : 'Delete Items') + '</button>' +
+        (deleteMode ? '<button data-delete-cancel="' + esc(dsId) + '" title="Leave Delete Mode without deleting anything">Cancel</button>' : '');
+      // review-12 #2 / review-13 #3: undo + redo of the last Delete-Mode or
+      // Apply-Control-Mode ACTION in THIS dataset (one whole apply run counts as one
+      // action). Both are greyed out until there is something to step to.
+      var canUndo = !!(undo && undo.canUndo), canRedo = !!(undo && undo.canRedo);
+      var undoBtn = '<button data-undo="' + esc(dsId) + '"' + (canUndo ? '' : ' disabled') +
+        ' title="' + esc(canUndo ? undoTitle(undo.label) : UNDO_OFF_TITLE) + '">↶ Undo</button>' +
+        '<button data-redo="' + esc(dsId) + '"' + (canRedo ? '' : ' disabled') +
+        ' title="' + esc(canRedo ? redoTitle(undo.redoLabel) : REDO_OFF_TITLE) + '">↷ Redo</button>';
       var applyPicker = '';
       if (ui.applyMode) {
         var list = (controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
@@ -4738,12 +5064,26 @@
             '<datalist id="apply-control-list">' + opts + '</datalist>' + applyTo + '</span>';
         }
       }
+      // review-14: the two "parked" relevance views. Off (the default) the table hides
+      // REPORTING/IRRELEVANT items entirely; ticking one shows ONLY that category.
+      var only = ui.onlyRelevance || [];
+      function parkedToggle(value, label) {
+        var on = only.indexOf(value) !== -1;
+        return '<label class="rel-view ' + relevanceClass(value) + (on ? ' active' : '') + '"><input type="checkbox" data-only-rel="' + esc(value) + '"' + (on ? ' checked' : '') +
+          ' title="Show only items marked ' + esc(value) + ' (they are hidden from the normal view)"> ' + esc(label) + ' only</label>';
+      }
+      var parkedToggles = parkedToggle('REPORTING', 'Reporting') + parkedToggle('IRRELEVANT', 'Irrelevant');
+      var parkedNote = only.length
+        ? '<span class="muted">Showing only ' + esc(only.join(' + ')) + ' items.</span>'
+        : '<span class="muted">Reporting &amp; Irrelevant items are hidden.</span>';
+
       return '' +
         '<div class="toolbar">' +
         '<input class="grow" type="search" placeholder="Search key or description…" data-search="' + esc(dsId) + '" value="' + esc(ui.search || '') + '" aria-label="Search items">' +
         '<label><input type="checkbox" data-incomplete="' + esc(dsId) + '"' + (ui.incompleteOnly ? ' checked' : '') + '> Incomplete only</label>' +
-        applyBtn + applyPicker +
-        '<span class="muted">' + esc(shown) + ' of ' + esc(total) + ' shown</span>' +
+        parkedToggles +
+        applyBtn + applyPicker + deleteBtn + undoBtn +
+        '<span class="muted">' + esc(shown) + ' of ' + esc(total) + ' shown</span>' + parkedNote +
         '</div>' +
         '<div id="table-host"></div>';
     }
@@ -4769,6 +5109,7 @@
         case 'description': return 220;
         case 'decision': return 280;
         case 'controlRefs': return 180;
+        case 'relevance': return 150;
         case 'appliesTo': return 160;
         case 'status': return 100;
         default: return 160;
@@ -4839,6 +5180,28 @@
         '</div>';
     }
 
+    /**
+     * The Security Relevance cell (review-12 #3): a <select> wearing the badge skin, so
+     * an unset value reads as a plain "—" and a set one reads as a coloured badge
+     * (HIGH red / MEDIUM orange / CONTEXT blue) that is still editable in place.
+     */
+    function relevanceCell(dsId, item) {
+      var cur = item.relevance || '';
+      var opts = [''].concat(App.projectIo.RELEVANCE_OPTIONS).map(function (o) {
+        return '<option value="' + esc(o) + '"' + (cur === o ? ' selected' : '') + '>' + (o ? esc(o) : '—') + '</option>';
+      }).join('');
+      return '<td class="rel-cell"><select class="rel-select ' + relevanceClass(cur) + '" data-relevance data-ds="' + esc(dsId) + '" data-key="' + esc(item.key) + '"' +
+        ' aria-label="Security Relevance for ' + esc(item.key) + '" title="Security Relevance (optional)">' + opts + '</select></td>';
+    }
+    /** @returns {string} the badge modifier class for a relevance value ('' ⇒ none). */
+    function relevanceClass(v) {
+      return v ? 'rel-' + String(v).toLowerCase() : '';
+    }
+    /** A read-only Security Relevance badge (used outside the editable table). */
+    function relevanceBadge(v) {
+      return v ? '<span class="badge ' + relevanceClass(v) + '">' + esc(v) + '</span>' : '';
+    }
+
     function renderDetailRow(dsId, item, colspan, issues, controls) {
       var key = item.key;
       var iss = (issues && issues[dsId + '|' + key]) || [];
@@ -4883,13 +5246,17 @@
       var captured = buildCapturedMap(project, dsId, adapter);
       var controls = project.controls || [];
       var controlsById = {}; controls.forEach(function (c) { controlsById[c.id] = c; });
+      // review-12 #3: "Security Relevance" is a core (dataset-independent) column, so it
+      // is appended here for every dataset rather than duplicated in each adapter.
       var cols = adapter.columns.map(function (c) { return { key: c.key, label: c.label }; })
-        .concat([{ key: 'appliesTo', label: 'Applies to' }, { key: 'status', label: 'Status' }]);
+        .concat([{ key: 'relevance', label: 'Security Relevance' }, { key: 'appliesTo', label: 'Applies to' }, { key: 'status', label: 'Status' }]);
       var rows = App.ui.model.filterSortRows(project, dsId, adapter, ui);
       var sk = ui.sortKey || 'key', sdir = ui.sortDir || 'asc';
       // review-7 #2: an extra checkbox column when Apply Control Mode is on.
       var applyMode = !!ui.applyMode, applyControlId = ui.applyControlId;
-      var colspan = cols.length + 1 + (applyMode ? 1 : 0); // + leading expander (+ apply col)
+      // review-12 #2: likewise for Delete Mode (the two modes are mutually exclusive).
+      var deleteMode = !!ui.deleteMode, deleteSel = ui.deleteSel || {};
+      var colspan = cols.length + 1 + (applyMode ? 1 : 0) + (deleteMode ? 1 : 0); // + leading expander (+ mode col)
 
       var colWidths = ui.colWidths || {};
       var head = '<th class="lead-col" scope="col" aria-label="expand"></th>' + cols.map(function (c) {
@@ -4897,7 +5264,8 @@
         var w = colWidths[c.key] || colDefaultWidth(c.key);
         return '<th data-col="' + esc(c.key) + '" scope="col" style="width:' + w + 'px">' + esc(c.label) + arrow +
           '<span class="col-resize" data-col-resize="' + esc(c.key) + '" title="Drag to resize"></span></th>';
-      }).join('') + (applyMode ? '<th class="apply-col" scope="col" title="Tick to add the selected control ref">✓ Apply</th>' : '');
+      }).join('') + (applyMode ? '<th class="apply-col" scope="col" title="Tick to add the selected control ref">✓ Apply</th>' : '') +
+        (deleteMode ? '<th class="del-col" scope="col" title="Tick the items to delete, then click Delete selected">🗑 Delete</th>' : '');
 
       var body = rows.map(function (r) {
         var isOpen = !!expanded[r.item.key];
@@ -4915,6 +5283,7 @@
           }
           return '<td>' + esc(r.cells[c.key] == null ? '' : r.cells[c.key]) + '</td>';
         }).join('');
+        tds += relevanceCell(dsId, r.item);
         tds += '<td>' + esc(r.appliesTo.join(', ')) + '</td>';
         tds += '<td>' + (r.status === 'decided' ? '<span class="badge decided">decided</span>' : '<span class="badge undecided">undecided</span>') + '</td>';
         if (applyMode) {
@@ -4923,7 +5292,11 @@
           var checked = applyControlId && (r.item.controlRefs || []).indexOf(applyControlId) !== -1;
           tds += '<td class="apply-cell"><input type="checkbox" data-apply-check data-key="' + esc(r.item.key) + '"' + (checked ? ' checked' : '') + (applyControlId ? '' : ' disabled') + ' aria-label="apply the selected control to ' + esc(r.item.key) + '"></td>';
         }
-        var rowHtml = '<tr class="' + (r.status === 'decided' ? '' : 'undecided') + '">' + lead + tds + '</tr>';
+        var marked = deleteMode && !!deleteSel[r.item.key];
+        if (deleteMode) {
+          tds += '<td class="del-cell"><input type="checkbox" data-delete-check data-key="' + esc(r.item.key) + '"' + (marked ? ' checked' : '') + ' aria-label="delete ' + esc(r.item.key) + '"></td>';
+        }
+        var rowHtml = '<tr class="' + (r.status === 'decided' ? '' : 'undecided') + (marked ? ' del-marked' : '') + '">' + lead + tds + '</tr>';
         if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues, controls);
         return rowHtml;
       }).join('');
@@ -4934,7 +5307,11 @@
     }
 
     App.ui = App.ui || {};
-    App.ui.tables = { renderToolbar: renderToolbar, renderTableHtml: renderTableHtml, buildCapturedMap: buildCapturedMap };
+    App.ui.tables = {
+      renderToolbar: renderToolbar, renderTableHtml: renderTableHtml, buildCapturedMap: buildCapturedMap,
+      relevanceBadge: relevanceBadge, relevanceClass: relevanceClass,
+      undoTitle: undoTitle, redoTitle: redoTitle, UNDO_OFF_TITLE: UNDO_OFF_TITLE, REDO_OFF_TITLE: REDO_OFF_TITLE
+    };
   })(App);
   </script>
 
@@ -5370,12 +5747,21 @@
           var r = App.completeness.deviceReadiness(project, c.id);
           badge = r.ready ? '<span class="badge decided">ready</span>' : '<span class="badge undecided">' + r.totalUndecided + ' undecided</span>';
         }
+        // review-12 #1: flag devices that still have controls left unsatisfied. Shown on
+        // the active version only (the state is per baseId, not per version).
+        var unsatBadge = '';
+        if (!superseded) {
+          var un = unsatisfiedControls(project, c.baseId);
+          if (un.length) {
+            unsatBadge = ' <span class="badge unsatisfied dev-unsat" title="' + esc(un.map(function (x) { return x.title; }).join(', ')) + '">⚠ ' + un.length + ' control' + (un.length === 1 ? '' : 's') + ' unsatisfied</span>';
+          }
+        }
         return '<div class="dev-row' + (superseded ? ' superseded' : '') + '">' +
           '<span class="dev-name">' + esc(c.name) + '</span>' +
           '<span class="dev-meta">' + esc(c.model) + ' · ' + esc(c.firmware) + ' · v' + c.version + '</span>' +
           '<span class="spacer"></span>' +
           '<span class="counts">' + counts + '</span>' +
-          badge +
+          badge + unsatBadge +
           ' <button data-device-view="' + esc(c.id) + '">View</button>' +
           '</div>';
       }
@@ -5653,15 +6039,42 @@
       } else {
         inner = '<div class="ctl-applies-list">' + controls.map(function (c) {
           var n = countControlItems(project, deviceId, c.id);
-          return '<button type="button" class="ctl-applies-item" data-control-open="' + esc(c.id) + '">' +
-            '<span class="ctl-applies-title">' + esc(c.title) + '</span>' +
-            '<span class="muted">' + esc(c.type) + '</span>' +
-            '<span class="ctl-applies-count">' + n + ' item' + (n === 1 ? '' : 's') + '</span></button>';
+          // review-12 #1: the state is per DEVICE (keyed by baseId) — a control added to
+          // a device starts 'unsatisfied' and is flipped manually here. The toggle sits
+          // OUTSIDE the control button (buttons cannot nest).
+          var state = App.store.controlDeviceState(c, dc.baseId);
+          var sat = state === 'satisfied';
+          return '<div class="ctl-applies-row">' +
+            '<button type="button" class="ctl-applies-item" data-control-open="' + esc(c.id) + '">' +
+              '<span class="ctl-applies-title">' + esc(c.title) + '</span>' +
+              '<span class="muted">' + esc(c.type) + '</span>' +
+              '<span class="ctl-applies-count">' + n + ' item' + (n === 1 ? '' : 's') + '</span></button>' +
+            '<span class="badge ' + (sat ? 'satisfied' : 'unsatisfied') + '" data-control-state="' + esc(c.id) + '">' + (sat ? 'Satisfied' : 'Unsatisfied') + '</span>' +
+            '<button type="button" class="ctl-state-toggle" data-control-state-toggle="' + esc(c.id) + '" data-state="' + (sat ? 'unsatisfied' : 'satisfied') + '"' +
+              ' title="Mark this control ' + (sat ? 'unsatisfied' : 'satisfied') + ' on this device">' + (sat ? 'Mark unsatisfied' : 'Mark satisfied') + '</button>' +
+            '</div>';
         }).join('') + '</div>';
       }
+      var unsat = unsatisfiedControls(project, dc.baseId).length;
+      var summary = controls.length
+        ? '<p class="muted" style="font-size:12px">' + (unsat
+            ? '<span class="badge unsatisfied">' + unsat + ' unsatisfied</span> of ' + controls.length + ' assigned control(s) on this device.'
+            : 'All ' + controls.length + ' assigned control(s) are marked satisfied on this device.') + '</p>'
+        : '';
       return '<div class="dev-controls"><h3>Controls applying to this device</h3>' +
-        '<p class="muted" style="font-size:12px">Click a control to see exactly which packages, settings and tactical items satisfy it on this device.</p>' +
-        inner + '</div>';
+        '<p class="muted" style="font-size:12px">Click a control to see exactly which packages, settings and tactical items satisfy it on this device. Each control carries its own <strong>Satisfied / Unsatisfied</strong> state per device — newly added controls start unsatisfied.</p>' +
+        summary + inner + '</div>';
+    }
+
+    /**
+     * Controls assigned to a device (by baseId) that are NOT marked satisfied there
+     * (review-12 #1). Drives the Devices-list indicator and the detail-view summary.
+     * @returns {Control[]}
+     */
+    function unsatisfiedControls(project, baseId) {
+      return (project.controls || []).filter(function (c) {
+        return (c.assignedDeviceIds || []).indexOf(baseId) !== -1 && App.store.controlDeviceState(c, baseId) !== 'satisfied';
+      });
     }
 
     /** Count items applicable to a device that reference a given control (all datasets). */
@@ -5769,6 +6182,7 @@
       return '<div class="assign-section">' +
         '<h3>Set decisions from files</h3>' +
         '<p class="muted" style="font-size:12px">Applies decisions for this device\'s applicable keys. The file must contain <strong>exactly</strong> those keys (no more, no less) or it is refused with the differences listed. Note: decisions are shared across all devices that have a given key (unified-decision model).</p>' +
+        '<p class="muted" style="font-size:12px">Packages and Settings CSVs may carry two <strong>optional</strong> extra columns after the required ones: <code>rationale</code> (fills each item\'s Rationale box) and <code>relevance</code> (fills the Security Relevance column — <code>HIGH</code>, <code>MEDIUM</code>, <code>CONTEXT</code>, <code>REPORTING</code>, <code>IRRELEVANT</code>, or blank). Items imported as REPORTING or IRRELEVANT are hidden from the data tables until their toggle is switched on.</p>' +
         blocks +
         '</div>';
     }
@@ -5862,6 +6276,20 @@
       App.util.dom.on(ctx.root, 'click', '[data-control-open]', function (e, el) {
         _dev.openControlId = el.getAttribute('data-control-open'); ctx.refreshMain();
       });
+      // review-12 #1: flip a control's Satisfied/Unsatisfied state for THIS device.
+      App.util.dom.on(ctx.root, 'click', '[data-control-state-toggle]', function (e, el) {
+        var project = App.store.getProject();
+        var dc = project.deviceConfigs.filter(function (c) { return c.id === _dev.selectedId; })[0];
+        if (!dc) return;
+        var id = el.getAttribute('data-control-state-toggle'), state = el.getAttribute('data-state');
+        var res = App.store.setControlDeviceState(id, dc.baseId, state);
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Control state');
+        else {
+          var ctl = (project.controls || []).filter(function (c) { return c.id === id; })[0];
+          App.ui.activity.log({ severity: 'info', message: 'Control "' + ((ctl && ctl.title) || id) + '" marked ' + state + ' on ' + dc.name + '.' });
+        }
+        ctx.refreshMain();
+      });
       App.util.dom.on(ctx.root, 'click', '[data-control-modal-close]', function () { _dev.openControlId = null; ctx.refreshMain(); });
       // Backdrop click closes (but a click inside the modal does not bubble to here as the overlay).
       App.util.dom.on(ctx.root, 'click', '[data-control-modal]', function (e, el) {
@@ -5952,7 +6380,7 @@
 
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
-    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems, renderGroupModal: renderGroupModal, _dev: _dev };
+    App.ui.views.devices = { render: render, wire: wire, renderList: renderList, renderDetail: renderDetail, renderPanels: renderPanels, renderDeviceControls: renderDeviceControls, renderControlModal: renderControlModal, countControlItems: countControlItems, unsatisfiedControls: unsatisfiedControls, renderGroupModal: renderGroupModal, _dev: _dev };
   })(App);
   </script>
 
@@ -5974,7 +6402,10 @@
     var _ctx = null;
     // review-4 #4: Control Manager is a searchable table with a per-row expander.
     // review-6 #4: per-column widths (drag-resizable), persisted in UI state.
-    var _cm = { search: '', expanded: {}, colWidths: {} };
+    // review-13 #4: `deviceCols` is the set of device baseIds shown as checkbox columns
+    // in the table. null = "not chosen yet" ⇒ every onboarded device gets a column, so
+    // the feature is visible without hunting for it.
+    var _cm = { search: '', expanded: {}, colWidths: {}, deviceCols: null };
     var _cmSearchTimer = null;
     var CM_COLS = [
       { key: 'title', label: 'Title', w: 200 },
@@ -6000,6 +6431,41 @@
       }).join('') || '<span class="muted">No devices onboarded.</span>';
     }
 
+    // ---- review-13 #4: per-device checkbox columns ----------------------------
+    /** Every onboarded device, one entry per baseId, name-ordered. */
+    function allDevices(project) {
+      var seen = {}, out = [];
+      App.ui.model.getLatestConfigs(project).forEach(function (c) {
+        if (seen[c.baseId]) return;
+        seen[c.baseId] = true; out.push({ baseId: c.baseId, name: c.name });
+      });
+      return out.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+    }
+    /** @returns {boolean} whether a device currently has a column (null ⇒ all shown). */
+    function deviceColShown(baseId) { return _cm.deviceCols === null ? true : !!_cm.deviceCols[baseId]; }
+    /** The devices that get their own column, in display order. */
+    function deviceColumns(project) {
+      return allDevices(project).filter(function (d) { return deviceColShown(d.baseId); });
+    }
+
+    /**
+     * The "Device columns" picker: tick a device to give it a checkbox column in the
+     * table below, so a control can be applied to / removed from that device in one
+     * click instead of opening the row's dropdown.
+     */
+    function renderDeviceBar(project) {
+      var devices = allDevices(project);
+      if (!devices.length) return '';
+      var boxes = devices.map(function (d) {
+        return '<label class="cm-devcol-opt"><input type="checkbox" data-cm-devcol="' + esc(d.baseId) + '"' + (deviceColShown(d.baseId) ? ' checked' : '') + '> ' + esc(d.name) + '</label>';
+      }).join('');
+      var shown = deviceColumns(project).length;
+      return '<div class="cm-devbar"><span class="cm-devbar-label">Device columns:</span>' + boxes +
+        '<button data-cm-devcol-all>All</button><button data-cm-devcol-none>None</button>' +
+        '<span class="muted" style="font-size:12px">' + shown + ' of ' + devices.length + ' shown — tick a cell to apply that control to that device.</span>' +
+        '</div>';
+    }
+
     /** Comma-joined device names for a control's assigned baseIds (display only). */
     function deviceNames(project, assigned) {
       var byBase = {};
@@ -6023,12 +6489,17 @@
         return ((c.title || '') + ' ' + (c.type || '') + ' ' + (c.description || '')).toLowerCase().indexOf(q) !== -1;
       });
       // review-6 #4: data-driven headers with drag-to-resize handles + stored widths.
+      // review-13 #4: plus one checkbox column per device selected in the picker.
       var colWidths = _cm.colWidths || {};
-      var head = '<tr><th class="lead-col" aria-label="expand"></th>' + CM_COLS.map(function (c) {
-        var w = colWidths[c.key] || c.w;
-        return '<th data-cm-col="' + c.key + '" scope="col" style="width:' + w + 'px">' + esc(c.label) +
-          '<span class="col-resize" data-cm-col-resize="' + c.key + '" title="Drag to resize"></span></th>';
-      }).join('') + '</tr>';
+      var devCols = deviceColumns(project);
+      function th(key, label, w, extraClass) {
+        return '<th data-cm-col="' + key + '" scope="col"' + (extraClass ? ' class="' + extraClass + '"' : '') + ' style="width:' + (colWidths[key] || w) + 'px">' + esc(label) +
+          '<span class="col-resize" data-cm-col-resize="' + key + '" title="Drag to resize"></span></th>';
+      }
+      var head = '<tr><th class="lead-col" aria-label="expand"></th>' +
+        CM_COLS.map(function (c) { return th(c.key, c.label, c.w); }).join('') +
+        devCols.map(function (d) { return th('dev:' + d.baseId, d.name, 110, 'cm-dev-col'); }).join('') + '</tr>';
+      var colspan = 1 + CM_COLS.length + devCols.length;
       var body = filtered.map(function (c) {
         var open = !!_cm.expanded[c.id];
         var lead = '<td><button class="expand-btn" data-ctl-expand="' + esc(c.id) + '" aria-expanded="' + open + '" title="Edit / remove">' + (open ? '▾' : '▸') + '</button></td>';
@@ -6037,12 +6508,19 @@
           '<td><select data-ctl-field="type" data-ctl-id="' + esc(c.id) + '" aria-label="type">' + typeOptions(c.type) + '</select></td>' +
           '<td class="ctl-applies-cell">' + (esc(deviceNames(project, c.assignedDeviceIds)) || '<span class="muted">—</span>') + '</td>' +
           '<td class="ctl-desc-cell">' + esc(c.description || '') + '</td>' +
+          // review-13 #4: one checkbox per shown device — ticking assigns this control
+          // to it (and seeds its per-device Unsatisfied state), unticking un-assigns.
+          devCols.map(function (d) {
+            var on = (c.assignedDeviceIds || []).indexOf(d.baseId) !== -1;
+            return '<td class="cm-dev-cell"><input type="checkbox" data-ctl-device="' + esc(c.id) + '" data-baseid="' + esc(d.baseId) + '"' + (on ? ' checked' : '') +
+              ' aria-label="Apply ' + esc(c.title) + ' to ' + esc(d.name) + '"></td>';
+          }).join('') +
           '</tr>';
         if (open) {
           // review-4 #4: the dropdown holds the wide wrapping description editor, the
           // device assignment, and the Remove button. The leading "\n" is sacrificial
           // (HTML drops one leading newline in <textarea>), preserving a leading newline.
-          row += '<tr class="detail-row"><td colspan="5"><div class="detail-form">' +
+          row += '<tr class="detail-row"><td colspan="' + colspan + '"><div class="detail-form">' +
             '<label>Description</label>' +
             '<textarea class="ctl-desc" data-ctl-field="description" data-ctl-id="' + esc(c.id) + '" placeholder="Description" aria-label="description">\n' + esc(c.description || '') + '</textarea>' +
             '<label>Applies to</label>' +
@@ -6053,7 +6531,7 @@
         }
         return row;
       }).join('');
-      if (!filtered.length) body = '<tr><td colspan="5" class="muted">No matching controls.</td></tr>';
+      if (!filtered.length) body = '<tr><td colspan="' + colspan + '" class="muted">No matching controls.</td></tr>';
       var count = '<div class="muted" style="font-size:12px;margin-bottom:4px">' + filtered.length + ' of ' + controls.length + ' shown</div>';
       return count + '<table class="data ctl-table resizable"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
     }
@@ -6089,9 +6567,10 @@
       // when columns are widened (the .main content area is already full-width).
       return '<div>' +
         '<div class="ctl-header"><h2>Control Manager</h2>' + tools + '</div>' +
-        '<p class="muted">Controls are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs).</p>' +
+        '<p class="muted">Controls are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs); assign them to <strong>devices</strong> with the per-device columns below (or the row dropdown).</p>' +
         addForm +
         toolbar +
+        renderDeviceBar(project) +
         '<div id="ctl-table-host">' + renderTable(project) + '</div>' +
         '</div>';
     }
@@ -6142,6 +6621,22 @@
         var patch = {}; patch[el.getAttribute('data-ctl-field')] = el.value;
         App.store.updateControl(el.getAttribute('data-ctl-id'), patch);
       });
+      // review-13 #4: which devices get their own checkbox column. Only the table host
+      // is re-rendered so the picker itself (and its focus) is untouched.
+      dom.on(ctx.root, 'change', '[data-cm-devcol]', function (e, el) {
+        var project = App.store.getProject();
+        if (_cm.deviceCols === null) { // materialise the implicit "all" before editing it
+          _cm.deviceCols = {};
+          allDevices(project).forEach(function (d) { _cm.deviceCols[d.baseId] = true; });
+        }
+        var baseId = el.getAttribute('data-cm-devcol');
+        if (el.checked) _cm.deviceCols[baseId] = true; else delete _cm.deviceCols[baseId];
+        var host = document.getElementById('ctl-table-host');
+        if (host) host.innerHTML = renderTable(project);
+      });
+      dom.on(ctx.root, 'click', '[data-cm-devcol-all]', function () { _cm.deviceCols = null; ctx.refreshMain(); });
+      dom.on(ctx.root, 'click', '[data-cm-devcol-none]', function () { _cm.deviceCols = {}; ctx.refreshMain(); });
+      // Assignment checkbox — shared by the row dropdown and the per-device columns.
       dom.on(ctx.root, 'change', '[data-ctl-device]', function (e, el) {
         var id = el.getAttribute('data-ctl-device'), baseId = el.getAttribute('data-baseid');
         var project = App.store.getProject();
@@ -6216,6 +6711,15 @@
         '<li><strong>Save often.</strong> The app warns before you leave the page with unsaved changes (the dot next to the title shows unsaved state).</li>' +
         '<li>A <strong>local draft autosave</strong> may be kept in your browser as crash insurance only. It is <em>not</em> canonical and can be discarded; if a draft is found on load you will be offered to restore it.</li>' +
         '<li>This tool never contacts a device or the network. All input is via file pickers; all output is downloaded.</li>' +
+        '</ul>' +
+        // review-12: document the two bulk modes, Undo, and the Security Relevance column.
+        '<h3>Working in the data tabs</h3>' +
+        '<ul>' +
+        '<li><strong>Apply Control Mode</strong> — pick a control, then tick rows to add/remove that control reference in bulk.</li>' +
+        '<li><strong>Delete Items</strong> — click to arm Delete Mode, tick the items to remove, then click <em>Delete selected</em> to action them (or <em>Cancel</em>). Deleting an item also removes any device/group override for it; the capture snapshots are untouched, so re-onboarding the same file brings the item back.</li>' +
+        '<li><strong>Undo / Redo</strong> — step through this table\'s Delete-Mode and Apply-Control-Mode actions. A whole Apply run counts as ONE action: ticking three rows with the same control undoes as one. Both buttons are greyed out until there is something to step to, and the history is cleared when a project is loaded.</li>' +
+        '<li><strong>Security Relevance</strong> — an optional per-item tag shown as a coloured badge: HIGH (red), MEDIUM (orange), CONTEXT (blue), REPORTING (purple), IRRELEVANT (grey). It can also be imported from the 5th column of a decisions CSV in the Devices tab.</li>' +
+        '<li><strong>Reporting / Irrelevant items are parked</strong> — they are hidden from the table so the working view stays on items that still need a decision. Use the <em>Reporting only</em> / <em>Irrelevant only</em> toggles to review them (ticking both shows either).</li>' +
         '</ul>' +
         '<h3>Onboarding &amp; capture formats</h3>' +
         '<pre class="mono" style="white-space:pre-wrap;background:var(--c-surface-alt);padding:10px;border-radius:6px">' + esc(capture) + '</pre>' +
@@ -6292,8 +6796,100 @@
       return p ? p.datasets : [];
     }
     function uiFor(dsId) {
-      if (!_state.ui[dsId]) _state.ui[dsId] = { search: '', sortKey: 'key', sortDir: 'asc', incompleteOnly: false };
+      if (!_state.ui[dsId]) _state.ui[dsId] = { search: '', sortKey: 'key', sortDir: 'asc', incompleteOnly: false, deleteMode: false, deleteSel: {}, onlyRelevance: [] };
       return _state.ui[dsId];
+    }
+
+    // ---- review-12 #2 / review-13 #2,#3: undo + redo for the two bulk modes ----
+    // Delete Mode and Apply Control Mode are the only edits that change many items at
+    // once, so each takes a pre-change dataset snapshot here. Stacks are per dataset
+    // (the buttons live in that dataset's toolbar) and session-only: nothing is written
+    // to the project file, so both buttons start greyed out on every launch.
+    //
+    // review-13 #2: an Apply-Control-Mode RUN is ONE undoable action. Ticking three rows
+    // is one user action in three clicks, so consecutive ticks fold into a single OPEN
+    // entry (its snapshot is still the state before the first tick). The run is closed
+    // by anything that ends it: leaving the mode, changing the selected control, an
+    // apply-to-action command, a deletion, an undo/redo, a tab switch, or a load.
+    var _undo = {};      // dsId -> [{label, snap, count}]  (most recent last)
+    var _redo = {};      // dsId -> [{label, snap}]         (cleared by any new action)
+    var _openRun = null; // {dsId, controlId, entry} — the apply run currently being folded
+    var UNDO_LIMIT = 20; // bound the memory held by snapshots of large item arrays
+
+    /** Snapshot dsId BEFORE a change. @param {string} label human description */
+    function pushUndo(dsId, label) {
+      var snap = App.store.datasetSnapshot(dsId);
+      if (!snap) return null;
+      var stack = (_undo[dsId] = _undo[dsId] || []);
+      var entry = { label: label, snap: snap, count: 1 };
+      stack.push(entry);
+      if (stack.length > UNDO_LIMIT) stack.shift();
+      _redo[dsId] = []; // a new action invalidates the redo branch (standard undo model)
+      return entry;
+    }
+    /** Drop the most recent entry (used when the change it guarded did not happen). */
+    function dropUndo(dsId) { if (_undo[dsId]) _undo[dsId].pop(); }
+    /** Discard every snapshot — MUST be called whenever the loaded project is replaced. */
+    function resetUndo() { _undo = {}; _redo = {}; _openRun = null; }
+    /** End the current apply-run so the next tick starts a new undo entry. */
+    function closeRun() { _openRun = null; }
+
+    /**
+     * Fold one Apply-Control-Mode tick into the current run (review-13 #2), starting a
+     * new run when there is none for this dataset+control.
+     * @returns {void}
+     */
+    function noteApplyTick(dsId, controlId, controlTitle) {
+      if (_openRun && _openRun.dsId === dsId && _openRun.controlId === controlId) {
+        _openRun.entry.count++;
+        _openRun.entry.label = 'application of control "' + controlTitle + '" to ' + _openRun.entry.count + ' items';
+        return;
+      }
+      var entry = pushUndo(dsId, 'application of control "' + controlTitle + '" to 1 item');
+      _openRun = entry ? { dsId: dsId, controlId: controlId, entry: entry } : null;
+    }
+
+    /** @returns {{canUndo:boolean, label:string, canRedo:boolean, redoLabel:string}} */
+    function undoInfo(dsId) {
+      var u = _undo[dsId] || [], r = _redo[dsId] || [];
+      return {
+        canUndo: u.length > 0, label: u.length ? u[u.length - 1].label : '',
+        canRedo: r.length > 0, redoLabel: r.length ? r[r.length - 1].label : ''
+      };
+    }
+    // Tooltip text is owned by App.ui.tables (which renders the buttons).
+    function undoTitle(label) { return App.ui.tables.undoTitle(label); }
+    function redoTitle(label) { return App.ui.tables.redoTitle(label); }
+
+    /** Re-sync the Undo/Redo buttons in place (no full re-render, so scroll is kept). */
+    function refreshUndoButton(dsId) {
+      var info = undoInfo(dsId);
+      function sync(sel, on, title, offTitle) {
+        var btn = _root && _root.querySelector(sel);
+        if (!btn) return;
+        if (on) { btn.removeAttribute('disabled'); btn.setAttribute('title', title); }
+        else { btn.setAttribute('disabled', 'disabled'); btn.setAttribute('title', offTitle); }
+      }
+      sync('[data-undo="' + dsId + '"]', info.canUndo, undoTitle(info.label), App.ui.tables.UNDO_OFF_TITLE);
+      sync('[data-redo="' + dsId + '"]', info.canRedo, redoTitle(info.redoLabel), App.ui.tables.REDO_OFF_TITLE);
+    }
+
+    /**
+     * Move the top entry from one stack to the other, swapping in the current state so
+     * the move is reversible (undo ⇄ redo). @returns {boolean} whether it happened
+     */
+    function stepHistory(dsId, from, to, verb) {
+      var stack = from[dsId] || [];
+      if (!stack.length) return false;
+      var entry = stack[stack.length - 1];
+      var current = App.store.datasetSnapshot(dsId);
+      var res = App.store.restoreDatasetSnapshot(entry.snap);
+      if (!res.ok) { App.ui.activity.logIssues(res.issues, verb); return false; }
+      stack.pop();
+      (to[dsId] = to[dsId] || []).push({ label: entry.label, snap: current, count: entry.count });
+      closeRun(); // history moved: the next tick must start its own entry
+      App.ui.activity.log({ severity: 'success', message: verb + ' the ' + entry.label + '.' });
+      return true;
     }
     function defaultTab() {
       var ds = activeDatasets();
@@ -6442,7 +7038,7 @@
         var ui = uiFor(tab);
         var total = (project.items[tab] || []).length;
         var shown = App.ui.model.filterSortRows(project, tab, ds, ui).length;
-        main.innerHTML = App.ui.tables.renderToolbar(tab, ui, total, shown, project.controls);
+        main.innerHTML = App.ui.tables.renderToolbar(tab, ui, total, shown, project.controls, undoInfo(tab));
         renderTableHost();
       } else {
         main.innerHTML = '<div class="empty-state">The <strong>' + esc(tab) + '</strong> view is not available yet.</div>';
@@ -6469,7 +7065,7 @@
 
     // ---- events ----
     function wire() {
-      dom.on(_root, 'click', '[data-tab]', function (e, el) { _state.activeTab = el.getAttribute('data-tab'); render(); });
+      dom.on(_root, 'click', '[data-tab]', function (e, el) { closeRun(); _state.activeTab = el.getAttribute('data-tab'); render(); });
       dom.on(_root, 'click', 'th[data-col]', function (e, el) {
         // Ignore clicks on the resize handle (review-2 #4) so resizing doesn't sort.
         if (e.target && e.target.matches && e.target.matches('[data-col-resize]')) return;
@@ -6504,18 +7100,88 @@
       dom.on(_root, 'change', '[data-incomplete]', function (e, el) {
         uiFor(el.getAttribute('data-incomplete')).incompleteOnly = el.checked; renderTableHost(); updateShownCount();
       });
+      // review-14: show ONLY the ticked parked categories (both ticked ⇒ either); with
+      // none ticked they are hidden again. renderMain so the toggle chips + note follow.
+      dom.on(_root, 'change', '[data-only-rel]', function (e, el) {
+        var ui = uiFor(_state.activeTab), value = el.getAttribute('data-only-rel');
+        var only = (ui.onlyRelevance || []).filter(function (v) { return v !== value; });
+        if (el.checked) only.push(value);
+        ui.onlyRelevance = only;
+        renderMain();
+      });
       // ---- Apply Control Mode (review-7 #2) ----
       dom.on(_root, 'click', '[data-apply-toggle]', function (e, el) {
         var ui = uiFor(el.getAttribute('data-apply-toggle'));
         ui.applyMode = !ui.applyMode;
         if (!ui.applyMode) ui.applyControlId = null; // exiting clears the selection; changes persist
+        if (ui.applyMode) { ui.deleteMode = false; ui.deleteSel = {}; } // the two modes are exclusive
+        closeRun(); // entering/leaving the mode ends the current undoable run
         renderMain();
+      });
+      // ---- Delete Mode (review-12 #2): arm → tick rows → click again to delete ----
+      dom.on(_root, 'click', '[data-delete-toggle]', function (e, el) {
+        var dsId = el.getAttribute('data-delete-toggle'), ui = uiFor(dsId);
+        if (!ui.deleteMode) {
+          ui.deleteMode = true; ui.deleteSel = {};
+          ui.applyMode = false; ui.applyControlId = null; // exclusive with Apply Control Mode
+          renderMain();
+          return;
+        }
+        // Second click actions the selection.
+        var sel = ui.deleteSel || {};
+        var keys = Object.keys(sel).filter(function (k) { return sel[k]; });
+        ui.deleteMode = false; ui.deleteSel = {};
+        if (!keys.length) {
+          App.ui.activity.log({ severity: 'info', message: 'Delete Mode exited — no items were ticked.' });
+          renderMain();
+          return;
+        }
+        closeRun();
+        pushUndo(dsId, 'deletion of ' + keys.length + ' item(s)');
+        var res = App.store.removeItems(dsId, keys);
+        if (!res.ok) dropUndo(dsId); // nothing changed — keep the stack honest
+        App.ui.activity.logIssues(res.issues, res.ok ? null : 'Delete items');
+        renderMain();
+      });
+      dom.on(_root, 'click', '[data-delete-cancel]', function (e, el) {
+        var ui = uiFor(el.getAttribute('data-delete-cancel'));
+        ui.deleteMode = false; ui.deleteSel = {};
+        App.ui.activity.log({ severity: 'info', message: 'Delete Mode cancelled — nothing was deleted.' });
+        renderMain();
+      });
+      // Tick/untick a row for deletion. Selection is UI-only until the mode is actioned,
+      // so this updates the row tint + the button count in place (no re-render).
+      dom.on(_root, 'change', '[data-delete-check]', function (e, el) {
+        var dsId = _state.activeTab, ui = uiFor(dsId);
+        var key = el.getAttribute('data-key');
+        ui.deleteSel = ui.deleteSel || {};
+        if (el.checked) ui.deleteSel[key] = true; else delete ui.deleteSel[key];
+        var tr = el; while (tr && tr.tagName !== 'TR') tr = tr.parentNode;
+        if (tr && tr.classList) { if (el.checked) tr.classList.add('del-marked'); else tr.classList.remove('del-marked'); }
+        var btn = _root.querySelector('[data-delete-toggle="' + dsId + '"]');
+        if (btn) btn.textContent = 'Delete selected (' + Object.keys(ui.deleteSel).length + ')';
+      });
+      // ---- Undo / Redo the last bulk action (review-12 #2, review-13 #2/#3) ----
+      dom.on(_root, 'click', '[data-undo]', function (e, el) {
+        var dsId = el.getAttribute('data-undo');
+        if (stepHistory(dsId, _undo, _redo, 'Undid')) renderMain();
+      });
+      dom.on(_root, 'click', '[data-redo]', function (e, el) {
+        var dsId = el.getAttribute('data-redo');
+        if (stepHistory(dsId, _redo, _undo, 'Redid')) renderMain();
+      });
+      // ---- Security Relevance (review-12 #3) ----
+      dom.on(_root, 'change', '[data-relevance]', function (e, el) {
+        var res = App.store.setItemFields(el.getAttribute('data-ds'), el.getAttribute('data-key'), { relevance: el.value });
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Security Relevance');
+        // store.onChange re-renders, so the badge colour follows the new value.
       });
       dom.on(_root, 'change', '[data-apply-control]', function (e, el) {
         var dsId = el.getAttribute('data-apply-control'), title = el.value.trim();
         var project = App.store.getProject();
         var c = (project.controls || []).filter(function (x) { return x.title === title; })[0];
         uiFor(dsId).applyControlId = c ? c.id : null;
+        closeRun();     // a different control means a different action
         renderMain();   // enable/disable the "Apply to" control + refresh checkbox states
       });
       // review-8 #2 / review-9 #1: apply the selected control to all items with the chosen
@@ -6530,6 +7196,9 @@
         var plan = applyToTogglePlan(project.items[dsId] || [], field, action, controlId);
         var matching = plan.matching, removing = plan.removing;
         var count = 0;
+        // review-12 #2: one undo entry for the whole bulk apply-to-action.
+        closeRun();
+        pushUndo(dsId, (removing ? 'removal' : 'application') + ' of a control to all "' + field + '=' + action + '" items');
         _suppressRender = true;
         try {
           matching.forEach(function (it) {
@@ -6538,6 +7207,7 @@
             else if (!removing && !has) { App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).concat([controlId]) }); count++; }
           });
         } finally { _suppressRender = false; }
+        if (!count) dropUndo(dsId); // no item actually changed
         var ctrl = (project.controls || []).filter(function (c) { return c.id === controlId; })[0];
         App.ui.activity.log({ severity: 'info', message: (removing ? 'Removed' : 'Applied') + ' control "' + ((ctrl && ctrl.title) || controlId) + '" ' + (removing ? 'from' : 'to') + ' ' + count + ' item(s) with ' + field + '=' + action + '.' });
         renderMain(); // refresh checkbox states + reset the "Apply to" select
@@ -6554,8 +7224,13 @@
         if (!item) { el.checked = false; return; }
         var refs = (item.controlRefs || []).filter(function (r) { return r !== ui.applyControlId; });
         if (el.checked) refs.push(ui.applyControlId);
+        // review-13 #2: consecutive ticks with the same control are ONE action, so they
+        // fold into a single undo entry (snapshot taken before the first tick).
+        var ctl = (project.controls || []).filter(function (c) { return c.id === ui.applyControlId; })[0];
+        noteApplyTick(dsId, ui.applyControlId, (ctl && ctl.title) || ui.applyControlId);
         _suppressRender = true;
         try { App.store.setItemFields(dsId, key, { controlRefs: refs }); } finally { _suppressRender = false; }
+        refreshUndoButton(dsId); // the full re-render was suppressed to keep scroll position
       });
       // ---- inline decision editing & per-row expander (spec §11.2) ----
       dom.on(_root, 'click', '[data-expand-key]', function (e, el) {
@@ -6690,6 +7365,7 @@
         // Align the active platform with the loaded project so tabs/views match (D-008).
         if (App.registry.hasPlatform(res.value.platformProfileId)) App.registry.setActivePlatform(res.value.platformProfileId);
         App.store.init(res.value);
+        resetUndo(); // snapshots belong to the PREVIOUS project — never replay them here
         App.ui.activity.logIssues(res.issues);
         App.ui.activity.log({ severity: 'success', message: 'Loaded project: ' + res.value.deviceConfigs.length + ' device(s).' });
         _state.activeTab = defaultTab();
@@ -6738,6 +7414,7 @@
       if (!res.ok) { App.ui.activity.logIssues(res.issues, 'Draft restore failed'); _state.draftDismissed = true; render(); return; }
       if (App.registry.hasPlatform(res.value.platformProfileId)) App.registry.setActivePlatform(res.value.platformProfileId);
       App.store.init(res.value);
+      resetUndo();                     // snapshots belong to the pre-restore project
       App.store.markDirty();           // restored draft is NOT a saved file → unsaved
       _state.draftDismissed = true; _state.activeTab = defaultTab();
       App.ui.activity.log({ severity: 'success', message: 'Restored draft autosave from ' + toAest(d.savedUtc) + ' — Save to make it canonical.' });
@@ -6751,9 +7428,10 @@
       if (!adapter) { App.ui.activity.log({ severity: 'warning', message: 'Switch to a data tab to export its CSV.' }); return; }
       var rows = App.ui.model.filterSortRows(project, dsId, adapter, uiFor(dsId));
       var cols = adapter.columns.map(function (c) { return { key: c.key, label: c.label }; })
-        .concat([{ key: 'appliesTo', label: 'Applies to' }, { key: 'status', label: 'Status' }]);
+        .concat([{ key: 'relevance', label: 'Security Relevance' }, { key: 'appliesTo', label: 'Applies to' }, { key: 'status', label: 'Status' }]);
       var flat = rows.map(function (r) {
         var o = {}; adapter.columns.forEach(function (c) { o[c.key] = r.cells[c.key]; });
+        o.relevance = r.item.relevance || ''; // review-12 #3
         o.appliesTo = r.appliesTo.join('; '); o.status = r.status; return o;
       });
       var csv = App.util.csv.toCsv(flat, cols);
@@ -6806,7 +7484,17 @@
     }
 
     App.ui = App.ui || {};
-    App.ui.app = { mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme, toAest: toAest, applyToTogglePlan: applyToTogglePlan };
+    App.ui.app = {
+      mount: mount, TOOL_VERSION: TOOL_VERSION, _state: _state, nextTheme: nextTheme, toAest: toAest,
+      applyToTogglePlan: applyToTogglePlan,
+      // review-13 #2/#3: the undo/redo history, exposed so the grouping rules are
+      // testable without synthesising DOM clicks.
+      _history: {
+        pushUndo: pushUndo, noteApplyTick: noteApplyTick, closeRun: closeRun, reset: resetUndo,
+        info: undoInfo, undo: function (dsId) { return stepHistory(dsId, _undo, _redo, 'Undid'); },
+        redo: function (dsId) { return stepHistory(dsId, _redo, _undo, 'Redid'); }
+      }
+    };
   })(App);
   </script>
 
@@ -8569,6 +9257,556 @@
         T.assert(filtered.indexOf('No Bluetooth') !== -1 && filtered.indexOf('Disable GPS') === -1, 'search did not filter to the matching control');
         T.assert(/1 of 2 shown/.test(filtered), 'count line wrong for a filtered view');
         CV._cm.search = '';
+      });
+    });
+
+    // =========================================================================
+    // review-12: per-device control state · Delete Mode + Undo · Security
+    // Relevance column · rationale/relevance columns in the decisions import.
+    // =========================================================================
+    /** A one-device project with two packages, one setting and one tactical leaf. */
+    function r12Project() {
+      ensureA(); App.store.init(App.store.empty('android-adb'));
+      App.store.onboardDevice({ name: 'R12', model: 'M1', firmware: 'F', snapshots: {
+        'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+        'android.settings': snapB('android.settings', 'secure:\nx=0'),
+        'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+      return 'r12-m1'; // deviceId (= baseId here, v1)
+    }
+
+    T.suite('review-12 #1 per-device control satisfaction state', function (s) {
+      s.test('a control added to a device starts Unsatisfied', function () {
+        r12Project();
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM', assignedDeviceIds: ['r12-m1'] }).id;
+        var c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(c.deviceStates['r12-m1'], 'unsatisfied');
+        T.assertEqual(App.store.controlDeviceState(c, 'r12-m1'), 'unsatisfied');
+      });
+      s.test('assigning a device later also seeds unsatisfied; un-assigning drops the state', function () {
+        r12Project();
+        var id = App.store.addControl({ title: 'Later', type: 'ISM' }).id;
+        App.store.updateControl(id, { assignedDeviceIds: ['r12-m1'] });
+        var c1 = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(c1.deviceStates['r12-m1'], 'unsatisfied');
+        App.store.setControlDeviceState(id, 'r12-m1', 'satisfied');
+        App.store.updateControl(id, { assignedDeviceIds: [] });
+        var c2 = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertDeepEqual(c2.deviceStates, {}, 'state must not linger for an un-assigned device');
+      });
+      s.test('setControlDeviceState flips to satisfied; bad state / unassigned device refused', function () {
+        r12Project();
+        var id = App.store.addControl({ title: 'Flip', type: 'ISM', assignedDeviceIds: ['r12-m1'] }).id;
+        T.assertEqual(App.store.setControlDeviceState(id, 'r12-m1', 'satisfied').ok, true);
+        var c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(App.store.controlDeviceState(c, 'r12-m1'), 'satisfied');
+        T.assertEqual(App.store.setControlDeviceState(id, 'r12-m1', 'maybe').ok, false, 'unknown state must be refused');
+        T.assertEqual(App.store.setControlDeviceState(id, 'other-dev', 'satisfied').ok, false, 'unassigned device must be refused');
+      });
+      s.test('the device view shows the state badge + a toggle for each assigned control', function () {
+        var devId = r12Project();
+        App.store.addControl({ title: 'No Bluetooth', type: 'ISM', assignedDeviceIds: ['r12-m1'] });
+        var html = App.ui.views.devices.renderDeviceControls(App.store.getProject(), devId);
+        T.assert(/class="badge unsatisfied"[^>]*>Unsatisfied</.test(html), 'no Unsatisfied badge');
+        T.assert(/data-control-state-toggle="no-bluetooth" data-state="satisfied"/.test(html), 'no "Mark satisfied" toggle');
+        App.store.setControlDeviceState('no-bluetooth', 'r12-m1', 'satisfied');
+        var html2 = App.ui.views.devices.renderDeviceControls(App.store.getProject(), devId);
+        T.assert(/class="badge satisfied"[^>]*>Satisfied</.test(html2), 'no Satisfied badge after the flip');
+        T.assert(/data-control-state-toggle="no-bluetooth" data-state="unsatisfied"/.test(html2), 'toggle must offer the reverse action');
+      });
+      s.test('the device LIST flags devices with controls left unsatisfied', function () {
+        r12Project();
+        App.store.addControl({ title: 'No Bluetooth', type: 'ISM', assignedDeviceIds: ['r12-m1'] });
+        App.store.addControl({ title: 'Disable GPS', type: 'AHG', assignedDeviceIds: ['r12-m1'] });
+        var list = App.ui.views.devices.renderList(App.store.getProject());
+        T.assert(/badge unsatisfied dev-unsat[^>]*>⚠ 2 controls unsatisfied</.test(list), 'no unsatisfied indicator: ' + list.slice(0, 400));
+        App.store.setControlDeviceState('no-bluetooth', 'r12-m1', 'satisfied');
+        T.assert(/⚠ 1 control unsatisfied/.test(App.ui.views.devices.renderList(App.store.getProject())), 'indicator count did not drop');
+        App.store.setControlDeviceState('disable-gps', 'r12-m1', 'satisfied');
+        T.assert(App.ui.views.devices.renderList(App.store.getProject()).indexOf('dev-unsat') === -1, 'indicator must vanish once all are satisfied');
+      });
+      s.test('deviceStates survive a project round-trip', function () {
+        r12Project();
+        App.store.addControl({ title: 'No Bluetooth', type: 'ISM', assignedDeviceIds: ['r12-m1'] });
+        App.store.setControlDeviceState('no-bluetooth', 'r12-m1', 'satisfied');
+        var text = App.projectIo.serializeProject(App.store.getProject());
+        var res = App.projectIo.parseProject(text);
+        T.assertEqual(res.ok, true, 'round-trip must validate');
+        T.assertEqual(res.value.controls[0].deviceStates['r12-m1'], 'satisfied');
+        T.assertEqual(App.projectIo.serializeProject(res.value), text, 'not byte-stable');
+      });
+      s.test('an unknown control state fails schema validation', function () {
+        r12Project();
+        App.store.addControl({ title: 'Bad', type: 'ISM', assignedDeviceIds: ['r12-m1'] });
+        var p = App.store.getProject();
+        p.controls[0].deviceStates['r12-m1'] = 'kinda';
+        T.assert(App.projectIo.validateSchema(p).some(function (i) { return /deviceStates/.test(i.message) && i.severity === 'error'; }), 'bad state accepted');
+      });
+    });
+
+    T.suite('review-12 #2 Delete Mode + Undo', function (s) {
+      s.test('toolbar: Delete Items button, then a counted confirm + Cancel while armed', function () {
+        r12Project();
+        var off = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], null);
+        T.assert(/data-delete-toggle="android.packages"[^>]*>Delete Items</.test(off), 'no Delete Items button');
+        T.assert(off.indexOf('data-delete-cancel') === -1, 'Cancel must only appear while armed');
+        var on = App.ui.tables.renderToolbar('android.packages', { deleteMode: true, deleteSel: { 'com.a': true } }, 2, 2, [], null);
+        T.assert(/class="active danger"/.test(on), 'armed button not in the active state');
+        T.assert(/>Delete selected \(1\)</.test(on), 'armed button must show the selection count');
+        T.assert(/data-delete-cancel="android.packages"/.test(on), 'no Cancel button while armed');
+      });
+      s.test('Delete Mode and Apply Control Mode disable each other in the toolbar', function () {
+        r12Project();
+        var del = App.ui.tables.renderToolbar('android.packages', { deleteMode: true }, 2, 2, [], null);
+        T.assert(/data-apply-toggle="android.packages"[^>]*disabled/.test(del), 'apply button must be disabled in delete mode');
+        var app = App.ui.tables.renderToolbar('android.packages', { applyMode: true }, 2, 2, [], null);
+        T.assert(/data-delete-toggle="android.packages"[^>]*disabled/.test(app), 'delete button must be disabled in apply mode');
+      });
+      s.test('table adds a Delete column with per-row checkboxes only while armed', function () {
+        r12Project();
+        var p = App.store.getProject();
+        var on = App.ui.tables.renderTableHtml(p, 'android.packages', { deleteMode: true, deleteSel: { 'com.a': true } }, {});
+        T.assert(/<th class="del-col"/.test(on), 'no delete column header');
+        T.assert(on.indexOf('data-delete-check data-key="com.a" checked') !== -1, 'ticked row not reflected');
+        T.assert(on.indexOf('data-delete-check data-key="com.b"') !== -1, 'every row needs a delete checkbox');
+        T.assert(/class="undecided del-marked"/.test(on), 'ticked row not tinted');
+        var off = App.ui.tables.renderTableHtml(p, 'android.packages', {}, {});
+        T.assert(off.indexOf('del-col') === -1 && off.indexOf('data-delete-check') === -1, 'delete column leaked outside delete mode');
+      });
+      s.test('store.removeItems deletes the ticked items and prunes their overrides', function () {
+        var devId = r12Project();
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        App.store.setDeviceOverride(devId, 'android.packages', 'com.a', { action: 'disable' });
+        var res = App.store.removeItems('android.packages', ['com.a']);
+        T.assertEqual(res.ok, true); T.assertEqual(res.removed, 1);
+        var p = App.store.getProject();
+        T.assertDeepEqual(p.items['android.packages'].map(function (i) { return i.key; }), ['com.b']);
+        var dc = p.deviceConfigs.filter(function (c) { return c.id === devId; })[0];
+        T.assert(!(dc.overrides && dc.overrides['android.packages'] && dc.overrides['android.packages']['com.a']), 'override for a deleted item must be pruned');
+        T.assertEqual(App.store.removeItems('android.packages', ['nope']).removed, 0, 'unknown keys delete nothing');
+      });
+      s.test('undo restores deleted items AND their overrides exactly', function () {
+        var devId = r12Project();
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        App.store.setDeviceOverride(devId, 'android.packages', 'com.a', { action: 'disable' });
+        // Compare the dataset's own state (meta.modifiedUtc legitimately moves on each commit).
+        function dsState() {
+          var p = App.store.getProject();
+          var dc = p.deviceConfigs.filter(function (c) { return c.id === devId; })[0];
+          return App.util.stable.stableStringify({ items: p.items['android.packages'], ov: (dc.overrides || {})['android.packages'] || null });
+        }
+        var before = dsState();
+        var snap = App.store.datasetSnapshot('android.packages');
+        App.store.removeItems('android.packages', ['com.a', 'com.b']);
+        T.assertEqual(App.store.getProject().items['android.packages'].length, 0);
+        T.assertEqual(App.store.restoreDatasetSnapshot(snap).ok, true);
+        T.assertEqual(dsState(), before, 'undo did not restore the exact prior state');
+      });
+      s.test('undo also reverses an Apply-Control-Mode change', function () {
+        r12Project();
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
+        var snap = App.store.datasetSnapshot('android.packages');
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
+        T.assertDeepEqual(App.store.getProject().items['android.packages'][0].controlRefs, [id]);
+        App.store.restoreDatasetSnapshot(snap);
+        T.assertDeepEqual(App.store.getProject().items['android.packages'][0].controlRefs, [], 'controlRefs not restored');
+      });
+      s.test('the Undo button is greyed out until a bulk change has been made', function () {
+        r12Project();
+        var none = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], { canUndo: false });
+        T.assert(/data-undo="android.packages"[^>]*disabled/.test(none), 'Undo must start disabled');
+        var some = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], { canUndo: true, label: 'deletion of 2 item(s)' });
+        T.assert(/data-undo="android.packages"(?![^>]*disabled)/.test(some), 'Undo must enable once there is something to undo');
+        T.assert(/Undo the deletion of 2 item\(s\)/.test(some), 'Undo tooltip must name the change');
+      });
+      s.test('restoreDatasetSnapshot refuses a missing/!empty snapshot instead of throwing', function () {
+        r12Project();
+        T.assertEqual(App.store.restoreDatasetSnapshot(null).ok, false);
+        T.assertEqual(App.store.datasetSnapshot('nope.nope'), null);
+      });
+    });
+
+    T.suite('review-12 #3 Security Relevance column', function (s) {
+      s.test('every dataset table gets the column with an editable badge-select', function () {
+        r12Project();
+        var p = App.store.getProject();
+        ['android.packages', 'android.settings', 'android.tactical'].forEach(function (dsId) {
+          var html = App.ui.tables.renderTableHtml(p, dsId, {}, {});
+          T.assert(/data-col="relevance"[^>]*>Security Relevance/.test(html), 'no Security Relevance header in ' + dsId);
+          T.assert(/<select class="rel-select "[^>]*data-relevance/.test(html), 'no relevance select in ' + dsId);
+          T.assert(/<option value="HIGH"/.test(html) && /<option value="MEDIUM"/.test(html) && /<option value="CONTEXT"/.test(html), 'missing options in ' + dsId);
+        });
+      });
+      s.test('an empty relevance renders as "—"; a set one wears the coloured badge class', function () {
+        r12Project();
+        var empty = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', {}, {});
+        T.assert(/<option value="" selected>—<\/option>/.test(empty), 'unset value must show as —');
+        App.store.setItemFields('android.packages', 'com.a', { relevance: 'HIGH' });
+        App.store.setItemFields('android.packages', 'com.b', { relevance: 'CONTEXT' });
+        var set = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', {}, {});
+        T.assert(/class="rel-select rel-high"/.test(set), 'HIGH not styled red');
+        T.assert(/class="rel-select rel-context"/.test(set), 'CONTEXT not styled blue');
+        T.assertEqual(App.ui.tables.relevanceClass('MEDIUM'), 'rel-medium');
+        T.assertEqual(App.ui.tables.relevanceBadge('HIGH'), '<span class="badge rel-high">HIGH</span>');
+        T.assertEqual(App.ui.tables.relevanceBadge(''), '', 'an empty relevance must render nothing');
+      });
+      s.test('setItemFields sets, clears and validates the value', function () {
+        r12Project();
+        T.assertEqual(App.store.setItemFields('android.packages', 'com.a', { relevance: 'MEDIUM' }).ok, true);
+        T.assertEqual(App.store.getProject().items['android.packages'][0].relevance, 'MEDIUM');
+        T.assertEqual(App.store.setItemFields('android.packages', 'com.a', { relevance: '' }).ok, true);
+        T.assert(!('relevance' in App.store.getProject().items['android.packages'][0]), 'clearing must drop the key (canonical)');
+        T.assertEqual(App.store.setItemFields('android.packages', 'com.a', { relevance: 'CRITICAL' }).ok, false, 'unknown option accepted');
+      });
+      s.test('sorting is by severity (HIGH → MEDIUM → CONTEXT → unset), not alphabetical', function () {
+        r12Project();
+        App.store.setItemFields('android.packages', 'com.a', { relevance: 'CONTEXT' });
+        App.store.setItemFields('android.packages', 'com.b', { relevance: 'HIGH' });
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        var rows = App.ui.model.filterSortRows(App.store.getProject(), 'android.packages', a, { sortKey: 'relevance', sortDir: 'asc' });
+        T.assertDeepEqual(rows.map(function (r) { return r.item.key; }), ['com.b', 'com.a'], 'HIGH must sort above CONTEXT');
+      });
+      s.test('an invalid relevance in a project file fails schema validation + survives round-trip', function () {
+        r12Project();
+        App.store.setItemFields('android.settings', 'secure/x', { relevance: 'HIGH' });
+        var text = App.projectIo.serializeProject(App.store.getProject());
+        var res = App.projectIo.parseProject(text);
+        T.assertEqual(res.ok, true);
+        T.assertEqual(res.value.items['android.settings'][0].relevance, 'HIGH');
+        var bad = App.store.getProject(); bad.items['android.settings'][0].relevance = 'SEVERE';
+        T.assert(App.projectIo.validateSchema(bad).some(function (i) { return /relevance/.test(i.message) && i.severity === 'error'; }), 'bad relevance accepted');
+      });
+    });
+
+    T.suite('review-12 #4 rationale + relevance columns in the decisions import', function (s) {
+      var pkgA = function () { ensureA(); return App.registry.getDataset('android-adb', 'android.packages'); };
+      var setA = function () { ensureA(); return App.registry.getDataset('android-adb', 'android.settings'); };
+
+      s.test('packages CSV accepts 3, 4 or 5 columns', function () {
+        var a = pkgA();
+        T.assertEqual(a.parseAssignment('package,action,description\ncom.a,keep,d').errors.length, 0, '3-column form must still work');
+        var r4 = a.parseAssignment('package,action,description,rationale\ncom.a,keep,d,"because, reasons"');
+        T.assertEqual(r4.errors.length, 0);
+        T.assertEqual(r4.assignments[0].fields.rationale, 'because, reasons');
+        T.assert(!('relevance' in r4.assignments[0].fields), 'an absent column must not be invented');
+        var r5 = a.parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,why,high\ncom.b,remove,d2,,');
+        T.assertEqual(r5.errors.length, 0);
+        T.assertEqual(r5.assignments[0].fields.relevance, 'HIGH', 'relevance must be case-normalised');
+        T.assertEqual(r5.assignments[1].fields.relevance, '', 'a blank cell clears the value');
+      });
+      s.test('packages CSV rejects a bad header order/name and an invalid relevance', function () {
+        var a = pkgA();
+        T.assert(a.parseAssignment('package,action,description,relevance\ncom.a,keep,d,HIGH').errors.some(function (e) { return /Header row/.test(e.message); }), 'relevance without rationale must be refused (column order)');
+        T.assert(a.parseAssignment('package,action,description,rationale,notes\ncom.a,keep,d,w,x').errors.some(function (e) { return /Header row/.test(e.message); }), 'unknown 5th column accepted');
+        T.assert(a.parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,w,SEVERE').errors.some(function (e) { return /Invalid relevance/.test(e.message); }), 'invalid relevance accepted');
+      });
+      s.test('settings CSV accepts the same optional columns (and still onboards descriptions)', function () {
+        var a = setA();
+        var r = a.parseAssignment('setting,description,value,rationale,relevance\nsecure/x,desc,1,why-x,medium');
+        T.assertEqual(r.errors.length, 0);
+        T.assertDeepEqual(r.assignments[0].fields, { description: 'desc', rationale: 'why-x', relevance: 'MEDIUM' });
+        var pr = a.parse('setting,description,value,rationale,relevance\nsecure/x,desc,1,why-x,medium');
+        T.assertDeepEqual(pr.keys, ['secure/x'], 'the CSV must still parse as a capture at onboard');
+        T.assertEqual(pr.descriptions['secure/x'], 'desc');
+      });
+      s.test('applyDeviceAssignment fills the Rationale box and the Security Relevance column', function () {
+        r12Project();
+        var a = pkgA();
+        var res = App.store.applyDeviceAssignment('r12-m1', 'android.packages',
+          a.parseAssignment('package,action,description,rationale,relevance\ncom.a,disable,desc-a,why-a,HIGH\ncom.b,keep,desc-b,why-b,'));
+        T.assertEqual(res.ok, true, JSON.stringify(res.issues));
+        var items = App.store.getProject().items['android.packages'];
+        T.assertEqual(items[0].rationale, 'why-a');
+        T.assertEqual(items[0].relevance, 'HIGH');
+        T.assertEqual(items[0].description, 'desc-a');
+        T.assertEqual(items[1].rationale, 'why-b');
+        T.assert(!('relevance' in items[1]), 'a blank relevance cell must clear, not set');
+        T.assert(res.issues.some(function (i) { return /rationale\(s\)/.test(i.message) && /relevance value\(s\)/.test(i.message); }), 'the log should report what extra columns were applied');
+      });
+      s.test('settings decisions import applies rationale + relevance too', function () {
+        r12Project();
+        var res = App.store.applyDeviceAssignment('r12-m1', 'android.settings',
+          setA().parseAssignment('setting,description,value,rationale,relevance\nsecure/x,d,7,why-x,CONTEXT'));
+        T.assertEqual(res.ok, true, JSON.stringify(res.issues));
+        var it = App.store.getProject().items['android.settings'][0];
+        T.assertEqual(it.decision.value, '7');
+        T.assertEqual(it.rationale, 'why-x');
+        T.assertEqual(it.relevance, 'CONTEXT');
+      });
+      s.test('a bad relevance never half-applies (atomic refusal)', function () {
+        r12Project();
+        var before = App.projectIo.serializeProject(App.store.getProject());
+        var parsed = pkgA().parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,w,HIGH\ncom.b,keep,d,w,HIGH');
+        parsed.assignments[1].fields.relevance = 'SEVERE'; // bypass the parser to test the store guard
+        var res = App.store.applyDeviceAssignment('r12-m1', 'android.packages', parsed);
+        T.assertEqual(res.ok, false);
+        T.assertEqual(App.projectIo.serializeProject(App.store.getProject()), before, 'a refused import must not mutate state');
+      });
+    });
+
+    // =========================================================================
+    // review-13: delete tint over the row stripe · an apply RUN is one undo step ·
+    // redo · per-device checkbox columns in Control Manager.
+    // =========================================================================
+    var H = App.ui.app._history;
+
+    /** Apply a control to several keys the way Apply Control Mode does (tick by tick). */
+    function applyRun(dsId, controlId, keys) {
+      keys.forEach(function (k) {
+        H.noteApplyTick(dsId, controlId, controlId);
+        var it = App.store.getProject().items[dsId].filter(function (i) { return i.key === k; })[0];
+        App.store.setItemFields(dsId, k, { controlRefs: (it.controlRefs || []).concat([controlId]) });
+      });
+    }
+    function refCounts(dsId) {
+      return App.store.getProject().items[dsId].map(function (i) { return (i.controlRefs || []).length; }).join(',');
+    }
+
+    T.suite('review-13 #1 delete selection tint', function (s) {
+      s.test('every ticked row carries del-marked, odd and even alike', function () {
+        r12Project();
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages',
+          { deleteMode: true, deleteSel: { 'com.a': true, 'com.b': true } }, {});
+        var marked = html.match(/del-marked/g) || [];
+        T.assertEqual(marked.length, 2, 'both ticked rows must be marked (the stripe must not win)');
+      });
+    });
+
+    T.suite('review-13 #2/#3 apply runs undo as one action, plus redo', function (s) {
+      s.test('consecutive ticks of one control fold into a SINGLE undo entry', function () {
+        r12Project(); H.reset();
+        var id = App.store.addControl({ title: 'Group', type: 'ISM' }).id;
+        applyRun('android.packages', id, ['com.a', 'com.b']);
+        var info = H.info('android.packages');
+        T.assertEqual(info.canUndo, true);
+        T.assert(/to 2 items/.test(info.label), 'the entry must count the whole run, got: ' + info.label);
+        T.assertEqual(refCounts('android.packages'), '1,1');
+        T.assertEqual(H.undo('android.packages'), true);
+        T.assertEqual(refCounts('android.packages'), '0,0', 'one undo must reverse the WHOLE run');
+        T.assertEqual(H.info('android.packages').canUndo, false, 'the run was one entry, so the stack is now empty');
+      });
+      s.test('closeRun (leaving the mode) and a different control each start a new entry', function () {
+        r12Project(); H.reset();
+        var a = App.store.addControl({ title: 'A', type: 'ISM' }).id;
+        var b = App.store.addControl({ title: 'B', type: 'ISM' }).id;
+        applyRun('android.packages', a, ['com.a']);
+        H.closeRun();                                   // e.g. exited/re-entered the mode
+        applyRun('android.packages', a, ['com.b']);
+        applyRun('android.packages', b, ['com.a']);     // different control ⇒ new entry
+        T.assertEqual(refCounts('android.packages'), '2,1');
+        H.undo('android.packages'); T.assertEqual(refCounts('android.packages'), '1,1', 'undo 1 should drop only control B');
+        H.undo('android.packages'); T.assertEqual(refCounts('android.packages'), '1,0', 'undo 2 should drop the second run');
+        H.undo('android.packages'); T.assertEqual(refCounts('android.packages'), '0,0', 'undo 3 should drop the first run');
+        T.assertEqual(H.info('android.packages').canUndo, false);
+      });
+      s.test('redo re-applies a whole undone run and is offered only after an undo', function () {
+        r12Project(); H.reset();
+        var id = App.store.addControl({ title: 'Redo me', type: 'ISM' }).id;
+        applyRun('android.packages', id, ['com.a', 'com.b']);
+        T.assertEqual(H.info('android.packages').canRedo, false, 'redo must start empty');
+        T.assertEqual(H.redo('android.packages'), false, 'redo with an empty stack is a no-op');
+        H.undo('android.packages');
+        var info = H.info('android.packages');
+        T.assertEqual(info.canRedo, true);
+        T.assert(/to 2 items/.test(info.redoLabel), 'redo must name the run');
+        T.assertEqual(H.redo('android.packages'), true);
+        T.assertEqual(refCounts('android.packages'), '1,1', 'redo must restore the whole run');
+        T.assertEqual(H.info('android.packages').canUndo, true, 'a redone action is undoable again');
+      });
+      s.test('a new action clears the redo branch', function () {
+        r12Project(); H.reset();
+        var id = App.store.addControl({ title: 'Branch', type: 'ISM' }).id;
+        applyRun('android.packages', id, ['com.a']);
+        H.undo('android.packages');
+        T.assertEqual(H.info('android.packages').canRedo, true);
+        H.pushUndo('android.packages', 'deletion of 1 item(s)');   // any new bulk action
+        T.assertEqual(H.info('android.packages').canRedo, false, 'the redo branch must be dropped');
+      });
+      s.test('undo/redo are per dataset and both buttons render their state', function () {
+        r12Project(); H.reset();
+        var id = App.store.addControl({ title: 'Scoped', type: 'ISM' }).id;
+        applyRun('android.packages', id, ['com.a']);
+        T.assertEqual(H.info('android.settings').canUndo, false, 'another dataset must be unaffected');
+        var none = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], { canUndo: false, canRedo: false });
+        T.assert(/data-redo="android.packages"[^>]*disabled/.test(none), 'Redo must start disabled');
+        var both = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], { canUndo: true, label: 'x', canRedo: true, redoLabel: 'application of control "Scoped" to 1 item' });
+        T.assert(/data-redo="android.packages"(?![^>]*disabled)/.test(both), 'Redo must enable when there is a redo entry');
+        // The tooltip is HTML-escaped like every other attribute (the label has quotes).
+        T.assert(both.indexOf('Redo the application of control &quot;Scoped&quot; to 1 item') !== -1, 'Redo tooltip must name the change');
+      });
+    });
+
+    T.suite('review-13 #4 Control Manager per-device checkbox columns', function (s) {
+      function twoDevices() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        ['Alpha', 'Bravo'].forEach(function (n, i) {
+          App.store.onboardDevice({ name: n, model: 'M' + (i + 1), firmware: 'F', snapshots: {
+            'android.packages': snapB('android.packages', 'com.a'),
+            'android.settings': snapB('android.settings', 'secure:\nx=0'),
+            'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        });
+        App.ui.views.controls._cm.deviceCols = null; // default: every device gets a column
+        App.ui.views.controls._cm.expanded = {};
+        return App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
+      }
+      s.test('a picker lists every device and the table gets one column each by default', function () {
+        twoDevices();
+        var html = App.ui.views.controls.render(App.store.getProject());
+        T.assert(/class="cm-devbar"/.test(html), 'no device-columns picker');
+        T.assert(/data-cm-devcol="alpha-m1" checked/.test(html) && /data-cm-devcol="bravo-m2" checked/.test(html), 'picker must list both devices, ticked');
+        T.assert(/data-cm-col="dev:alpha-m1"[^>]*>Alpha/.test(html) && /data-cm-col="dev:bravo-m2"[^>]*>Bravo/.test(html), 'missing per-device columns');
+        T.assert(/2 of 2 shown/.test(html), 'picker count wrong');
+      });
+      s.test('each cell is an assignment checkbox that reflects (and drives) assignment', function () {
+        var id = twoDevices();
+        var off = App.ui.views.controls.renderTable(App.store.getProject());
+        T.assert(off.indexOf('data-ctl-device="' + id + '" data-baseid="alpha-m1"') !== -1, 'no per-device cell checkbox');
+        T.assert(off.indexOf('data-baseid="alpha-m1" checked') === -1, 'unassigned device must be unticked');
+        App.store.updateControl(id, { assignedDeviceIds: ['alpha-m1'] });
+        var on = App.ui.views.controls.renderTable(App.store.getProject());
+        T.assert(on.indexOf('data-baseid="alpha-m1" checked') !== -1, 'assigned device must be ticked');
+        T.assert(on.indexOf('data-baseid="bravo-m2" checked') === -1, 'only the assigned device may be ticked');
+        // The shared store path also seeds the per-device state (review-12 #1).
+        var c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(App.store.controlDeviceState(c, 'alpha-m1'), 'unsatisfied');
+      });
+      s.test('the picker filters which devices get a column', function () {
+        twoDevices();
+        var CV = App.ui.views.controls;
+        CV._cm.deviceCols = { 'bravo-m2': true };
+        var one = CV.render(App.store.getProject());
+        T.assert(one.indexOf('data-cm-col="dev:bravo-m2"') !== -1 && one.indexOf('data-cm-col="dev:alpha-m1"') === -1, 'only the ticked device may have a column');
+        T.assert(/1 of 2 shown/.test(one));
+        CV._cm.deviceCols = {};
+        var none = CV.render(App.store.getProject());
+        T.assert(none.indexOf('data-cm-col="dev:') === -1, 'None must remove every device column');
+        T.assert(/data-cm-devcol="alpha-m1"(?![^>]*checked)/.test(none), 'picker must show the devices as unticked');
+        CV._cm.deviceCols = null;
+      });
+      s.test('the expanded detail row spans the widened table', function () {
+        var id = twoDevices();
+        var CV = App.ui.views.controls;
+        CV._cm.expanded = {}; CV._cm.expanded[id] = true;
+        var html = CV.renderTable(App.store.getProject());
+        T.assert(/<tr class="detail-row"><td colspan="7"/.test(html), 'detail row must span 1 lead + 4 base + 2 device columns');
+        CV._cm.deviceCols = {};
+        T.assert(/<tr class="detail-row"><td colspan="5"/.test(CV.renderTable(App.store.getProject())), 'colspan must follow the shown columns');
+        CV._cm.expanded = {}; CV._cm.deviceCols = null;
+      });
+      s.test('device columns are drag-resizable like the rest', function () {
+        twoDevices();
+        var CV = App.ui.views.controls;
+        CV._cm.colWidths = { 'dev:alpha-m1': 222 };
+        var html = CV.renderTable(App.store.getProject());
+        T.assert(/data-cm-col-resize="dev:alpha-m1"/.test(html), 'no resize handle on a device column');
+        T.assert(/data-cm-col="dev:alpha-m1"[^>]*style="width:222px"/.test(html), 'stored width not applied');
+        CV._cm.colWidths = {};
+      });
+    });
+
+    // =========================================================================
+    // review-14: REPORTING + IRRELEVANT relevance options, parked out of the
+    // default table view behind their own toggles.
+    // =========================================================================
+    T.suite('review-14 REPORTING + IRRELEVANT relevance options', function (s) {
+      /** com.a=HIGH, com.b=REPORTING, com.c=IRRELEVANT, com.d untagged. */
+      function tagged() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'R14', model: 'M1', firmware: 'F', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b\ncom.c\ncom.d'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.setItemFields('android.packages', 'com.a', { relevance: 'HIGH' });
+        App.store.setItemFields('android.packages', 'com.b', { relevance: 'REPORTING' });
+        App.store.setItemFields('android.packages', 'com.c', { relevance: 'IRRELEVANT' });
+        return App.registry.getDataset('android-adb', 'android.packages');
+      }
+      function keysFor(ui) {
+        return App.ui.model.filterSortRows(App.store.getProject(), 'android.packages', tagged.adapter, ui)
+          .map(function (r) { return r.item.key; }).join(',');
+      }
+
+      s.test('both options are offered, accepted and schema-valid', function () {
+        tagged();
+        T.assertDeepEqual(App.projectIo.RELEVANCE_OPTIONS, ['HIGH', 'MEDIUM', 'CONTEXT', 'REPORTING', 'IRRELEVANT']);
+        T.assertEqual(App.store.setItemFields('android.packages', 'com.d', { relevance: 'REPORTING' }).ok, true);
+        T.assertEqual(App.store.setItemFields('android.packages', 'com.d', { relevance: 'IRRELEVANT' }).ok, true);
+        var p = App.store.getProject();
+        T.assertEqual(App.projectIo.validateSchema(p).filter(function (i) { return i.severity === 'error'; }).length, 0);
+        var html = App.ui.tables.renderTableHtml(p, 'android.packages', { onlyRelevance: ['IRRELEVANT'] }, {});
+        T.assert(/<option value="REPORTING"/.test(html) && /<option value="IRRELEVANT"/.test(html), 'both options must be pickable in the cell');
+      });
+      s.test('REPORTING is purple and IRRELEVANT grey, as badge classes', function () {
+        T.assertEqual(App.ui.tables.relevanceClass('REPORTING'), 'rel-reporting');
+        T.assertEqual(App.ui.tables.relevanceClass('IRRELEVANT'), 'rel-irrelevant');
+        T.assertEqual(App.ui.tables.relevanceBadge('REPORTING'), '<span class="badge rel-reporting">REPORTING</span>');
+        T.assertEqual(App.ui.tables.relevanceBadge('IRRELEVANT'), '<span class="badge rel-irrelevant">IRRELEVANT</span>');
+      });
+      s.test('parked items are hidden from the default view', function () {
+        tagged.adapter = tagged();
+        T.assertEqual(keysFor({}), 'com.a,com.d', 'REPORTING/IRRELEVANT must not show by default');
+      });
+      s.test('each toggle shows ONLY its category; both shows either', function () {
+        tagged.adapter = tagged();
+        T.assertEqual(keysFor({ onlyRelevance: ['REPORTING'] }), 'com.b');
+        T.assertEqual(keysFor({ onlyRelevance: ['IRRELEVANT'] }), 'com.c');
+        T.assertEqual(keysFor({ onlyRelevance: ['REPORTING', 'IRRELEVANT'] }), 'com.b,com.c');
+      });
+      s.test('the parked view composes with search and Incomplete-only', function () {
+        tagged.adapter = tagged();
+        App.store.setDecision('android.packages', 'com.b', { action: 'keep' }); // decided
+        T.assertEqual(keysFor({ onlyRelevance: ['REPORTING', 'IRRELEVANT'], incompleteOnly: true }), 'com.c', 'decided parked item must drop out');
+        T.assertEqual(keysFor({ onlyRelevance: ['IRRELEVANT'], search: 'com.b' }), '', 'search still applies inside the parked view');
+      });
+      s.test('the toolbar offers both toggles and says what is hidden', function () {
+        tagged();
+        var off = App.ui.tables.renderToolbar('android.packages', {}, 4, 2, [], null);
+        T.assert(/data-only-rel="REPORTING"/.test(off) && /data-only-rel="IRRELEVANT"/.test(off), 'both toggles must render');
+        T.assert(off.indexOf('Reporting &amp; Irrelevant items are hidden.') !== -1, 'the default view must say what it hides');
+        T.assert(off.indexOf('data-only-rel="REPORTING" checked') === -1, 'toggles start unticked');
+        var on = App.ui.tables.renderToolbar('android.packages', { onlyRelevance: ['REPORTING'] }, 4, 1, [], null);
+        T.assert(on.indexOf('data-only-rel="REPORTING" checked') !== -1, 'ticked state not reflected');
+        T.assert(/class="rel-view rel-reporting active"/.test(on), 'an active toggle must wear its category colour');
+        T.assert(/Showing only REPORTING items/.test(on), 'the note must name the active view');
+      });
+      s.test('severity sort places REPORTING then IRRELEVANT after CONTEXT, before unset', function () {
+        var a = tagged();
+        App.store.setItemFields('android.packages', 'com.d', { relevance: 'CONTEXT' });
+        var rows = App.ui.model.filterSortRows(App.store.getProject(), 'android.packages', a,
+          { onlyRelevance: ['REPORTING', 'IRRELEVANT'], sortKey: 'relevance', sortDir: 'asc' });
+        T.assertDeepEqual(rows.map(function (r) { return r.item.relevance; }), ['REPORTING', 'IRRELEVANT']);
+      });
+      s.test('the decisions import accepts both new values (and still rejects junk)', function () {
+        ensureA();
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        var r = a.parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,w,reporting\ncom.b,keep,d,w,Irrelevant');
+        T.assertEqual(r.errors.length, 0, JSON.stringify(r.errors));
+        T.assertEqual(r.assignments[0].fields.relevance, 'REPORTING');
+        T.assertEqual(r.assignments[1].fields.relevance, 'IRRELEVANT');
+        T.assert(a.parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,w,REPORT').errors.some(function (e) { return /Invalid relevance/.test(e.message); }), 'a near-miss must still be refused');
+        var st = App.registry.getDataset('android-adb', 'android.settings')
+          .parseAssignment('setting,description,value,rationale,relevance\nsecure/x,d,1,w,IRRELEVANT');
+        T.assertEqual(st.errors.length, 0);
+        T.assertEqual(st.assignments[0].fields.relevance, 'IRRELEVANT');
+      });
+      s.test('settings decisions import applies the parked values end to end', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'R14b', model: 'M1', firmware: 'F', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.settings': snapB('android.settings', 'secure:\nx=0\ny=1'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var keys = App.store.getProject().deviceConfigs[0].snapshots['android.settings'].keys;
+        var csv = 'setting,description,value,rationale,relevance\n' + keys.map(function (k, i) {
+          return k + ',d' + i + ',' + i + ',why' + i + ',' + (i ? 'IRRELEVANT' : 'REPORTING');
+        }).join('\n');
+        var res = App.store.applyDeviceAssignment('r14b-m1', 'android.settings',
+          App.registry.getDataset('android-adb', 'android.settings').parseAssignment(csv));
+        T.assertEqual(res.ok, true, JSON.stringify(res.issues));
+        var items = App.store.getProject().items['android.settings'];
+        T.assertDeepEqual(items.map(function (i) { return i.relevance; }), ['REPORTING', 'IRRELEVANT']);
+        // ...and they are parked out of the default table view.
+        var a = App.registry.getDataset('android-adb', 'android.settings');
+        T.assertEqual(App.ui.model.filterSortRows(App.store.getProject(), 'android.settings', a, {}).length, 0, 'imported parked items must be hidden by default');
+        T.assertEqual(App.ui.model.filterSortRows(App.store.getProject(), 'android.settings', a, { onlyRelevance: ['IRRELEVANT'] }).length, 1);
       });
     });
 

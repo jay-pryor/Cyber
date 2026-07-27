@@ -1,0 +1,2 @@
+1. Add another option for the settings decisions import relevance column for 'Irrelevant' and 'Reporting' (i.e. so it is now HIGH, MEDIUM, CONTEXT, REPORTING, and IRRELEVANT) with the colour grey for irrelevant and purple for reporting.
+2. Don't display irrelevant or reporting items automatically, but add a toggle that changes the display to show only items marked Irrelevant and another toggle for items marked Reporting.

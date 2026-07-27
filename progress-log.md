@@ -28,7 +28,7 @@ Process per task (build phase): **build → review → devise tests → log defe
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
-COMPLETE** + reviews 1–9 + report-gen. **217/217 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+COMPLETE** + reviews 1–14 + report-gen. **268/268 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
 Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
@@ -460,6 +460,112 @@ command + data-files-exempt; .txt run note). **217/217 self-tests pass.**
 **Review:** real-data run (438 packages) — apply-to adds to all 30 remove-action packages, tops up the
 one removed, then toggles all off; the script header shows AEST + the how-to-run command. Determinism
 (DOD-7) holds (AEST + how-to-run are pure functions of the fixed timestamp/filename).
+
+**Defects:** none.
+
+### 2026-07-26 — Review-12 changes (control satisfaction · Delete Mode + Undo · Security Relevance) — ✅ COMPLETE
+
+Actioned the four review-12 notes:
+
+1. **Per-device control satisfaction (RV12-1).** Controls now carry `deviceStates`
+   (`{deviceBaseId: 'satisfied'|'unsatisfied'}`), keyed by **baseId** so the state survives
+   re-onboarding. A control assigned to a device starts **Unsatisfied**; the Devices detail view shows
+   the badge plus a Mark satisfied / Mark unsatisfied toggle beside each assigned control, and the
+   Devices **list** flags any active device with outstanding controls (`⚠ n controls unsatisfied`,
+   tooltip lists them). Assignment changes keep the map in step (new device ⇒ seeded unsatisfied;
+   un-assigned device ⇒ state dropped). Schema-validated; round-trip stable.
+2. **Delete Mode + Undo (RV12-2).** `Delete Items` mirrors Apply Control Mode: click to arm (a 🗑 Delete
+   column appears with per-row checkboxes and ticked rows tint), click **Delete selected (n)** to action
+   it, or **Cancel** to leave without deleting. The two modes are mutually exclusive (each disables the
+   other's button). `store.removeItems` is the ONE explicit exception to the append-only item rule
+   (§8.5) and prunes any device/group override pointing at a deleted key; capture snapshots are left
+   untouched, so re-onboarding the same file restores the item. **Undo** (per dataset, session-only,
+   depth 20) reverses the last Delete-Mode or Apply-Control-Mode change via a pre-change
+   `store.datasetSnapshot` / `restoreDatasetSnapshot`; the button is greyed out until such a change is
+   made and the stack is cleared whenever a project is loaded or a draft restored (a snapshot must
+   never be replayed into a different project).
+3. **Security Relevance column (RV12-3).** A new optional item field `relevance` — `HIGH` / `MEDIUM` /
+   `CONTEXT`, or empty. Added once in `ui.tables` (core, not per-adapter) so all three tables get it;
+   the cell is a `<select>` wearing the badge skin (red / orange / blue via a new `--c-info` pair), so
+   it reads as a badge and stays editable in place. Sorting is by **severity**, not alphabetical.
+   Clearing drops the key so serialization stays canonical; the value is also exported in the CSV.
+4. **Rationale + Relevance import columns (RV12-4).** The packages (`package,action,description`) and
+   settings (`setting,description,value`) decision CSVs now accept two optional trailing columns,
+   `rationale` then `relevance`, validated by a shared `checkAssignHeader`. Rationale fills the item's
+   Rationale box; relevance is case-normalised and validated against the closed vocabulary — an
+   invalid value refuses the whole import (atomic, ASG-5), and a blank cell clears the field. The
+   settings CSV keeps working as an onboard capture format.
+
+**Tests:** +26 self-tests across four `review-12` suites (control state seeding/toggle/pruning + list
+indicator + round-trip; Delete-Mode toolbar/column/exclusivity, removeItems override pruning, undo of
+both delete and control-apply, greyed-out Undo; relevance rendering/badge classes/validation/severity
+sort; CSV 3-/4-/5-column parsing, bad header + bad relevance refusal, and both adapters applying the
+extra columns). **248/248 self-tests pass** (was 222/222 before the change).
+
+**Defects:** none.
+
+### 2026-07-27 — Review-13 changes (delete tint · grouped undo + redo · device columns) — ✅ COMPLETE
+
+Actioned the four review-13 notes:
+
+1. **Delete tint on every row (RV13-1).** `tr.del-marked` was declared *before*
+   `tbody tr:nth-child(even)` and had equal specificity, so the even-row stripe won and only the odd
+   (unshaded) rows turned red. The rule now sits after the stripe and names both parities explicitly.
+2. **An Apply run is ONE undo action (RV13-2).** Ticking three rows is one user action in three
+   clicks, so consecutive ticks of the *same* control now fold into a single undo entry (its snapshot
+   is the state before the first tick, its label counts the run: "application of control X to 3
+   items"). One Undo reverses the whole run. A run is closed by anything that ends it: leaving/
+   entering Apply Control Mode, changing the selected control, an apply-to-action command, a
+   deletion, an undo/redo, a tab switch, or loading a project.
+3. **Redo (RV13-3).** Undo and redo are now two stacks per dataset moved through one reversible
+   `stepHistory` step (the current state is swapped onto the opposite stack), so redo re-applies a
+   whole undone run. Any new action drops the redo branch (standard undo model). Both buttons are
+   greyed out when their stack is empty, with tooltips naming the exact action; tooltip text lives in
+   `App.ui.tables` so the toolbar render and the in-place re-sync cannot drift.
+4. **Per-device checkbox columns in Control Manager (RV13-4).** A "Device columns:" picker sits above
+   the table (one checkbox per onboarded device + All / None + a count). Every ticked device gets its
+   own column, and each cell is an assignment checkbox for that control × device — one click to apply
+   or remove, instead of opening the row dropdown. Columns default to all devices, are drag-resizable
+   like the rest, and the expanded detail row's colspan follows the shown columns. The cells reuse the
+   existing assignment handler, so ticking one also seeds that control's per-device **Unsatisfied**
+   state (review-12 #1) and updates the "Applies to" cell.
+
+**Tests:** +11 self-tests across three `review-13` suites (both parities marked in delete mode; run
+folding, run-closing rules, whole-run undo, redo round-trip, redo-branch invalidation, per-dataset
+isolation, both button states; Control Manager picker/columns/cell state/filtering/colspan/resize).
+**259/259 self-tests pass.**
+
+**Defects:** RV13-1 (delete tint hidden behind the even-row stripe) — FIXED.
+
+### 2026-07-27 — Review-14 changes (REPORTING + IRRELEVANT relevance, parked views) — ✅ COMPLETE
+
+Actioned the two review-14 notes:
+
+1. **Two more Security Relevance options (RV14-1).** The vocabulary is now
+   `HIGH, MEDIUM, CONTEXT, REPORTING, IRRELEVANT` — **REPORTING purple** (new `--c-purple` /
+   `--c-purple-bg` pair, light + dark) and **IRRELEVANT grey** (the muted/alt greys). Because the
+   vocabulary is a single shared constant (`App.projectIo.RELEVANCE_OPTIONS`), the cell picker, store
+   validation, schema validation and both decision-CSV importers picked the new values up with no
+   further change; severity sort ranks them after CONTEXT and before unset. Hint text updated in the
+   packages/settings `assignmentHint`, the Devices import panel and in-app Help.
+2. **Parked out of the default view (RV14-2).** `REPORTING` and `IRRELEVANT` are declared "parked"
+   (`RELEVANCE_PARKED`): `App.ui.model.filterSortRows` hides those items from all three data tables so
+   the working view stays on items that still need a security decision. Two toolbar toggles —
+   *Reporting only* and *Irrelevant only* — invert that: ticking one lists ONLY that category, ticking
+   both lists either. The toggles wear their category's colour when active and the toolbar states
+   which view is in force ("Reporting & Irrelevant items are hidden." / "Showing only REPORTING
+   items."). The view composes with search, Incomplete-only, sort, the two bulk modes and CSV export
+   (which follows what is shown).
+
+**Scope note:** this is a *display* filter only. Parked items still count toward the tab's undecided
+badge, `completeness`/`deviceReadiness` and generation — changing those would alter generation gating,
+which was not part of the request.
+
+**Tests:** +9 self-tests in a `review-14` suite (both options accepted + schema-valid + pickable;
+purple/grey badge classes; hidden by default; each toggle and the union; composition with search /
+Incomplete-only; toolbar toggle states + note; severity sort placement; both importers accepting the
+new values while still rejecting near-misses; a settings import applying them end to end and landing
+parked). **268/268 self-tests pass.**
 
 **Defects:** none.
 
