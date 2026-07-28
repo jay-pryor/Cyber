@@ -423,7 +423,10 @@
   .cm-devbar .cm-devcol-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
   .cm-devbar button { padding: 2px 8px; font-size: 12px; }
   table.ctl-table th.cm-dev-col, table.ctl-table td.cm-dev-cell { text-align: center; }
-  table.ctl-table td.cm-dev-cell input { width: auto; }
+  /* BULK-2: padding:0 lets .cell-check cover the whole cell (see the data-table rule). The
+     generic `table.ctl-table input{width:100%}` would stretch the box, so pin it back. */
+  table.ctl-table td.cm-dev-cell { padding: 0; }
+  table.ctl-table td.cm-dev-cell input { width: 16px; }
   .ctl-search { width: 100%; max-width: 420px; font: inherit; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
   table.ctl-table th, table.ctl-table td { vertical-align: top; }
   table.ctl-table td input[type="text"], table.ctl-table td select { font: inherit; font-size: 13px; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
@@ -7377,8 +7380,11 @@
           // to it (and seeds its per-device Unsatisfied state), unticking un-assigns.
           devCols.map(function (d) {
             var on = (c.assignedDeviceIds || []).indexOf(d.baseId) !== -1;
-            return '<td class="cm-dev-cell"><input type="checkbox" data-ctl-device="' + esc(c.id) + '" data-baseid="' + esc(d.baseId) + '"' + (on ? ' checked' : '') +
-              ' aria-label="Apply ' + esc(c.title) + ' to ' + esc(d.name) + '"></td>';
+            // BULK-2: same full-cell hit target as the data tables' Apply/Delete columns —
+            // the cell-filling <label> is what a click lands on, so ticking a control onto a
+            // device no longer means hitting a 13px box in a wide column.
+            return '<td class="cm-dev-cell"><label class="cell-check"><input type="checkbox" data-ctl-device="' + esc(c.id) + '" data-baseid="' + esc(d.baseId) + '"' + (on ? ' checked' : '') +
+              ' aria-label="Apply ' + esc(c.title) + ' to ' + esc(d.name) + '"></label></td>';
           }).join('') +
           '</tr>';
         if (open) {
@@ -12113,6 +12119,17 @@
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { deleteMode: true }, {});
         T.assert(/<td class="del-cell"><label class="cell-check"><input type="checkbox" data-delete-check/.test(html),
           'the delete column should be just as easy to hit');
+      });
+      s.test('the Control Manager per-device columns get it too', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'CM', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.addControl({ title: 'No BT', type: 'ISM' });
+        var html = App.ui.views.controls.render(App.store.getProject());
+        T.assert(/<td class="cm-dev-cell"><label class="cell-check"><input type="checkbox" data-ctl-device=/.test(html),
+          'the per-device cells must be cell-filling labels like the data tables');
+        T.assert(/aria-label="Apply No BT to CM"/.test(html), 'the input must keep its accessible name');
       });
       s.test('it stays a real checkbox (keyboard + screen reader), not a div', function () {
         var id = tickProject();

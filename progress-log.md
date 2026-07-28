@@ -29,7 +29,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**335/335 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+**336/336 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
 checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
 `report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
@@ -868,13 +868,18 @@ on cannot drift apart. One undo entry per run; the Activity log names the count 
 term. Dropping the enum requirement means **Tactical gets it too**. RV8-2/RV9-1 recorded as
 superseded rather than quietly removed.
 
-**BULK-2 — the tick columns are full-cell targets.** A ~13px checkbox inside a 74px cell is a
-precision task you repeat hundreds of times. Both the Apply and Delete boxes are now wrapped in
-a cell-filling `<label>`, so a click anywhere in the column registers. Deliberately a `<label>`
-and not a click handler on the `<td>`: it stays a real `<input type="checkbox">` with its
-`aria-label`, so keyboard and screen-reader access are unchanged. Verified in a browser that
-clicking the box *itself* still toggles exactly once — a label wrapping its own input is a
-classic double-toggle trap.
+**BULK-2 — the tick columns are full-cell targets.** A ~16px checkbox inside a 74px cell is a
+precision task you repeat hundreds of times. The Apply and Delete boxes — and, on review, the
+**Control Manager's per-device columns** (110×40px cells with a 16px box sitting 48px in) — are
+now wrapped in a cell-filling `<label>`, so a click anywhere in the cell registers. Deliberately
+a `<label>` and not a click handler on the `<td>`: it stays a real `<input type="checkbox">`
+with its `aria-label`, so keyboard and screen-reader access are unchanged. Verified in a browser
+for both surfaces that clicking the box *itself* still toggles exactly once — a label wrapping
+its own input is a classic double-toggle trap.
+
+The Control Manager's other two checkbox groups (the "Device columns" bar and the row-expander
+"Applies to" list) were left alone: both already sit inside labels **with the device name as
+visible text**, so they are large targets already. The rule is about bare boxes in cells.
 
 **HELD-1 — flag for review without losing the answer.** Previously the only way to make an item
 undecided was to clear its decision, which threw the answer away; you could not say *"this is my

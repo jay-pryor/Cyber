@@ -2063,12 +2063,19 @@ The button's LABEL and the click's ACTION MUST come from **one** shared plan
 cannot drift. The whole run is one undo entry, and the Activity log records the count and
 the search term in force.
 
-### BULK-2 (MUST) — the tick columns are full-cell hit targets
-The Apply and Delete checkboxes MUST be wrapped in a cell-filling `<label>` so a click
-anywhere in the column toggles them; a ~13px target in a 74px cell is a precision task
-repeated hundreds of times. It MUST remain a real `<input type="checkbox">` with its
-`aria-label` — a click handler on the `<td>` would lose keyboard and screen-reader access —
-and clicking the box itself MUST toggle exactly once, not twice.
+### BULK-2 (MUST) — every checkbox in a table cell is a full-cell hit target
+**Any** bare checkbox occupying a table cell MUST be wrapped in a cell-filling `<label>` so a
+click anywhere in the cell toggles it; a ~16px target in a 74–110px cell is a precision task
+repeated hundreds of times. This covers the data tables' **Apply** and **Delete** columns and
+the Control Manager's **per-device** columns (`.cm-dev-cell`).
+
+It MUST remain a real `<input type="checkbox">` with its `aria-label` — a click handler on the
+`<td>` would lose keyboard and screen-reader access — and clicking the box itself MUST toggle
+exactly once, not twice (a `<label>` wrapping its own input is a classic double-fire trap).
+
+A checkbox that already sits inside a `<label>` **with visible text** (the Control Manager's
+"Device columns" bar and its row-expander "Applies to" list, the Control Refs multi-select) is
+already a large target and needs no change — the rule is about *bare* boxes in cells.
 
 ### HELD-1 (MUST) — flag for review without losing the answer
 `RegisterItem` MAY carry **`held: true`** meaning *"this has a value, and I want to look at
@@ -2107,8 +2114,9 @@ Additive and optional; `held` is only ever `true` when present (canonical form o
   control. This is a browser check — it cannot be established by reasoning about the CSS.
 - **BULK-A** With a search active, the button names the shown count, acts on exactly that
   set, leaves every hidden row untouched, and flips to "Remove from all" on a second run.
-- **BULK-B** In a real browser, a click on cell *whitespace* toggles the tick, and a click on
-  the box itself toggles it exactly once.
+- **BULK-B** In a real browser, for the data tables **and** the Control Manager's per-device
+  columns, a click on cell *whitespace* toggles the tick, and a click on the box itself
+  toggles it exactly once.
 - **HELD-A** Flipping a decided item retains its `decision` byte-for-byte, marks it held,
   drops the device out of ready, and excludes it from the generated script; flipping back
   restores the same value. Editing releases the hold; `clear` still clears.
