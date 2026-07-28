@@ -2141,6 +2141,49 @@ filterable picker showing each tag's usage count, a per-row **✓ Tag** tick col
 Manager's search MUST match tags as well as title/type/description. Deleting a tag strips it
 from every control and changes nothing else.
 
+## 22.6 Column filters and justified control satisfaction (v2.1.3)
+
+### FIL-1 (MUST) — per-column value filters that compose
+Each data table carries a **filter row directly beneath the headings**: one dropdown per
+filterable column, under the column it filters. Which columns get one is **discovered from the
+adapter**, never hardcoded — the enum decision field (packages' Action) from its schema options,
+Security Relevance from the shared vocabulary, Applies to from the devices that hold items in
+that dataset, and Status (decided / undecided / review). A dataset with no enum decision field
+simply gets no Action filter.
+
+Filters **compose** — with each other (AND), with the free-text search, with Incomplete-only and
+with the parked-relevance toggles. "Packages being removed whose name contains bluetooth" is
+therefore Action = `remove` plus a search, not a special case. Every surface that acts on "what
+is shown" — **Apply to all N shown** (BULK-1), **Export CSV** — inherits them, because they all
+run through the same `filterSortRows`.
+
+An active filter MUST be visibly marked and the toolbar MUST say how many are active, with a
+clear affordance: a table that is mysteriously short is worse than no filter at all. Filter state
+is UI-only and never written to the project.
+
+### JUS-1 (MUST) — a justification for control satisfaction
+A `Control` MAY carry **`deviceJustifications: { [deviceBaseId]: string }`** — free text saying
+*why* the recorded decisions satisfy that control **on that device**. Keyed by base id, so it
+survives re-onboarding exactly as `deviceStates` does. Blank clears it and the empty map is
+dropped, so "no justification" has one canonical form. Additive; no `schemaVersion` bump.
+
+### JUS-2 (MUST) — the decision lives with its evidence
+The **Mark satisfied / unsatisfied** control and the justification box MUST live **inside the
+per-control modal**, beneath the list of items that satisfy the control — not on the summary row.
+The point is procedural: a control is marked satisfied having just looked at what satisfies it,
+and the reason is captured in the same moment. The summary row keeps the state **badge** (and a
+preview of the justification) and routes into the modal.
+
+Committing the state MUST first flush any pending justification edit: clicking the button blurs
+the textarea, and the two must not race for the same commit.
+
+### JUS-3 (MUST) — it has to reach the report or it is not traceable
+The generated report's **Control coverage** section gains **Status** and **Justification**
+columns; the **Control report** prints the per-device status and justification under each control
+heading. A control marked satisfied with **no** justification MUST be shown as such — in the
+modal, on the list row, and in the report ("No justification recorded") — rather than rendering
+as a blank cell that reads as clean.
+
 ## 22.3 Acceptance (additive to §1.1)
 
 - **VF-A** With no configuration, every leaf of the reference Knox capture resolves to a
@@ -2163,6 +2206,12 @@ from every control and changes nothing else.
 - **BULK-B** In a real browser, for the data tables **and** the Control Manager's per-device
   columns, a click on cell *whitespace* toggles the tick, and a click on the box itself
   toggles it exactly once.
+- **FIL-A** Filtering by Action and then searching narrows to the intersection; filters compose
+  with each other and with the parked toggles; a filtered table announces it; and bulk
+  apply-to-all-shown acts on exactly the filtered set.
+- **JUS-A** The state toggle and justification box render in the modal and NOT on the list row;
+  the justification round-trips byte-identically, is refused for an unassigned device, and
+  appears in both generated reports; satisfied-without-justification is flagged everywhere.
 - **STAB-A** In a real browser, with the list scrolled, ticking a checkbox leaves the ticked
   cell at the **same viewport offset** — verified repeatedly, not once.
 - **TAG-A** A device column heading assigns only the shown controls, toggles back off, and

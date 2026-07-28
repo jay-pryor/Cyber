@@ -1537,3 +1537,32 @@ overrides, generate or the report shell.
   button, acts on the shown set only, toggles, and marks itself; tags create/apply/multi/dedupe/
   canonical-empty/round-trip/schema/delete; search matches tags; the rail renders picker, tick
   column, bulk button and create box; the bulk label flips to untag.
+
+### T13.11 · Column filters + justified control satisfaction (FIL-1, JUS-1/2/3)
+- **Depends on:** T13.9, T13.10
+- **Spec:** §22.6, §22.3 (FIL-A, JUS-A)
+- **Objective:** Filter tables by column value; make control satisfaction a justified decision.
+- **Build:**
+  - **FIL-1.** Add `filterableColumns(project, dsId, adapter)` and `colFilterPredicate(adapter, ui)`
+    to `App.ui.model`, and apply the predicate inside `filterSortRows` **before** the search so
+    the search narrows what the filters left. Discover the columns from the adapter — the enum
+    decision field, the relevance vocabulary, the devices holding items, and status (including
+    HELD-1's `review`). Render a `filter-row` under the headings; tint active filters; add a
+    toolbar count + clear. Everything downstream (BULK-1, CSV) inherits the filters for free
+    because they share `filterSortRows`.
+  - **JUS-1/2.** Add `Control.deviceJustifications` + `store.setControlDeviceJustification` /
+    `controlDeviceJustification`. **Move** the state toggle off the list row into
+    `renderControlModal`, next to a justification textarea, under the item lists. Flush a pending
+    justification edit before committing the state — clicking the button blurs the textarea.
+  - **JUS-3.** Add Status + Justification columns to the report's Control-coverage section and a
+    status/justification block per control in the control report. Print "No justification
+    recorded" for a satisfied control that has none — a blank cell reads as clean.
+- **Self-tests:** filterable columns are adapter-derived (tactical gets no Action filter); each
+  filter type incl. "(not set)" and `review`; filters compose with search, each other and the
+  parked toggles; the filter row renders and marks active filters; the toolbar announces them;
+  the bulk plan honours them. Justification round-trips, clears canonically, is refused for an
+  unassigned device, is schema-checked; the modal carries toggle + box + evidence while the list
+  row carries neither toggle; unjustified-satisfied is flagged in modal, list and report; both
+  reports carry the text.
+- **Out-of-band:** browser-verify the filter→search flow end to end, and that typing a
+  justification then clicking Mark satisfied persists BOTH (the blur/commit race).

@@ -199,6 +199,32 @@
   .cell-clamp { display: block; height: 1.45em; line-height: 1.45; overflow: hidden;
                 white-space: nowrap; text-overflow: ellipsis; }
 
+  /* JUS-1/JUS-2: the satisfaction decision + justification, inside the control modal. */
+  .ctl-decide { border: 1px solid var(--c-border); border-radius: 8px; padding: 10px 12px;
+                margin-bottom: 12px; background: var(--c-surface-alt); }
+  .ctl-decide-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+  .ctl-decide-head button { margin-left: auto; }
+  .ctl-just-label { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 4px; }
+  textarea.ctl-just { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical;
+                      font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--c-border);
+                      border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .ctl-just-warn { margin-top: 6px; font-size: 12px; color: var(--c-warn); }
+  .ctl-just-note { margin-top: 4px; font-size: 11px; }
+  .ctl-just-peek { font-size: 11.5px; color: var(--c-text-muted); max-width: 320px;
+                   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge.nojust { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
+
+  /* FIL-1: the per-column filter row under the table headers. An active filter is
+     tinted so the table is never mysteriously short. */
+  table.data tr.filter-row th { padding: 2px 4px; background: var(--c-surface-alt);
+                                border-bottom: 1px solid var(--c-border); font-weight: 400; }
+  select.col-filter { width: 100%; font: inherit; font-size: 11.5px; padding: 2px 4px;
+                      border: 1px solid var(--c-border); border-radius: 4px;
+                      background: var(--c-bg); color: var(--c-text-muted); }
+  select.col-filter.on { background: var(--c-info-bg); color: var(--c-info);
+                         border-color: var(--c-info); font-weight: 600; }
+  .filter-clear { padding: 0 6px; font-size: 12px; line-height: 1.6; }
+
   /* BULK-1: the apply-to-all-shown button + its caption. */
   .side-rail .apply-all { width: 100%; }
   .apply-all-note { font-size: 11px; line-height: 1.35; }
@@ -1729,6 +1755,14 @@
           if (typeof c.type !== 'string' || !c.type) issues.push(issue('error', 'Control.type must be a non-empty string.', loc + '.type'));
           if (c.description !== undefined && typeof c.description !== 'string') issues.push(issue('error', 'Control.description must be a string.', loc + '.description'));
           if (c.tags !== undefined && !isStringArray(c.tags)) issues.push(issue('error', 'Control.tags must be an array of strings.', loc + '.tags')); // TAG-1
+          // JUS-1: {deviceBaseId: 'why this control is met here'}. Free text; only the
+          // shape is structural.
+          if (c.deviceJustifications !== undefined) {
+            if (!isPlainObject(c.deviceJustifications)) issues.push(issue('error', 'Control.deviceJustifications must be an object.', loc + '.deviceJustifications'));
+            else Object.keys(c.deviceJustifications).forEach(function (bid) {
+              if (typeof c.deviceJustifications[bid] !== 'string') issues.push(issue('error', 'Control.deviceJustifications["' + bid + '"] must be a string.', loc + '.deviceJustifications'));
+            });
+          }
           if (c.assignedDeviceIds !== undefined && !isStringArray(c.assignedDeviceIds)) issues.push(issue('error', 'Control.assignedDeviceIds must be an array of strings.', loc + '.assignedDeviceIds'));
           // review-12 #1: {deviceBaseId: 'satisfied'|'unsatisfied'} — device-specific
           // satisfaction of this control. Absent/unknown baseId ⇒ 'unsatisfied'.
@@ -2866,9 +2900,40 @@
       return { ok: true, issues: [] };
     }
 
+    /**
+     * JUS-1: the free-text justification for a control's state ON ONE DEVICE — "why do we
+     * say this control is met here?". Stored per (control, device baseId) beside the
+     * state, so it survives re-onboarding like the state does, and it is the evidence the
+     * report carries. Setting a blank string clears it, so "no justification" has one
+     * canonical form.
+     * @param {string} controlId @param {string} baseId @param {string} text
+     * @returns {{ok:boolean, issues:Issue[]}}
+     */
+    function setControlDeviceJustification(controlId, baseId, text) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var c = findControl(_project, controlId);
+      if (!c) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown control "' + controlId + '".' }] };
+      if ((c.assignedDeviceIds || []).indexOf(baseId) === -1) {
+        return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Control "' + controlId + '" is not assigned to device "' + baseId + '".', location: controlId }] };
+      }
+      var t = String(text == null ? '' : text);
+      commit(function (p) {
+        var ctl = findControl(p, controlId);
+        ctl.deviceJustifications = ctl.deviceJustifications || {};
+        if (t.trim()) ctl.deviceJustifications[baseId] = t;
+        else delete ctl.deviceJustifications[baseId];
+        if (!Object.keys(ctl.deviceJustifications).length) delete ctl.deviceJustifications;
+      });
+      return { ok: true, issues: [] };
+    }
+
     /** @returns {'satisfied'|'unsatisfied'} a control's state on a device (default unsatisfied). */
     function controlDeviceState(control, baseId) {
       return (control && control.deviceStates && control.deviceStates[baseId] === 'satisfied') ? 'satisfied' : 'unsatisfied';
+    }
+    /** @returns {string} a control's justification on a device ('' when none). */
+    function controlDeviceJustification(control, baseId) {
+      return (control && control.deviceJustifications && control.deviceJustifications[baseId]) || '';
     }
     /** Remove a control and strip its id from every item's controlRefs (CTL-6). */
     function removeControl(id) {
@@ -3330,6 +3395,9 @@
       addValueFormat: addValueFormat, updateValueFormat: updateValueFormat,
       removeValueFormat: removeValueFormat, setItemFormats: setItemFormats,
       setControlDeviceState: setControlDeviceState, controlDeviceState: controlDeviceState,
+      // JUS-1: per-(control, device) justification for the satisfied decision.
+      setControlDeviceJustification: setControlDeviceJustification,
+      controlDeviceJustification: controlDeviceJustification,
       addControlType: addControlType, knownControlTypes: knownControlTypes, importControls: importControls,
       setDeviceOverride: setDeviceOverride, clearDeviceOverride: clearDeviceOverride,
       setGroupOverride: setGroupOverride, clearGroupOverride: clearGroupOverride,
@@ -5401,6 +5469,10 @@
      *  control (title + type), sub-grouped by dataset. Unreferenced → "(no control)". */
     function buildControlSection(project, deviceId, platform) {
       var esc = App.util.html.esc;
+      // JUS-3: satisfaction state and justification are keyed by device BASE id, so they
+      // survive re-onboarding (a new version of the same device) exactly like the state.
+      var dcSec = (project.deviceConfigs || []).filter(function (c) { return c.id === deviceId; })[0];
+      var deviceBaseId = dcSec ? dcSec.baseId : '';
       var byCtl = {}; var ctlLabel = {};
       var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
       platform.datasets.forEach(function (ds) {
@@ -5417,14 +5489,24 @@
         });
       });
       // Sort by displayed label for stable, human-friendly ordering.
+      // JUS-3: the per-device satisfaction decision and the JUSTIFICATION for it are the
+      // evidence this section exists to carry — a coverage table that lists items but not
+      // why they are considered sufficient is only half the answer.
+      var baseId = deviceBaseId;
       var rows = Object.keys(byCtl).sort(function (a, b) { return ctlLabel[a] < ctlLabel[b] ? -1 : ctlLabel[a] > ctlLabel[b] ? 1 : 0; }).map(function (ref) {
         var parts = Object.keys(byCtl[ref]).sort().map(function (dl) {
           return esc(dl) + ': ' + byCtl[ref][dl].slice().sort().map(esc).join(', ');
         }).join('<br>');
-        return '<tr><td>' + esc(ctlLabel[ref]) + '</td><td>' + parts + '</td></tr>';
+        var c = controlsById[ref];
+        var state = (ref === '__none__' || !c) ? '' : App.store.controlDeviceState(c, baseId);
+        var why = (ref === '__none__' || !c) ? '' : App.store.controlDeviceJustification(c, baseId);
+        var stateCell = state ? (state === 'satisfied' ? 'Satisfied' : 'Unsatisfied') : '—';
+        var whyCell = why ? esc(why) : (state === 'satisfied' ? '<em>No justification recorded.</em>' : '');
+        return '<tr><td>' + esc(ctlLabel[ref]) + '</td><td>' + esc(stateCell) + '</td><td>' + parts + '</td><td>' + whyCell + '</td></tr>';
       }).join('');
-      return '<h2>Control coverage</h2><table><colgroup><col style="width:28%"><col style="width:72%"></colgroup><thead><tr><th>Control</th><th>Items (by dataset)</th></tr></thead><tbody>' +
-        (rows || '<tr><td colspan="2" class="muted">No decided items.</td></tr>') + '</tbody></table>';
+      return '<h2>Control coverage</h2><table><colgroup><col style="width:22%"><col style="width:11%"><col style="width:38%"><col style="width:29%"></colgroup>' +
+        '<thead><tr><th>Control</th><th>Status</th><th>Items (by dataset)</th><th>Justification</th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="4" class="muted">No decided items.</td></tr>') + '</tbody></table>';
     }
 
     /** Build the per-device "Deviations from default" section (spec §19.6 / OVR-7). */
@@ -5561,11 +5643,19 @@
         refs.forEach(function (ref) {
           var c = controlsById[ref];
           var descP = (ref !== NONE && c && c.description) ? '<p class="muted">' + esc(c.description) + '</p>' : '';
+          // JUS-3: state + justification for THIS device, immediately under the heading.
+          var stateP = '';
+          if (ref !== NONE && c) {
+            var st = App.store.controlDeviceState(c, dc.baseId);
+            var wy = App.store.controlDeviceJustification(c, dc.baseId);
+            stateP = '<p><strong>Status on ' + esc(dc.name) + ':</strong> ' + (st === 'satisfied' ? 'Satisfied' : 'Unsatisfied') + '</p>' +
+              '<p><strong>Justification:</strong> ' + (wy ? esc(wy) : '<em>None recorded.</em>') + '</p>';
+          }
           var rows = byCtl[ref].slice().sort(function (a, b) { return (a.dsLabel + a.key) < (b.dsLabel + b.key) ? -1 : 1; })
             .map(function (r) { return '<tr><td>' + esc(r.dsLabel) + '</td><td>' + esc(r.key) + '</td><td>' + esc(r.decision) + '</td></tr>'; }).join('');
           var table = '<table><colgroup><col style="width:20%"><col style="width:40%"><col style="width:40%"></colgroup>' +
             '<thead><tr><th>Dataset</th><th>Key</th><th>Decision</th></tr></thead><tbody>' + (rows || '<tr><td colspan="3">None.</td></tr>') + '</tbody></table>';
-          sections.push('<h2>' + esc(labelFor(ref)) + '</h2>' + descP + table);
+          sections.push('<h2>' + esc(labelFor(ref)) + '</h2>' + descP + stateP + table);
         });
       }
       var html = App.report.wrapReport('Control Report — ' + dc.name, sections, { classification: opts.classification ? 'OFFICIAL: Sensitive' : null });
@@ -5663,6 +5753,78 @@
      * @param {{search?:string,sortKey?:string,sortDir?:string,incompleteOnly?:boolean,onlyRelevance?:string[]}} ui
      * @returns {Array<{item:RegisterItem, appliesTo:string[], status:string, cells:Object}>}
      */
+    /**
+     * FIL-1: the filterable columns for a dataset, discovered from the adapter — never a
+     * hardcoded list, so a new dataset (or a new decision field) gets filters for free.
+     *  - the enum decision field (packages' Action) → its schema options
+     *  - Security Relevance → the shared vocabulary, plus an explicit "not set"
+     *  - Applies to        → the devices that actually have items in this dataset
+     *  - Status            → decided / undecided / flagged for review (HELD-1)
+     * @param {Project} project @param {string} dsId @param {DatasetAdapter} adapter
+     * @returns {{key:string,label:string,options:{value:string,label:string}[]}[]}
+     */
+    function filterableColumns(project, dsId, adapter) {
+      var out = [];
+      var enumField = ((adapter && adapter.decisionSchema) || []).filter(function (f) { return f.kind === 'enum'; })[0];
+      if (enumField) {
+        out.push({ key: 'decision', label: labelForColumn(adapter, 'decision') || 'Action', field: enumField.name,
+          options: (enumField.options || []).map(function (o) { return { value: o, label: o }; })
+            .concat([{ value: '\u0000none', label: '(not set)' }]) });
+      }
+      out.push({ key: 'relevance', label: 'Security Relevance',
+        options: App.projectIo.RELEVANCE_OPTIONS.map(function (o) { return { value: o, label: o }; })
+          .concat([{ value: '\u0000none', label: '(not set)' }]) });
+      var devs = [];
+      getLatestConfigs(project || { deviceConfigs: [] }).forEach(function (c) {
+        if (c.snapshots && c.snapshots[dsId]) devs.push({ value: c.name, label: c.name });
+      });
+      devs.sort(function (a, b) { return a.value < b.value ? -1 : a.value > b.value ? 1 : 0; });
+      if (devs.length) out.push({ key: 'appliesTo', label: 'Applies to', options: devs });
+      out.push({ key: 'status', label: 'Status', options: [
+        { value: 'decided', label: 'decided' },
+        { value: 'undecided', label: 'undecided' },
+        { value: 'held', label: 'review (value kept)' }
+      ] });
+      return out;
+    }
+    /** The adapter's own label for a column key, when it has one. */
+    function labelForColumn(adapter, key) {
+      var c = ((adapter && adapter.columns) || []).filter(function (x) { return x.key === key; })[0];
+      return c ? c.label : null;
+    }
+
+    /**
+     * FIL-1: a row predicate for the active per-column filters (`ui.colFilters`).
+     * An absent/empty entry means "any", so the default state filters nothing.
+     */
+    function colFilterPredicate(adapter, ui) {
+      var f = (ui && ui.colFilters) || {};
+      var active = Object.keys(f).filter(function (k) { return f[k]; });
+      if (!active.length) return function () { return true; };
+      var enumField = ((adapter && adapter.decisionSchema) || []).filter(function (x) { return x.kind === 'enum'; })[0];
+      return function (r) {
+        for (var i = 0; i < active.length; i++) {
+          var key = active[i], want = f[key];
+          if (key === 'decision') {
+            var v = (r.item.decision && enumField) ? r.item.decision[enumField.name] : undefined;
+            if (want === '\u0000none') { if (v !== undefined && v !== null && v !== '') return false; }
+            else if (v !== want) return false;
+          } else if (key === 'relevance') {
+            var rel = r.item.relevance || '';
+            if (want === '\u0000none') { if (rel !== '') return false; }
+            else if (rel !== want) return false;
+          } else if (key === 'appliesTo') {
+            if ((r.appliesTo || []).indexOf(want) === -1) return false;
+          } else if (key === 'status') {
+            // HELD-1: "review" is its own state — a held item is undecided AND holds a value.
+            var st = r.item.held ? 'held' : (r.status === 'decided' ? 'decided' : 'undecided');
+            if (st !== want) return false;
+          }
+        }
+        return true;
+      };
+    }
+
     function filterSortRows(project, dsId, adapter, ui) {
       ui = ui || {};
       var appliesTo = computeAppliesTo(project, dsId);
@@ -5676,6 +5838,11 @@
       // unless their toggle is on, in which case ONLY those categories are listed.
       rows = rows.filter(relevanceViewFilter(ui));
       if (ui.incompleteOnly) rows = rows.filter(function (r) { return r.status !== 'decided'; });
+      // FIL-1: per-column value filters. They COMPOSE — with each other, with the search
+      // box, with Incomplete-only and with the parked toggles — so "removed packages whose
+      // name contains bluetooth" is filter + search, not a special case. Applied before the
+      // search so the search narrows whatever the filters left.
+      rows = rows.filter(colFilterPredicate(adapter, ui));
       var q = (ui.search || '').toLowerCase().trim();
       if (q) rows = rows.filter(function (r) {
         return (r.item.key + ' ' + (r.item.description || '')).toLowerCase().indexOf(q) !== -1;
@@ -5716,7 +5883,10 @@
       getLatestConfigs: getLatestConfigs, isLatest: isLatest,
       computeAppliesTo: computeAppliesTo, countIncomplete: countIncomplete,
       filterSortRows: filterSortRows, relevanceViewFilter: relevanceViewFilter,
-      applyAllShownPlan: applyAllShownPlan
+      applyAllShownPlan: applyAllShownPlan,
+      // FIL-1: per-column value filters.
+      filterableColumns: filterableColumns, colFilterPredicate: colFilterPredicate,
+      FILTER_NONE: '\u0000none'
     };
   })(App);
   </script>
@@ -5843,6 +6013,13 @@
       var parkedNote = only.length
         ? '<span class="muted">Showing only ' + esc(only.join(' + ')) + ' items.</span>'
         : '<span class="muted">Reporting &amp; Irrelevant items are hidden.</span>';
+      // FIL-1: never let the table look mysteriously short — say what is narrowing it.
+      var cf = ui.colFilters || {};
+      var cfKeys = Object.keys(cf).filter(function (k) { return cf[k]; });
+      var filterNote = cfKeys.length
+        ? '<span class="muted filter-note">' + cfKeys.length + ' column filter' + (cfKeys.length === 1 ? '' : 's') +
+          ' active <button type="button" class="filter-clear" data-col-filter-clear="' + esc(dsId) + '" title="Clear every column filter">clear</button></span>'
+        : '';
 
       // v2.1 (SP-1): the MODE controls (Apply Control Mode, Delete Items, Undo/Redo)
       // and the control picker no longer live in this toolbar — they moved to the
@@ -5854,7 +6031,7 @@
         '<input class="grow" type="search" placeholder="Search key or description…" data-search="' + esc(dsId) + '" value="' + esc(ui.search || '') + '" aria-label="Search items">' +
         '<label><input type="checkbox" data-incomplete="' + esc(dsId) + '"' + (ui.incompleteOnly ? ' checked' : '') + '> Incomplete only</label>' +
         parkedToggles +
-        '<span class="muted">' + esc(shown) + ' of ' + esc(total) + ' shown</span>' + parkedNote +
+        '<span class="muted">' + esc(shown) + ' of ' + esc(total) + ' shown</span>' + parkedNote + filterNote +
         '</div>' +
         '<div class="table-wrap' + (railCollapsed ? ' rail-collapsed' : '') + '">' +
           '<div id="table-host"></div>' +
@@ -6234,6 +6411,31 @@
       }).join('') + (applyMode ? '<th class="apply-col" scope="col" title="Tick to add the selected control ref">✓ Apply</th>' : '') +
         (deleteMode ? '<th class="del-col" scope="col" title="Tick the items to delete, then click Delete selected">🗑 Delete</th>' : '');
 
+      // FIL-1: a filter row directly beneath the headers — one dropdown per filterable
+      // column, sitting under the column it filters so there is no doubt which is which.
+      // Which columns get one is discovered from the adapter (App.ui.model), so nothing
+      // here is dataset-specific.
+      var filterable = {};
+      App.ui.model.filterableColumns(project, dsId, adapter).forEach(function (f) { filterable[f.key] = f; });
+      var active = (ui.colFilters || {});
+      var anyActive = Object.keys(active).some(function (k) { return active[k]; });
+      var filterRow = '<tr class="filter-row"><th class="lead-col">' +
+        (anyActive ? '<button type="button" class="filter-clear" data-col-filter-clear="' + esc(dsId) + '" title="Clear every column filter">✕</button>' : '') +
+        '</th>' +
+        cols.map(function (c) {
+          var f = filterable[c.key];
+          if (!f) return '<th></th>';
+          var cur = active[c.key] || '';
+          return '<th><select class="col-filter' + (cur ? ' on' : '') + '" data-col-filter="' + esc(dsId) + '" data-col="' + esc(c.key) + '"' +
+            ' aria-label="Filter by ' + esc(f.label) + '" title="Show only rows whose ' + esc(f.label) + ' matches">' +
+            '<option value="">' + esc(c.label) + ': any</option>' +
+            f.options.map(function (o) {
+              return '<option value="' + esc(o.value) + '"' + (cur === o.value ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+            }).join('') + '</select></th>';
+        }).join('') +
+        (applyMode ? '<th></th>' : '') + (deleteMode ? '<th></th>' : '') +
+        '</tr>';
+
       var body = rows.map(function (r) {
         var isOpen = !!expanded[r.item.key];
         var lead = '<td><button class="expand-btn" data-expand-key="' + esc(r.item.key) + '" aria-expanded="' + isOpen + '" title="Edit details">' + (isOpen ? '▾' : '▸') + '</button></td>';
@@ -6294,7 +6496,7 @@
 
       if (!rows.length) body = '<tr><td colspan="' + colspan + '" class="muted">No matching items.</td></tr>';
 
-      return '<table class="data resizable"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
+      return '<table class="data resizable"><thead><tr>' + head + '</tr>' + filterRow + '</thead><tbody>' + body + '</tbody></table>';
     }
 
     App.ui = App.ui || {};
@@ -7080,14 +7282,21 @@
           // OUTSIDE the control button (buttons cannot nest).
           var state = App.store.controlDeviceState(c, dc.baseId);
           var sat = state === 'satisfied';
+          // JUS-2: the state is now shown here but CHANGED in the control's modal — the
+          // decision belongs next to the evidence for it (the items that satisfy the
+          // control) and next to the justification box, not on a summary row where you
+          // can mark something satisfied without having looked at anything.
+          var why = App.store.controlDeviceJustification(c, dc.baseId);
           return '<div class="ctl-applies-row">' +
             '<button type="button" class="ctl-applies-item" data-control-open="' + esc(c.id) + '">' +
               '<span class="ctl-applies-title">' + esc(c.title) + '</span>' +
               '<span class="muted">' + esc(c.type) + '</span>' +
               '<span class="ctl-applies-count">' + n + ' item' + (n === 1 ? '' : 's') + '</span></button>' +
             '<span class="badge ' + (sat ? 'satisfied' : 'unsatisfied') + '" data-control-state="' + esc(c.id) + '">' + (sat ? 'Satisfied' : 'Unsatisfied') + '</span>' +
-            '<button type="button" class="ctl-state-toggle" data-control-state-toggle="' + esc(c.id) + '" data-state="' + (sat ? 'unsatisfied' : 'satisfied') + '"' +
-              ' title="Mark this control ' + (sat ? 'unsatisfied' : 'satisfied') + ' on this device">' + (sat ? 'Mark unsatisfied' : 'Mark satisfied') + '</button>' +
+            (sat && !why ? '<span class="badge nojust" title="Marked satisfied with no justification recorded">no justification</span>' : '') +
+            (why ? '<span class="ctl-just-peek" title="' + esc(why) + '">' + esc(why) + '</span>' : '') +
+            '<button type="button" class="ctl-state-toggle" data-control-open="' + esc(c.id) + '"' +
+              ' title="Open this control to review what satisfies it, record a justification, and set its state">Review…</button>' +
             '</div>';
         }).join('') + '</div>';
       }
@@ -7150,6 +7359,28 @@
           : '<div class="empty">No items reference this control on this device.</div>';
         return '<div class="panel"><h3>' + esc(d.label) + ' (' + items.length + ')</h3>' + body + '</div>';
       }).join('');
+      // JUS-1/JUS-2: the satisfaction decision and its justification live HERE, under the
+      // evidence, so marking a control satisfied is something you do having just looked at
+      // what satisfies it — and the reason is captured at the same moment.
+      var dc0 = project.deviceConfigs.filter(function (c) { return c.id === deviceId; })[0];
+      var baseId = dc0 ? dc0.baseId : '';
+      var sat = App.store.controlDeviceState(control, baseId) === 'satisfied';
+      var why = App.store.controlDeviceJustification(control, baseId);
+      var decision =
+        '<div class="ctl-decide">' +
+          '<div class="ctl-decide-head">' +
+            '<span>Status on <strong>' + esc(dc0 ? dc0.name : '') + '</strong>:</span> ' +
+            '<span class="badge ' + (sat ? 'satisfied' : 'unsatisfied') + '">' + (sat ? 'Satisfied' : 'Unsatisfied') + '</span>' +
+            '<button type="button" class="' + (sat ? '' : 'primary') + '" data-control-state-toggle="' + esc(control.id) + '" data-state="' + (sat ? 'unsatisfied' : 'satisfied') + '">' +
+              (sat ? 'Mark unsatisfied' : 'Mark satisfied') + '</button>' +
+          '</div>' +
+          '<label class="ctl-just-label" for="ctl-just">Justification — why the decisions above satisfy this control on this device</label>' +
+          '<textarea id="ctl-just" class="ctl-just" data-control-justification="' + esc(control.id) + '"' +
+            ' placeholder="e.g. Bluetooth is disabled by policy and the three Bluetooth packages are removed; no operational need on this fleet."' +
+            ' aria-label="Justification">' + esc(why) + '</textarea>' +
+          (sat && !why ? '<div class="ctl-just-warn">This control is marked satisfied with no justification recorded. The report will show it as unjustified.</div>' : '') +
+          '<div class="muted ctl-just-note">Saved as you type (on blur). It is carried into the generated report and the control report as the evidence for this decision.</div>' +
+        '</div>';
       return '<div class="modal-overlay" data-control-modal>' +
         '<div class="modal" role="dialog" aria-modal="true" aria-label="Actions satisfying control ' + esc(control.title) + '">' +
           '<div class="modal-head">' +
@@ -7157,7 +7388,7 @@
             '<div class="modal-sub">' + esc(control.type) + (control.description ? ' · ' + esc(control.description) : '') + '</div></div>' +
             '<button type="button" class="modal-close" data-control-modal-close aria-label="Close">×</button>' +
           '</div>' +
-          '<div class="modal-body"><div class="panels">' + lists + '</div></div>' +
+          '<div class="modal-body">' + decision + '<div class="panels">' + lists + '</div></div>' +
         '</div>' +
       '</div>';
     }
@@ -7315,11 +7546,27 @@
         _dev.openControlId = el.getAttribute('data-control-open'); ctx.refreshMain();
       });
       // review-12 #1: flip a control's Satisfied/Unsatisfied state for THIS device.
+      // JUS-1: record the justification. `change` fires on blur, so it saves when you
+      // move on — the modal never has to be dismissed with a "Save" button.
+      App.util.dom.on(ctx.root, 'change', '[data-control-justification]', function (e, el) {
+        var project = App.store.getProject();
+        var dc = project.deviceConfigs.filter(function (c) { return c.id === _dev.selectedId; })[0];
+        if (!dc) return;
+        var id = el.getAttribute('data-control-justification');
+        var res = App.store.setControlDeviceJustification(id, dc.baseId, el.value);
+        if (!res.ok) App.ui.activity.logIssues(res.issues, 'Control justification');
+      });
       App.util.dom.on(ctx.root, 'click', '[data-control-state-toggle]', function (e, el) {
+        // Save any pending justification edit first — clicking the button blurs the
+        // textarea, and the two must not race for the same commit.
+        var box = ctx.root.querySelector('[data-control-justification]');
+        var pendingId = box && box.getAttribute('data-control-justification');
+        var pendingVal = box ? box.value : null;
         var project = App.store.getProject();
         var dc = project.deviceConfigs.filter(function (c) { return c.id === _dev.selectedId; })[0];
         if (!dc) return;
         var id = el.getAttribute('data-control-state-toggle'), state = el.getAttribute('data-state');
+        if (box && pendingId === id) App.store.setControlDeviceJustification(id, dc.baseId, pendingVal);
         var res = App.store.setControlDeviceState(id, dc.baseId, state);
         if (!res.ok) App.ui.activity.logIssues(res.issues, 'Control state');
         else {
@@ -8277,6 +8524,8 @@
           ['<strong>Incomplete only</strong>', 'Shows just the items that are still undecided.'],
           ['<strong>Reporting only</strong> / <strong>Irrelevant only</strong>',
            'Items tagged REPORTING or IRRELEVANT are <em>parked</em>: normally hidden, so the working view stays on items that still need a security decision. Tick a toggle to see only that category; tick both to see either.'],
+          ['<strong>Column filters</strong>',
+           'The row of dropdowns under the headings filters by <em>value</em>: Action, Security Relevance, Applies to and Status each get one, sitting under the column it filters. They <strong>compose</strong> — with each other and with the search box — so &ldquo;packages being removed whose name contains bluetooth&rdquo; is Action = <code>remove</code> plus a search for <code>bluetooth</code>. An active filter is highlighted, the toolbar says how many are on, and <strong>clear</strong> resets them. Everything that acts on &ldquo;what is shown&rdquo; — Apply to all N shown, Export CSV — honours them.'],
           ['<strong>Column headers</strong>', 'Click to sort. Security Relevance sorts by severity (HIGH first), not alphabetically.'],
           ['<strong>Column edges</strong>', 'Drag to resize. Widths are remembered for the session.']
         ]) +
@@ -8318,8 +8567,15 @@
         ]) +
         h(3, 'Controls on this device') +
         p('Below the panels, every control assigned to this device is listed with its own <strong>Satisfied / Unsatisfied</strong> state. ' +
-          'A control starts <em>Unsatisfied</em> when it is assigned, and you mark it satisfied yourself once you are content the configuration meets it. ' +
-          'Click a control to see exactly which items on this device reference it. The state is per device and survives re-capturing.') +
+          'A control starts <em>Unsatisfied</em> when it is assigned. The state is per device and survives re-capturing.') +
+        p('Click <strong>Review…</strong> to open the control. The pop-up lists exactly which items on this device satisfy it, and underneath sits the decision itself: ' +
+          'a <strong>Justification</strong> box and the <strong>Mark satisfied</strong> button. They are deliberately in there rather than on the summary row — ' +
+          'you mark a control satisfied having just looked at what satisfies it, and you record why at the same moment.') +
+        ul([
+          'The justification is free text, saved when you click away, and stored per control <em>per device</em>.',
+          'It is carried into the generated <strong>report</strong> (a Status and Justification column in Control coverage) and the <strong>control report</strong>, so the reasoning travels with the evidence.',
+          'A control marked satisfied with no justification is flagged — in the pop-up, on the list row, and in the report, which prints <em>No justification recorded</em> rather than leaving it blank.'
+        ]) +
         h(3, 'Device groups') +
         p('A group holds several devices that should share a deviation. Add a group in the Devices list, then use the group\'s dropdown to add or remove members ' +
           '(a device can be in one group at a time). <strong>Deviations</strong> opens the group\'s override editor, where you can add, change or remove a group-level value per item.') +
@@ -9058,6 +9314,20 @@
         var again = _root.querySelector('[data-rail-search="' + dsId + '"]');
         if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (err) {} }
       });
+      // ---- FIL-1: per-column value filters -----------------------------------------
+      dom.on(_root, 'change', '[data-col-filter]', function (e, el) {
+        var dsId = el.getAttribute('data-col-filter'), col = el.getAttribute('data-col');
+        var ui = uiFor(dsId);
+        ui.colFilters = ui.colFilters || {};
+        if (el.value) ui.colFilters[col] = el.value; else delete ui.colFilters[col];
+        renderMain();
+      });
+      dom.on(_root, 'click', '[data-col-filter-clear]', function (e, el) {
+        var ui = uiFor(el.getAttribute('data-col-filter-clear'));
+        ui.colFilters = {};
+        renderMain();
+      });
+
       // SP-1: collapse/expand the rail (UI-state only, per dataset).
       dom.on(_root, 'click', '[data-rail-toggle]', function (e, el) {
         var dsId = el.getAttribute('data-rail-toggle');
@@ -9710,8 +9980,10 @@
         p.items['android.packages'] = big;
         var html = App.ui.tables.renderTableHtml(p, 'android.packages', {});
         T.assert(html.length > 1000);
-        // Count body rows only (header is <tr> without a class attribute).
-        T.assertEqual((html.match(/<tr class/g) || []).length, 1500);
+        // Count body rows only — the header row carries no class, and FIL-1 adds a
+        // `filter-row` beneath it, so match the row class the body actually uses.
+        T.assertEqual((html.match(/<tr class="undecided"/g) || []).length, 1500);
+        T.assertEqual((html.match(/<tr class="filter-row"/g) || []).length, 1, 'exactly one filter row');
       });
     });
 
@@ -11359,16 +11631,19 @@
         T.assertEqual(App.store.setControlDeviceState(id, 'r12-m1', 'maybe').ok, false, 'unknown state must be refused');
         T.assertEqual(App.store.setControlDeviceState(id, 'other-dev', 'satisfied').ok, false, 'unassigned device must be refused');
       });
-      s.test('the device view shows the state badge + a toggle for each assigned control', function () {
-        var devId = r12Project();
-        App.store.addControl({ title: 'No Bluetooth', type: 'ISM', assignedDeviceIds: ['r12-m1'] });
-        var html = App.ui.views.devices.renderDeviceControls(App.store.getProject(), devId);
-        T.assert(/class="badge unsatisfied"[^>]*>Unsatisfied</.test(html), 'no Unsatisfied badge');
-        T.assert(/data-control-state-toggle="no-bluetooth" data-state="satisfied"/.test(html), 'no "Mark satisfied" toggle');
-        App.store.setControlDeviceState('no-bluetooth', 'r12-m1', 'satisfied');
-        var html2 = App.ui.views.devices.renderDeviceControls(App.store.getProject(), devId);
-        T.assert(/class="badge satisfied"[^>]*>Satisfied</.test(html2), 'no Satisfied badge after the flip');
-        T.assert(/data-control-state-toggle="no-bluetooth" data-state="unsatisfied"/.test(html2), 'toggle must offer the reverse action');
+      s.test('AMENDED by JUS-2 — the list shows the state; the modal is where you change it', function () {
+        // The toggle used to sit on the summary row, so a control could be marked
+        // satisfied without ever looking at what satisfies it. It now lives in the
+        // modal, under the evidence and beside the justification box.
+        r12Project();
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM', assignedDeviceIds: ['r12-m1'] }).id;
+        var html = App.ui.views.devices.renderDetail(App.store.getProject(), 'r12-m1');
+        T.assert(/<span class="badge unsatisfied" data-control-state="/.test(html), 'no state badge on the list row');
+        T.assert(html.indexOf('data-control-state-toggle') === -1, 'the state toggle must NOT be on the list row any more');
+        T.assert(/data-control-open="[^"]+"[^>]*>Review…</.test(html), 'the row should route into the modal instead');
+        var modal = App.ui.views.devices.renderControlModal(App.store.getProject(), 'r12-m1', id);
+        T.assert(new RegExp('data-control-state-toggle="' + id + '" data-state="satisfied"').test(modal), 'the modal must carry the toggle');
+        T.assert(new RegExp('data-control-justification="' + id + '"').test(modal), 'the modal must carry the justification box');
       });
       s.test('the device LIST flags devices with controls left unsatisfied', function () {
         r12Project();
@@ -11927,7 +12202,7 @@
          'Export CSV', 'Triage', 'group',
          // v2.1
          'Value format', 'String list', 'Custom options', 'Tools',
-         'Apply Tag Mode', 'column heading'].forEach(function (topic) {
+         'Apply Tag Mode', 'column heading', 'Column filters', 'Justification'].forEach(function (topic) {
           T.assert(all.indexOf(topic) !== -1, 'the manual never mentions "' + topic + '"');
         });
       });
@@ -12695,6 +12970,228 @@
         var held = App.generate.buildImplementation(App.store.getProject(), 'hd-m1');
         T.assert(!/pm uninstall/.test(held.files.filter(function (f) { return f.name === 'packages.impl.ps1'; })[0].content),
           'a held item must not be acted on until it has been reviewed');
+      });
+    });
+
+    T.suite('FIL-1 per-column value filters', function (s) {
+      function filProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Alpha', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.vendor.bluetooth\ncom.vendor.bluetooth.share\ncom.vendor.wifi\ncom.vendor.camera'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Bravo', model: 'M2', snapshots: {
+          'android.packages': snapB('android.packages', 'com.vendor.bluetooth\ncom.vendor.maps'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.setDecision('android.packages', 'com.vendor.bluetooth', { action: 'remove' });
+        App.store.setDecision('android.packages', 'com.vendor.bluetooth.share', { action: 'remove' });
+        App.store.setDecision('android.packages', 'com.vendor.wifi', { action: 'disable' });
+        App.store.setDecision('android.packages', 'com.vendor.camera', { action: 'keep' });
+        App.store.setItemFields('android.packages', 'com.vendor.bluetooth', { relevance: 'HIGH' });
+        return App.store.getProject();
+      }
+      function adapter() { ensureA(); return App.registry.getDataset('android-adb', 'android.packages'); }
+      function keys(ui) {
+        return App.ui.model.filterSortRows(App.store.getProject(), 'android.packages', adapter(), ui)
+          .map(function (r) { return r.item.key; });
+      }
+
+      s.test('the filterable columns are discovered from the adapter, not hardcoded', function () {
+        var p = filProject();
+        var cols = App.ui.model.filterableColumns(p, 'android.packages', adapter()).map(function (c) { return c.key; });
+        T.assertDeepEqual(cols, ['decision', 'relevance', 'appliesTo', 'status'], 'packages has an enum decision field');
+        var tac = App.registry.getDataset('android-adb', 'android.tactical');
+        var tcols = App.ui.model.filterableColumns(p, 'android.tactical', tac).map(function (c) { return c.key; });
+        T.assert(tcols.indexOf('decision') === -1, 'tactical has no enum decision field, so no Action filter');
+        T.assert(tcols.indexOf('relevance') !== -1 && tcols.indexOf('status') !== -1, 'the generic ones still apply');
+      });
+
+      s.test('filtering by Action shows only that action', function () {
+        filProject();
+        T.assertDeepEqual(keys({ colFilters: { decision: 'remove' } }),
+          ['com.vendor.bluetooth', 'com.vendor.bluetooth.share']);
+        T.assertDeepEqual(keys({ colFilters: { decision: 'keep' } }), ['com.vendor.camera']);
+      });
+
+      s.test('THE ASK: filter to removed, then search bluetooth on top of it', function () {
+        filProject();
+        T.assertDeepEqual(keys({ colFilters: { decision: 'remove' }, search: 'bluetooth' }),
+          ['com.vendor.bluetooth', 'com.vendor.bluetooth.share'], 'filter + search must compose');
+        // ...and the search alone would have caught a kept package too, proving the
+        // filter is doing work rather than the search doing it all.
+        T.assertDeepEqual(keys({ colFilters: { decision: 'disable' }, search: 'bluetooth' }), [],
+          'no disabled package matches bluetooth');
+      });
+
+      s.test('filtering by Security Relevance, including "not set"', function () {
+        filProject();
+        T.assertDeepEqual(keys({ colFilters: { relevance: 'HIGH' } }), ['com.vendor.bluetooth']);
+        var unset = keys({ colFilters: { relevance: App.ui.model.FILTER_NONE } });
+        T.assert(unset.indexOf('com.vendor.bluetooth') === -1, 'the tagged item must be excluded');
+        T.assert(unset.length === 4, 'the other four are untagged, got ' + unset.length);
+      });
+
+      s.test('filtering by Applies to narrows to one device\'s items', function () {
+        filProject();
+        T.assertDeepEqual(keys({ colFilters: { appliesTo: 'Bravo' } }).sort(),
+          ['com.vendor.bluetooth', 'com.vendor.maps']);
+      });
+
+      s.test('filtering by Status covers decided, undecided and review', function () {
+        filProject();
+        T.assertDeepEqual(keys({ colFilters: { status: 'undecided' } }), ['com.vendor.maps']);
+        T.assertEqual(keys({ colFilters: { status: 'decided' } }).length, 4);
+        App.store.setHeld('android.packages', 'com.vendor.camera', true);
+        T.assertDeepEqual(keys({ colFilters: { status: 'held' } }), ['com.vendor.camera'], 'held is its own status');
+        T.assertEqual(keys({ colFilters: { status: 'decided' } }).length, 3, 'a held item is no longer decided');
+      });
+
+      s.test('several filters compose (AND), and no filter means no filtering', function () {
+        filProject();
+        T.assertDeepEqual(keys({ colFilters: { decision: 'remove', appliesTo: 'Bravo' } }), ['com.vendor.bluetooth']);
+        T.assertEqual(keys({}).length, 5, 'an empty filter map must not filter');
+        T.assertEqual(keys({ colFilters: {} }).length, 5);
+      });
+
+      s.test('the filters compose with the parked toggles too', function () {
+        filProject();
+        App.store.setItemFields('android.packages', 'com.vendor.wifi', { relevance: 'IRRELEVANT' });
+        T.assertDeepEqual(keys({ colFilters: { decision: 'disable' } }), [], 'a parked item stays hidden by default');
+        T.assertDeepEqual(keys({ colFilters: { decision: 'disable' }, onlyRelevance: ['IRRELEVANT'] }), ['com.vendor.wifi']);
+      });
+
+      s.test('the table renders a filter row with a select per filterable column', function () {
+        var p = filProject();
+        var html = App.ui.tables.renderTableHtml(p, 'android.packages', {}, {});
+        T.assert(/<tr class="filter-row">/.test(html), 'no filter row');
+        T.assert(/data-col-filter="android.packages" data-col="decision"/.test(html), 'no Action filter');
+        T.assert(/data-col-filter="android.packages" data-col="relevance"/.test(html), 'no Relevance filter');
+        T.assert(/data-col-filter="android.packages" data-col="appliesTo"/.test(html), 'no Applies-to filter');
+        T.assert(/data-col-filter="android.packages" data-col="status"/.test(html), 'no Status filter');
+        T.assert(/<option value="remove">remove<\/option>/.test(html), 'the Action options come from the schema');
+        // An active filter is visibly marked and offers a clear.
+        var on = App.ui.tables.renderTableHtml(p, 'android.packages', { colFilters: { decision: 'remove' } }, {});
+        T.assert(/class="col-filter on"/.test(on), 'an active filter must be tinted');
+        T.assert(/data-col-filter-clear="android.packages"/.test(on), 'no way to clear the filters');
+      });
+
+      s.test('the toolbar says when filters are narrowing the view', function () {
+        var p = filProject();
+        var a = adapter();
+        var ui = { colFilters: { decision: 'remove' } };
+        var shown = App.ui.model.filterSortRows(p, 'android.packages', a, ui).length;
+        var tb = App.ui.tables.renderToolbar('android.packages', ui, 5, shown, p.controls);
+        T.assert(/1 column filter active/.test(tb), 'the table must not just look mysteriously short');
+      });
+
+      s.test('bulk apply-to-all-shown honours the column filters', function () {
+        var p = filProject();
+        var id = App.store.addControl({ title: 'Debloat', type: 'AHG' }).id;
+        // THE point of composing: filter to removed + search bluetooth, then tag them all.
+        var plan = App.ui.model.applyAllShownPlan(App.store.getProject(), 'android.packages',
+          { colFilters: { decision: 'remove' }, search: 'bluetooth' }, id);
+        T.assertDeepEqual(plan.items.map(function (i) { return i.key; }),
+          ['com.vendor.bluetooth', 'com.vendor.bluetooth.share']);
+      });
+    });
+
+    T.suite('JUS-1/JUS-2 control satisfaction + justification', function (s) {
+      function jusProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM', description: 'd', assignedDeviceIds: ['dev-m1'] }).id;
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        return id;
+      }
+      function ctl(id) { return App.store.getProject().controls.filter(function (c) { return c.id === id; })[0]; }
+      function named(files, n) { return files.filter(function (f) { return f.name === n; })[0]; }
+
+      s.test('a justification is stored per (control, device) and round-trips', function () {
+        var id = jusProject();
+        T.assertEqual(App.store.setControlDeviceJustification(id, 'dev-m1', 'BT stack removed; no operational need.').ok, true);
+        T.assertEqual(App.store.controlDeviceJustification(ctl(id), 'dev-m1'), 'BT stack removed; no operational need.');
+        var text = App.projectIo.serializeProject(App.store.getProject());
+        var back = App.projectIo.parseProject(text);
+        T.assertEqual(back.ok, true, JSON.stringify(back.issues));
+        T.assertEqual(App.projectIo.serializeProject(back.value), text, 'must round-trip byte-identically');
+        T.assertEqual(back.value.controls[0].deviceJustifications['dev-m1'], 'BT stack removed; no operational need.');
+      });
+
+      s.test('blank clears it, and the empty map is dropped (one canonical form)', function () {
+        var id = jusProject();
+        App.store.setControlDeviceJustification(id, 'dev-m1', 'because');
+        App.store.setControlDeviceJustification(id, 'dev-m1', '   ');
+        T.assertEqual(ctl(id).deviceJustifications, undefined, 'the key must go, not linger as {}');
+        T.assertEqual(App.store.controlDeviceJustification(ctl(id), 'dev-m1'), '');
+      });
+
+      s.test('a justification for an unassigned device is refused', function () {
+        var id = jusProject();
+        T.assertEqual(App.store.setControlDeviceJustification(id, 'no-such-device', 'x').ok, false);
+      });
+
+      s.test('the schema rejects a malformed justification map', function () {
+        var id = jusProject();
+        App.store.setControlDeviceJustification(id, 'dev-m1', 'why');
+        var bad = JSON.parse(App.projectIo.serializeProject(App.store.getProject()));
+        bad.controls[0].deviceJustifications['dev-m1'] = 42;
+        T.assert(App.projectIo.validateSchema(bad).some(function (i) { return /deviceJustifications/.test(i.message) && i.severity === 'error'; }));
+      });
+
+      s.test('the modal carries the state toggle, the textbox and the current text', function () {
+        var id = jusProject();
+        App.store.setControlDeviceJustification(id, 'dev-m1', 'Bluetooth stack removed.');
+        var modal = App.ui.views.devices.renderControlModal(App.store.getProject(), 'dev-m1', id);
+        T.assert(/class="ctl-decide"/.test(modal), 'no decision block');
+        T.assert(new RegExp('data-control-state-toggle="' + id + '" data-state="satisfied"').test(modal), 'no Mark satisfied');
+        T.assert(/data-control-justification="[^"]+"[^>]*>Bluetooth stack removed\.<\/textarea>/.test(modal), 'the textbox must show the stored text');
+        // ...and it still lists the evidence it is a justification FOR.
+        T.assert(/class="panel"/.test(modal) && /com\.a/.test(modal), 'the item lists must still be there');
+      });
+
+      s.test('satisfied with no justification is flagged, in the modal and the list', function () {
+        var id = jusProject();
+        App.store.setControlDeviceState(id, 'dev-m1', 'satisfied');
+        var modal = App.ui.views.devices.renderControlModal(App.store.getProject(), 'dev-m1', id);
+        T.assert(/ctl-just-warn/.test(modal), 'the modal should point out the missing justification');
+        var detail = App.ui.views.devices.renderDetail(App.store.getProject(), 'dev-m1');
+        T.assert(/badge nojust/.test(detail), 'the list row should flag it too');
+        App.store.setControlDeviceJustification(id, 'dev-m1', 'because reasons');
+        T.assert(!/ctl-just-warn/.test(App.ui.views.devices.renderControlModal(App.store.getProject(), 'dev-m1', id)), 'the warning must clear');
+        T.assert(!/badge nojust/.test(App.ui.views.devices.renderDetail(App.store.getProject(), 'dev-m1')), 'and so must the badge');
+      });
+
+      s.test('JUS-3 the justification reaches BOTH generated reports', function () {
+        var id = jusProject();
+        App.store.setControlDeviceState(id, 'dev-m1', 'satisfied');
+        App.store.setControlDeviceJustification(id, 'dev-m1', 'BT removed and disabled by policy.');
+        // Make the device ready so generation runs.
+        var p0 = App.store.getProject();
+        var cap = App.registry.getDataset('android-adb', 'android.tactical').capturedDefaults(p0.deviceConfigs[0].snapshots['android.tactical']);
+        p0.items['android.tactical'].forEach(function (it) {
+          App.store.setDecision('android.tactical', it.key, { value: cap[it.key] ? cap[it.key].value : '' });
+        });
+        var rep = named(App.generate.buildReport(App.store.getProject(), 'dev-m1').files, 'report.html').content;
+        T.assert(/<th>Control<\/th><th>Status<\/th>/.test(rep), 'Control coverage needs a Status column');
+        T.assert(rep.indexOf('BT removed and disabled by policy.') !== -1, 'the justification must appear in the report');
+        T.assert(rep.indexOf('Satisfied') !== -1, 'the state must appear too');
+        var cr = named(App.generate.buildControlReport(App.store.getProject(), 'dev-m1', {}).files, 'control-report.html').content;
+        T.assert(cr.indexOf('BT removed and disabled by policy.') !== -1, 'the control report must carry it as well');
+        T.assert(/<strong>Status on Dev:<\/strong> Satisfied/.test(cr), 'and the per-device status');
+      });
+
+      s.test('an unjustified satisfied control says so in the report rather than looking clean', function () {
+        var id = jusProject();
+        App.store.setControlDeviceState(id, 'dev-m1', 'satisfied');
+        var p0 = App.store.getProject();
+        var cap = App.registry.getDataset('android-adb', 'android.tactical').capturedDefaults(p0.deviceConfigs[0].snapshots['android.tactical']);
+        p0.items['android.tactical'].forEach(function (it) {
+          App.store.setDecision('android.tactical', it.key, { value: cap[it.key] ? cap[it.key].value : '' });
+        });
+        var rep = named(App.generate.buildReport(App.store.getProject(), 'dev-m1').files, 'report.html').content;
+        T.assert(/No justification recorded\./.test(rep), 'an unjustified control must be visible as such');
       });
     });
 

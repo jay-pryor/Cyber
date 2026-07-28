@@ -29,7 +29,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**353/353 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+**372/372 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
 checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
 `report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
@@ -847,6 +847,61 @@ enable_sa, disable."*, and survives save/load with its option descriptions intac
 
 **Defects:** 2 found during build (numeric leaves inferring as text; override editors inferring from
 the empty override value instead of the capture), both FIXED before commit.
+
+---
+
+### 2026-07-28 — FIL-1 + JUS-1/2/3: column filters, justified control satisfaction — ✅ COMPLETE
+
+**FIL-1 — per-column value filters that compose.** Each data table now carries a filter row
+directly under the headings: one dropdown per filterable column, sitting under the column it
+filters. Which columns get one is **discovered from the adapter** rather than hardcoded — the
+enum decision field (packages' Action) supplies its own options, Security Relevance comes from
+the shared vocabulary, Applies-to from the devices actually holding items in that dataset, and
+Status covers decided / undecided / review. Tactical, having no enum decision field, correctly
+gets no Action filter.
+
+The important property is composition. Filters AND with each other, with the free-text search,
+with Incomplete-only and with the parked toggles — so the asked-for case, *packages being removed
+whose name contains bluetooth*, is Action = `remove` plus a search, not a special case. Because
+they all run through the same `filterSortRows`, everything that acts on "what is shown" inherits
+them for free: **Apply to all N shown** and **Export CSV** both narrow with the table. An active
+filter is tinted and the toolbar says how many are on with a clear button — a table that is
+mysteriously short is worse than no filter at all. Filter state is UI-only, never saved.
+
+**JUS-1/2 — control satisfaction is now a justified decision.** The **Mark satisfied** button has
+moved off the summary row and into the control's pop-up, beneath the list of items that satisfy
+it, alongside a new **Justification** textbox. That placement is the point: you mark a control
+satisfied having just looked at what satisfies it, and you record why in the same moment. The
+summary row keeps the state badge (plus a one-line preview of the justification) and offers
+**Review…** to open the pop-up.
+
+Stored as `Control.deviceJustifications[baseId]` — per control *per device*, keyed by base id so
+it survives re-onboarding exactly as the state does. Blank clears it and the empty map is dropped,
+so "no justification" has one canonical form. Additive; no `schemaVersion` bump.
+
+One race worth recording: clicking **Mark satisfied** blurs the textarea, so the state commit and
+the justification commit were competing for the same transaction. The handler now flushes the
+pending justification first. Browser-verified — typing a justification then immediately clicking
+the button persists both.
+
+**JUS-3 — it reaches the report, or it is not traceable.** Control coverage gains **Status** and
+**Justification** columns; the control report prints the per-device status and justification under
+each control heading. A control marked satisfied with **no** justification is flagged in the
+pop-up, on the list row, and in the report — which prints *No justification recorded* rather than
+an empty cell that reads as clean.
+
+**Tests:** +19 across two new suites (FIL-1: adapter-derived filterable columns, each filter type
+including "(not set)" and `review`, the filter+search composition the request named, composition
+with the parked toggles, the rendered filter row and its active marking, the toolbar count, and
+the bulk plan honouring filters. JUS: round-trip, canonical clearing, refusal for an unassigned
+device, schema rejection, the modal carrying toggle + box + evidence while the list row carries
+neither toggle, the unjustified flag in all three places, and both reports carrying the text).
+**372/372 pass** (85 suites), headless and in Chrome, no console errors.
+
+**Browser-verified:** 6 rows → Action=`remove` → 3 rows → + search `bluetooth` → the same 3, with
+the toolbar reading *1 column filter active*; and the modal round trip above.
+
+**Defects:** 1 found during build (the justification/state commit race), FIXED.
 
 ---
 

@@ -64,7 +64,7 @@ suite in-page. It must show all green. The harness is also runnable headlessly (
 | DOD-9 | Device view: read-only applicable decided items, one panel per dataset | ✅ |
 | DOD-10 | Malformed inputs → located, non-fatal errors; never silent | ✅ |
 | DOD-11 | A new dataset/platform needs **no core edits** (adapter/profile only) | ✅ portability self-test (mock platform) |
-| DOD-12 | Module headers + JSDoc; embedded self-tests pass | ✅ 353/353 |
+| DOD-12 | Module headers + JSDoc; embedded self-tests pass | ✅ 372/372 |
 
 **Manual checks remaining:** DOD-1 (open the file in all three browsers and confirm a clean console)
 and DOD-8 (open a generated `report.html` in Microsoft Word). All other items are covered by the
