@@ -165,12 +165,87 @@
   .toolbar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
   .toolbar .grow { flex: 1; min-width: 180px; }
   .toolbar .muted { color: var(--c-text-muted); font-size: 12px; }
-  /* review-7 #2: Apply Control Mode toolbar affordances + row checkbox column. */
+  /* review-7 #2: Apply Control Mode affordances + row checkbox column. */
   .toolbar button.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
-  .toolbar .apply-picker { display: inline-flex; align-items: center; gap: 6px; }
-  .toolbar .apply-control { min-width: 220px; }
-  .toolbar .apply-to:disabled { opacity: 0.5; cursor: not-allowed; }
   table.data th.apply-col, table.data td.apply-cell { text-align: center; width: 74px; }
+
+  /* ---- SP-1/SP-2/SP-3: the sticky tools rail ------------------------------------
+     The table and the rail sit side by side; the rail is `position:sticky` so it
+     stays in view as a long register scrolls (the whole point — you can change the
+     control you are assigning from row 400 without scrolling back to row 1).
+     `align-self:flex-start` is what lets sticky work inside a flex row. */
+  .table-wrap { display: flex; align-items: flex-start; gap: var(--sp-3); }
+  .table-wrap > #table-host { flex: 1; min-width: 0; }
+  .side-rail { position: sticky; top: var(--sp-3); align-self: flex-start; flex: 0 0 300px; width: 300px;
+               max-height: calc(100vh - 130px); overflow-y: auto; background: var(--c-surface);
+               border: 1px solid var(--c-border); border-radius: 8px; padding: 10px; display: flex;
+               flex-direction: column; gap: 10px; }
+  .side-rail.collapsed { flex-basis: auto; width: auto; padding: 6px; }
+  .rail-head { display: flex; align-items: center; gap: 8px; }
+  .rail-title { font-weight: 600; font-size: 13px; }
+  .rail-toggle { margin-left: auto; font-size: 12px; padding: 2px 8px; }
+  .rail-section { display: flex; flex-direction: column; gap: 6px; }
+  .rail-modes button, .rail-history button { width: 100%; }
+  .rail-history { flex-direction: row; }
+  .rail-history button { flex: 1; }
+  .rail-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-muted); }
+  .rail-search { width: 100%; }
+  .rail-count, .rail-empty { font-size: 11px; }
+  .side-rail .apply-to { width: 100%; }
+  .side-rail .apply-to:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* SP-3: control cards — title, type and DESCRIPTION, so you can tell what a control
+     means while you are assigning it (a <datalist> could only ever show the value). */
+  .ctl-cards { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto;
+               border: 1px solid var(--c-border); border-radius: 6px; padding: 6px; background: var(--c-bg); }
+  .ctl-card { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%;
+              padding: 7px 8px; border: 1px solid var(--c-border); border-radius: 6px;
+              background: var(--c-surface); cursor: pointer; font: inherit; color: inherit; }
+  .ctl-card:hover { border-color: var(--c-accent); }
+  .ctl-card.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .ctl-card-head { display: flex; align-items: baseline; gap: 6px; }
+  .ctl-card-title { font-weight: 600; font-size: 13px; }
+  .ctl-card-type { font-size: 10px; opacity: 0.75; border: 1px solid currentColor; border-radius: 8px; padding: 0 5px; }
+  .ctl-card-desc { font-size: 11.5px; line-height: 1.35; opacity: 0.85; white-space: normal; }
+  .ctl-card.active .ctl-card-desc { opacity: 0.95; }
+  @media (max-width: 1100px) {
+    .table-wrap { flex-direction: column; }
+    .side-rail { position: static; width: 100%; flex-basis: auto; max-height: none; }
+  }
+
+  /* ---- VF-4/VF-5: value-format picker + manager --------------------------------- */
+  .fmt-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .fmt-cell select { min-width: 260px; }
+  .fmt-hint { flex-basis: 100%; font-size: 11.5px; line-height: 1.4; }
+  .fmt-warn { color: var(--c-error); font-size: 11.5px; }
+  .fmt-body { display: flex; gap: 14px; align-items: flex-start; }
+  .fmt-list { flex: 0 0 230px; display: flex; flex-direction: column; gap: 5px; max-height: 66vh; overflow-y: auto; }
+  .fmt-pick { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 7px 9px; font: inherit;
+              color: inherit; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 6px; cursor: pointer; }
+  .fmt-pick.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .fmt-pick-name { font-weight: 600; font-size: 13px; }
+  .fmt-pick-meta { font-size: 11px; opacity: 0.8; }
+  .fmt-pick.fmt-new { border-style: dashed; font-weight: 600; }
+  .fmt-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .fmt-editor h4, .fmt-editor h5 { margin: 0; font-size: 14px; }
+  .fmt-grid { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; align-items: center; }
+  .fmt-grid textarea { min-height: 40px; resize: vertical; }
+  .fmt-grid input, .fmt-grid select, .fmt-grid textarea { font: inherit; font-size: 13px; width: 100%; padding: 4px 6px;
+              border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .fmt-usage { font-size: 12px; }
+  table.fmt-opts { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.fmt-opts th, table.fmt-opts td { border: 1px solid var(--c-border); padding: 4px 6px; text-align: left; }
+  table.fmt-opts th:last-child, table.fmt-opts td:last-child { width: 90px; }
+  table.fmt-opts input { font: inherit; font-size: 13px; width: 100%; padding: 3px 5px; border: 1px solid var(--c-border);
+              border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .fmt-add-row { display: flex; gap: 6px; align-items: center; }
+  .fmt-add-row input { flex: 1; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border);
+              border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .fmt-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  /* VF-8: the format-driven value editors. */
+  select.val-edit { width: 100%; font: inherit; font-size: 13px; padding: 3px 5px; }
+  input.val-number { width: 100%; font: inherit; font-size: 13px; padding: 3px 5px; border: 1px solid var(--c-border);
+              border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  textarea.val-list { font-family: var(--font-mono, monospace); font-size: 12px; }
   /* review-12 #2: Delete Mode (mirrors Apply Control Mode) + the shared Undo button. */
   .toolbar button.active.danger { background: var(--c-error); color: #fff; border-color: var(--c-error); }
   /* review-14: the parked-relevance view toggles wear their category's colours when on. */
@@ -1504,7 +1579,7 @@
     'use strict';
 
     var SCHEMA_VERSION = 3; // v3 (spec §19): adds top-level `groups` + per-config `overrides` (value-only)
-    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'groups', 'items', 'controls', 'controlTypes'];
+    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'groups', 'items', 'controls', 'controlTypes', 'valueFormats'];
     var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
     var SHA_RE = /^[0-9a-f]{64}$/;
@@ -1519,6 +1594,11 @@
     var RELEVANCE_PARKED = ['REPORTING', 'IRRELEVANT'];
     // review-12 #1: per-device control satisfaction states (default = 'unsatisfied').
     var CONTROL_STATES = ['unsatisfied', 'satisfied'];
+    // VF-3: the built-in value-format ids (see App.valueFormats). Duplicated here as a
+    // literal rather than read from that module because projectIo loads BEFORE it and
+    // must stay dependency-light; the pair is asserted equal by a self-test.
+    var BUILTIN_FORMAT_IDS = ['bool', 'number', 'string', 'stringArray', 'json'];
+    var CUSTOM_FORMAT_KINDS = ['options', 'number', 'string', 'stringArray'];
 
     function issue(severity, message, location, fix) {
       return { category: 'validation', severity: severity, message: message, location: location, fix: fix };
@@ -1617,6 +1697,52 @@
         }
       }
 
+      // valueFormats (VF-3): the named, reusable custom formats. Additive — a project
+      // without the key is normal. Structural only; semantic problems (an options format
+      // with no options yet) are a UI concern, not a load failure.
+      if (p.valueFormats !== undefined) {
+        if (!Array.isArray(p.valueFormats)) {
+          issues.push(issue('error', 'valueFormats must be an array.', 'valueFormats'));
+        } else {
+          var fmtIds = {};
+          p.valueFormats.forEach(function (f, i) {
+            var floc = 'valueFormats[' + i + ']';
+            if (!isPlainObject(f)) { issues.push(issue('error', 'ValueFormat must be an object.', floc)); return; }
+            if (typeof f.id !== 'string' || !SLUG_RE.test(f.id)) issues.push(issue('error', 'ValueFormat.id must be a slug.', floc + '.id'));
+            else {
+              if (fmtIds[f.id]) issues.push(issue('error', 'Duplicate ValueFormat id "' + f.id + '".', floc));
+              fmtIds[f.id] = true;
+              if (BUILTIN_FORMAT_IDS.indexOf(f.id) !== -1) issues.push(issue('error', 'ValueFormat.id "' + f.id + '" collides with a built-in format.', floc + '.id', 'Rename the format.'));
+            }
+            if (typeof f.name !== 'string' || !f.name) issues.push(issue('error', 'ValueFormat.name must be a non-empty string.', floc + '.name'));
+            if (typeof f.kind !== 'string' || CUSTOM_FORMAT_KINDS.indexOf(f.kind) === -1) {
+              issues.push(issue('error', 'ValueFormat.kind must be one of ' + CUSTOM_FORMAT_KINDS.join('/') + '.', floc + '.kind'));
+            }
+            if (f.description !== undefined && typeof f.description !== 'string') issues.push(issue('error', 'ValueFormat.description must be a string.', floc + '.description'));
+            if (f.options !== undefined) {
+              if (!Array.isArray(f.options)) issues.push(issue('error', 'ValueFormat.options must be an array.', floc + '.options'));
+              else {
+                var seenOpt = {};
+                f.options.forEach(function (o, j) {
+                  var oloc = floc + '.options[' + j + ']';
+                  if (!isPlainObject(o)) { issues.push(issue('error', 'Option must be an object.', oloc)); return; }
+                  if (typeof o.value !== 'string' || o.value === '') issues.push(issue('error', 'Option.value must be a non-empty string.', oloc + '.value'));
+                  else {
+                    if (seenOpt[o.value]) issues.push(issue('error', 'Duplicate option value "' + o.value + '".', oloc));
+                    seenOpt[o.value] = true;
+                  }
+                  if (o.description !== undefined && typeof o.description !== 'string') issues.push(issue('error', 'Option.description must be a string.', oloc + '.description'));
+                });
+              }
+            }
+            ['min', 'max'].forEach(function (nk) {
+              if (f[nk] !== undefined && typeof f[nk] !== 'number') issues.push(issue('error', 'ValueFormat.' + nk + ' must be a number when present.', floc + '.' + nk));
+            });
+            if (f.pattern !== undefined && typeof f.pattern !== 'string') issues.push(issue('error', 'ValueFormat.pattern must be a string when present.', floc + '.pattern'));
+          });
+        }
+      }
+
       // items
       if (!isPlainObject(p.items)) {
         issues.push(issue('error', 'items must be an object keyed by dataset id.', 'items'));
@@ -1675,6 +1801,13 @@
       if (it.relevance !== undefined) {
         if (typeof it.relevance !== 'string') issues.push(issue('error', 'RegisterItem.relevance must be a string when present.', loc + '.relevance'));
         else if (RELEVANCE_VALUES.indexOf(it.relevance) === -1) issues.push(issue('error', 'RegisterItem.relevance must be empty or one of ' + RELEVANCE_OPTIONS.join('/') + '.', loc + '.relevance'));
+      }
+      // VF-3: optional value-format reference — a built-in id or a project format id.
+      // Deliberately NOT checked for existence here: a dangling ref degrades to the
+      // inferred built-in at render time (App.valueFormats.resolve) rather than
+      // refusing to open the project. Only the type is structural.
+      if (it.format !== undefined && typeof it.format !== 'string') {
+        issues.push(issue('error', 'RegisterItem.format must be a string when present.', loc + '.format'));
       }
     }
 
@@ -2045,6 +2178,9 @@
         p.controls.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
       }
       if (Array.isArray(p.controlTypes)) p.controlTypes.sort();
+      // Canonical value-format ordering (VF-3): by id. Option ORDER is meaningful (it is
+      // the order of the picker), so options are never sorted.
+      if (Array.isArray(p.valueFormats)) p.valueFormats.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
       // Canonical groups (spec §19.7): drop empty overrides, sort deviceBaseIds, sort by id.
       if (Array.isArray(p.deviceConfigs)) p.deviceConfigs.forEach(dropEmptyOverrides);
       if (Array.isArray(p.groups)) {
@@ -2063,6 +2199,8 @@
       migrate: migrate, validateSchema: validateSchema, SCHEMA_VERSION: SCHEMA_VERSION,
       // v2.0: datasets removed from the product; stripped on load with a warning.
       RETIRED_DATASETS: RETIRED_DATASETS, dropRetiredDatasets: dropRetiredDatasets,
+      // v2.1 (VF-3): value-format vocabularies, shared with App.valueFormats.
+      BUILTIN_FORMAT_IDS: BUILTIN_FORMAT_IDS, CUSTOM_FORMAT_KINDS: CUSTOM_FORMAT_KINDS,
       // review-12: shared vocabularies (UI pickers, CSV import, store validation).
       RELEVANCE_OPTIONS: RELEVANCE_OPTIONS, CONTROL_STATES: CONTROL_STATES,
       RELEVANCE_PARKED: RELEVANCE_PARKED
@@ -2398,6 +2536,10 @@
         if ('relevance' in fields) {
           if (fields.relevance) it.relevance = fields.relevance; else delete it.relevance; // '' ⇒ unset (canonical)
         }
+        // VF-4: '' ⇒ unset (fall back to the format inferred from the captured type).
+        if ('format' in fields) {
+          if (fields.format) it.format = fields.format; else delete it.format;
+        }
       });
       return { ok: true, issues: [] };
     }
@@ -2634,6 +2776,125 @@
       return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Removed control; cleared from ' + affected + ' item(s).' }] };
     }
 
+    // ---- VALUE FORMATS (VF-5): the named, reusable custom-format catalogue --------
+    // Mirrors the control CRUD above: add/update/remove, transactional, and remove
+    // strips the id from every item that referenced it so nothing is left dangling.
+
+    /** @returns {string} a unique slug id derived from a format name. */
+    function uniqueFormatId(project, name) {
+      var base = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'format';
+      var used = {};
+      (App.projectIo.BUILTIN_FORMAT_IDS || []).forEach(function (b) { used[b] = true; });
+      (project.valueFormats || []).forEach(function (f) { used[f.id] = true; });
+      var id = base, n = 2;
+      while (used[id]) { id = base + '-' + n; n++; }
+      return id;
+    }
+
+    /**
+     * Create a custom value format (VF-5).
+     * @param {{name:string, kind?:string, description?:string, options?:Array, min?:number, max?:number, pattern?:string}} input
+     * @returns {{ok:boolean, issues:Issue[], id?:string}}
+     */
+    function addValueFormat(input) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var name = ((input && input.name) || '').trim();
+      if (!name) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Format name is required.', location: 'name' }] };
+      var kind = (input && input.kind) || 'options';
+      if ((App.projectIo.CUSTOM_FORMAT_KINDS || []).indexOf(kind) === -1) {
+        return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Unknown format kind "' + kind + '".', location: 'kind' }] };
+      }
+      var id = uniqueFormatId(_project, name);
+      var fmt = { id: id, name: name, kind: kind, description: (input.description || ''), options: normOptions(input.options) };
+      ['min', 'max'].forEach(function (k) { if (typeof input[k] === 'number') fmt[k] = input[k]; });
+      if (input.pattern) fmt.pattern = String(input.pattern);
+      commit(function (p) { if (!Array.isArray(p.valueFormats)) p.valueFormats = []; p.valueFormats.push(fmt); });
+      return { ok: true, issues: [], id: id };
+    }
+
+    /** Normalise an options list: drop blanks, de-duplicate by value, keep ORDER. */
+    function normOptions(list) {
+      var out = [], seen = {};
+      (list || []).forEach(function (o) {
+        if (!o) return;
+        var v = String(o.value == null ? '' : o.value).trim();
+        if (!v || seen[v]) return;
+        seen[v] = true;
+        out.push({ value: v, description: String(o.description == null ? '' : o.description) });
+      });
+      return out;
+    }
+
+    /** @returns {{ok:boolean, issues:Issue[]}} */
+    function updateValueFormat(id, patch) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      if (!findValueFormat(_project, id)) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown value format "' + id + '".' }] };
+      if ('name' in patch && !String(patch.name || '').trim()) {
+        return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Format name is required.', location: 'name' }] };
+      }
+      if ('kind' in patch && (App.projectIo.CUSTOM_FORMAT_KINDS || []).indexOf(patch.kind) === -1) {
+        return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Unknown format kind "' + patch.kind + '".', location: 'kind' }] };
+      }
+      commit(function (p) {
+        var f = findValueFormat(p, id); if (!f) return;
+        if ('name' in patch) f.name = String(patch.name).trim();
+        if ('kind' in patch) f.kind = patch.kind;
+        if ('description' in patch) f.description = String(patch.description || '');
+        if ('options' in patch) f.options = normOptions(patch.options);
+        ['min', 'max'].forEach(function (k) {
+          if (k in patch) { if (typeof patch[k] === 'number' && isFinite(patch[k])) f[k] = patch[k]; else delete f[k]; }
+        });
+        if ('pattern' in patch) { if (patch.pattern) f.pattern = String(patch.pattern); else delete f.pattern; }
+      });
+      return { ok: true, issues: [] };
+    }
+
+    /**
+     * Remove a custom format and clear it from every item that referenced it (VF-5).
+     * Those items fall back to the format inferred from their captured type; their
+     * decisions are untouched.
+     * @returns {{ok:boolean, issues:Issue[]}}
+     */
+    function removeValueFormat(id) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      if (!findValueFormat(_project, id)) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown value format "' + id + '".' }] };
+      var affected = 0;
+      commit(function (p) {
+        p.valueFormats = (p.valueFormats || []).filter(function (f) { return f.id !== id; });
+        Object.keys(p.items || {}).forEach(function (dsId) {
+          (p.items[dsId] || []).forEach(function (it) { if (it && it.format === id) { delete it.format; affected++; } });
+        });
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Removed value format; cleared from ' + affected + ' item(s).' }] };
+    }
+
+    function findValueFormat(p, id) { return (p.valueFormats || []).filter(function (f) { return f.id === id; })[0] || null; }
+
+    /**
+     * Apply one format to many items in a single transaction (VF-6) — the bulk path
+     * behind "apply this format to every item that currently shares this shape".
+     * @param {string} datasetId @param {string[]} keys @param {string} formatId ('' clears)
+     * @returns {{ok:boolean, issues:Issue[], applied:number}}
+     */
+    function setItemFormats(datasetId, keys, formatId) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }], applied: 0 };
+      var items = _project.items[datasetId];
+      if (!items) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown dataset "' + datasetId + '".' }], applied: 0 };
+      if (formatId && (App.projectIo.BUILTIN_FORMAT_IDS || []).indexOf(formatId) === -1 && !findValueFormat(_project, formatId)) {
+        return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Unknown value format "' + formatId + '".' }], applied: 0 };
+      }
+      var want = {}; (keys || []).forEach(function (k) { want[k] = true; });
+      var applied = 0;
+      commit(function (p) {
+        (p.items[datasetId] || []).forEach(function (it) {
+          if (!want[it.key]) return;
+          if (formatId) it.format = formatId; else delete it.format;
+          applied++;
+        });
+      });
+      return { ok: true, issues: [], applied: applied };
+    }
+
     // ---- Control TYPES (review-3 #5a): seeded list + user-added + types in use ----
     var DEFAULT_CONTROL_TYPES = ['ISM', 'AHG', 'Custom'];
     /** Union of seeded types, project.controlTypes, and types used by controls. */
@@ -2836,6 +3097,9 @@
       // review-12 #2: explicit item deletion + the one-step undo primitives.
       removeItems: removeItems, datasetSnapshot: datasetSnapshot, restoreDatasetSnapshot: restoreDatasetSnapshot,
       addControl: addControl, updateControl: updateControl, removeControl: removeControl,
+      // VF-5/VF-6: the reusable value-format catalogue + bulk item assignment.
+      addValueFormat: addValueFormat, updateValueFormat: updateValueFormat,
+      removeValueFormat: removeValueFormat, setItemFormats: setItemFormats,
       setControlDeviceState: setControlDeviceState, controlDeviceState: controlDeviceState,
       addControlType: addControlType, knownControlTypes: knownControlTypes, importControls: importControls,
       setDeviceOverride: setDeviceOverride, clearDeviceOverride: clearDeviceOverride,
@@ -4131,15 +4395,45 @@
     'use strict';
 
     /**
-     * Is an item complete? adapter.isComplete + optional ISM-ref policy (§6.5).
+     * Is an item complete? adapter.isComplete + optional ISM-ref policy (§6.5) + the
+     * item's declared value format (VF-7).
+     *
+     * `project`/`captured` are OPTIONAL and only needed for the format fold: without
+     * them the function behaves exactly as it did before formats existed, so every
+     * pre-existing caller (and the pure engine paths that have no project to hand)
+     * keeps working. This is why the format check lives here rather than inside the
+     * adapter: the format catalogue is project state, and adapters are project-blind.
      * @param {DatasetAdapter} adapter
      * @param {RegisterItem} item
+     * @param {Project} [project]
+     * @param {Object<string,{value:*,type:string}>} [captured]  adapter.capturedDefaults output
      * @returns {boolean}
      */
-    function itemComplete(adapter, item) {
+    function itemComplete(adapter, item, project, captured) {
       if (!adapter || !adapter.isComplete(item)) return false;
       if (mod.REQUIRE_CONTROL_REF && !(item.controlRefs && item.controlRefs.length)) return false;
+      if (project && App.valueFormats) {
+        if (formatIssues(adapter, item, project, captured).length) return false;
+      }
       return true;
+    }
+
+    /**
+     * The format violations for one item, or [] (VF-7). Exposed so the table can show
+     * WHY a cell is invalid rather than just tinting it.
+     * @returns {Issue[]}
+     */
+    function formatIssues(adapter, item, project, captured) {
+      if (!project || !App.valueFormats || !item || item.decision == null) return [];
+      var schema = (adapter && adapter.decisionSchema) || [];
+      var primary = schema[0];
+      // Formats describe a VALUE. A dataset whose primary decision field is an enum
+      // (packages: keep/disable/remove) already has a closed vocabulary, so it is
+      // deliberately out of scope — the adapter validates it.
+      if (!primary || (primary.kind !== 'value-typed' && primary.kind !== 'string')) return [];
+      var cap = captured && captured[item.key];
+      var fmt = App.valueFormats.resolve(project, item, cap ? cap.type : undefined, cap ? cap.value : undefined);
+      return App.valueFormats.validate(fmt, item.decision[primary.name], item.key);
     }
 
     /**
@@ -4158,12 +4452,15 @@
         var snap = dc.snapshots[dsId];
         if (!adapter || !snap) return;
         var keySet = {}; snap.keys.forEach(function (k) { keySet[k] = true; });
+        // VF-7: readiness now also honours declared value formats, so this needs the
+        // captured types (which supply the INFERRED format for items that declare none).
+        var captured = (typeof adapter.capturedDefaults === 'function') ? adapter.capturedDefaults(snap) : {};
         // Evaluate the EFFECTIVE decision (default→group→device, spec §19.2/OVR-3) so a
         // device/group override can satisfy completeness even when the default is undecided.
         var undecided = (project.items[dsId] || []).filter(function (it) {
           if (!keySet[it.key]) return false;
           var eff = App.overrides ? App.overrides.effectiveItem(project, dsId, it, deviceId) : it;
-          return !itemComplete(adapter, eff);
+          return !itemComplete(adapter, eff, project, captured);
         }).length;
         if (undecided > 0) reasons.push({ datasetId: dsId, label: adapter.label, undecided: undecided });
         total += undecided;
@@ -4175,12 +4472,287 @@
     function deviceReady(project, deviceId) { return deviceReadiness(project, deviceId).ready; }
 
     var mod = {
-      itemComplete: itemComplete, deviceReady: deviceReady, deviceReadiness: deviceReadiness,
+      itemComplete: itemComplete, formatIssues: formatIssues,
+      deviceReady: deviceReady, deviceReadiness: deviceReadiness,
       // Config flag (spec §6.5 / §18.3 CTL-8): when true, completeness also requires >=1 control ref.
       // A single switch so the team can tighten traceability without code surgery.
       REQUIRE_CONTROL_REF: false
     };
     App.completeness = mod;
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.valueFormats  — v2.1 (VF-1…VF-8)
+   * PURPOSE: Declare and enforce the SHAPE a decision value must take, so a free-text
+   *          box stops being the answer to every question. Four built-in kinds
+   *          (bool / number / text / string list) need no configuration; a project may
+   *          also define NAMED, REUSABLE custom formats — most importantly `options`,
+   *          a closed set of allowed strings each carrying a description of what it
+   *          does (e.g. `enable_both` → "Both SIM slots active"). Formats are a
+   *          catalogue + a per-item reference, exactly like controls/controlRefs, so
+   *          two keys that share a vocabulary (nr5gModeStateSimSlot0/1) share one
+   *          definition instead of re-entering it.
+   * PURITY:  pure — no DOM, no IO, no store access. Callers pass the project in.
+   * DEPENDS: App.util.stable
+   * INVARIANTS:
+   *   * A format is ADVISORY about the editor and BINDING about validity: a value that
+   *     does not satisfy its format fails validation, so the item is not complete and
+   *     the device cannot reach ready (the answer to "what does 'required' mean").
+   *   * Never blocks LOADING. An unresolvable formatRef degrades to the inferred
+   *     built-in, so a project whose format was deleted still opens and still works.
+   *   * `parseInput`/`display` are exact inverses for every kind, so an editor round
+   *     trip cannot silently change a value.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var stable = App.util.stable.stableStringify;
+
+    /**
+     * The built-in kinds. `id` doubles as the value stored in `item.format`, so a
+     * built-in never needs a catalogue entry. Order is the order shown in the picker.
+     */
+    var BUILTINS = [
+      { id: 'bool',        name: 'Boolean (true/false)', kind: 'bool',        builtin: true, hint: 'Exactly true or false.' },
+      { id: 'number',      name: 'Number',               kind: 'number',      builtin: true, hint: 'A numeric value, e.g. 1500.' },
+      { id: 'string',      name: 'Text',                 kind: 'string',      builtin: true, hint: 'Any text. An empty box is a real value (a blank string).' },
+      { id: 'stringArray', name: 'String list',          kind: 'stringArray', builtin: true, hint: 'A list of strings, one per line. An empty box is an empty list.' },
+      // The escape hatch, and the pre-format behaviour: edit the raw JSON. Used
+      // automatically for any leaf the four friendly kinds cannot represent without
+      // changing its JSON type (e.g. an array of numbers), so type fidelity — which the
+      // whole tactical rebuild depends on — is never silently traded for a nicer editor.
+      { id: 'json',        name: 'JSON value (as captured)', kind: 'json',    builtin: true, hint: 'The raw JSON value. Used when a leaf cannot be edited as one of the simpler kinds without changing its type.' }
+    ];
+    var BUILTIN_BY_ID = {};
+    BUILTINS.forEach(function (b) { BUILTIN_BY_ID[b.id] = b; });
+
+    /** The kinds a CUSTOM format may declare. 'options' is the described-enum case. */
+    var CUSTOM_KINDS = [
+      { id: 'options', label: 'Custom options', hint: 'A closed list of allowed values, each with a description.' },
+      { id: 'number',  label: 'Number',         hint: 'A number, optionally bounded by min/max.' },
+      { id: 'string',  label: 'Text',           hint: 'Free text, optionally matched against a pattern.' },
+      { id: 'stringArray', label: 'String list', hint: 'A list of strings, one per line.' }
+    ];
+
+    /**
+     * The captured JS type of a leaf → the built-in that fits it. This is what an item
+     * with no explicit format uses, so the 106 booleans, 12 string lists and 7 numbers
+     * in a real Knox capture get the right editor with zero configuration (VF-2).
+     *
+     * NOTE the tactical flattener reports numbers as `int`/`float` (it distinguishes
+     * them for JSON-type fidelity), not `number` — both map to the numeric editor.
+     * @param {string} capturedType  'bool'|'int'|'float'|'number'|'array'|'string'|'null'
+     * @returns {string} a built-in format id
+     */
+    function inferId(capturedType, capturedValue) {
+      if (capturedType === 'bool') return 'bool';
+      if (capturedType === 'int' || capturedType === 'float' || capturedType === 'number') return 'number';
+      if (capturedType === 'array') {
+        // A list of strings (or an empty one) gets the friendly one-per-line editor.
+        // Anything else — [1,2,3], [true,false] — would come back as strings through a
+        // text editor and change the emitted JSON, so it stays raw JSON.
+        if (!Array.isArray(capturedValue)) return 'stringArray';
+        return capturedValue.every(function (v) { return typeof v === 'string'; }) ? 'stringArray' : 'json';
+      }
+      if (capturedType === 'null') return 'json';
+      return 'string';
+    }
+
+    /** @param {Project} project @param {string} id @returns {Object|null} custom format */
+    function findCustom(project, id) {
+      if (!project || !id) return null;
+      var list = project.valueFormats;
+      if (!Array.isArray(list)) return null;
+      for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) return list[i];
+      return null;
+    }
+
+    /**
+     * The format actually in force for one item: its explicit `format` if that resolves,
+     * otherwise the built-in inferred from the captured leaf type. Always returns a
+     * usable format — a dangling ref degrades rather than breaking the row.
+     * @param {Project} project
+     * @param {RegisterItem} item
+     * @param {string} [capturedType]  from the adapter's capturedDefaults
+     * @returns {{id, name, kind, builtin, options?, description?, hint?, resolved:boolean, inferred:boolean}}
+     */
+    function resolve(project, item, capturedType, capturedValue) {
+      var want = item && item.format;
+      if (want) {
+        if (BUILTIN_BY_ID[want]) return copy(BUILTIN_BY_ID[want], true, false);
+        var c = findCustom(project, want);
+        if (c) {
+          return {
+            id: c.id, name: c.name || c.id, kind: c.kind || 'options', builtin: false,
+            options: (c.options || []).slice(), description: c.description || '',
+            min: c.min, max: c.max, pattern: c.pattern, resolved: true, inferred: false
+          };
+        }
+        // Dangling: fall through to the inferred built-in, but SAY it is dangling so the
+        // UI can flag it rather than pretending the item has no format.
+        var fb = copy(BUILTIN_BY_ID[inferId(capturedType, capturedValue)], false, true);
+        fb.danglingRef = want;
+        return fb;
+      }
+      return copy(BUILTIN_BY_ID[inferId(capturedType, capturedValue)], true, true);
+    }
+    function copy(b, resolved, inferred) {
+      return { id: b.id, name: b.name, kind: b.kind, builtin: true, hint: b.hint, resolved: resolved, inferred: inferred };
+    }
+
+    /**
+     * Does `value` satisfy `fmt`? Returns [] when it does.
+     * @param {Object} fmt  from resolve()
+     * @param {*} value     the decision's value (already a JS value, not editor text)
+     * @param {string} [location]
+     * @returns {Issue[]}
+     */
+    function validate(fmt, value, location) {
+      function err(msg, fix) {
+        return [{ category: 'validation', severity: 'error', message: msg, location: location || '', fix: fix }];
+      }
+      if (!fmt) return [];
+      switch (fmt.kind) {
+        case 'json':
+          return []; // any JSON value is acceptable — this kind exists to preserve, not constrain
+        case 'bool':
+          if (typeof value !== 'boolean') return err('Value must be true or false.', 'Pick true or false.');
+          return [];
+        case 'number':
+          if (typeof value !== 'number' || !isFinite(value)) return err('Value must be a number.', 'Enter a numeric value, e.g. 1500.');
+          if (typeof fmt.min === 'number' && value < fmt.min) return err('Value must be at least ' + fmt.min + '.');
+          if (typeof fmt.max === 'number' && value > fmt.max) return err('Value must be at most ' + fmt.max + '.');
+          return [];
+        case 'stringArray':
+          if (!Array.isArray(value)) return err('Value must be a list of strings.', 'Enter one item per line.');
+          for (var i = 0; i < value.length; i++) {
+            if (typeof value[i] !== 'string') return err('List entry ' + (i + 1) + ' must be text.');
+          }
+          return [];
+        case 'options':
+          var allowed = (fmt.options || []).map(function (o) { return o.value; });
+          if (!allowed.length) return []; // a format with no options yet constrains nothing
+          if (typeof value !== 'string' || allowed.indexOf(value) === -1) {
+            return err('Value must be one of: ' + allowed.join(', ') + '.', 'Pick one of the allowed options.');
+          }
+          return [];
+        case 'string':
+        default:
+          if (typeof value !== 'string') return err('Value must be text.');
+          if (fmt.pattern) {
+            var re; try { re = new RegExp(fmt.pattern); } catch (e) { return []; } // a bad pattern must not brick the item
+            if (!re.test(value)) return err('Value does not match the required pattern ' + fmt.pattern + '.');
+          }
+          return [];
+      }
+    }
+
+    /**
+     * Render a stored value as the text an editor shows. Inverse of parseInput.
+     * @param {Object} fmt @param {*} value @returns {string}
+     */
+    function display(fmt, value) {
+      if (value === undefined || value === null) return '';
+      var kind = fmt ? fmt.kind : 'string';
+      if (kind === 'json') return typeof value === 'string' ? value : stable(value);
+      if (kind === 'stringArray') {
+        return Array.isArray(value) ? value.join('\n') : String(value);
+      }
+      if (kind === 'bool') return value === true ? 'true' : value === false ? 'false' : '';
+      if (kind === 'number') return typeof value === 'number' ? String(value) : String(value);
+      if (typeof value === 'string') return value;
+      return stable(value);
+    }
+
+    /**
+     * Turn editor text into the stored JS value for this format. Inverse of display.
+     * `blank` distinguishes the two meanings an empty box can have per kind:
+     *   text        -> '' (a real blank value, review-16 #1)
+     *   string list -> [] (a real empty list — a dozen Knox whitelists are exactly this)
+     *   bool/number/options -> UNDECIDED (there is nothing sensible to mean)
+     * @param {Object} fmt @param {string} raw
+     * @returns {{ok:boolean, value?:*, undecided?:boolean, issues:Issue[]}}
+     */
+    function parseInput(fmt, raw) {
+      var kind = fmt ? fmt.kind : 'string';
+      var text = raw == null ? '' : String(raw);
+      var trimmed = text.trim();
+      if (kind === 'json') {
+        if (trimmed === '') return { ok: true, undecided: true, issues: [] };
+        try { return { ok: true, value: JSON.parse(trimmed), issues: [] }; }
+        catch (e) {
+          return { ok: false, issues: [{ category: 'validation', severity: 'error',
+            message: 'Value must be valid JSON: ' + e.message, location: '', fix: 'Check the brackets, commas and quotes.' }] };
+        }
+      }
+      if (kind === 'bool') {
+        if (trimmed === '') return { ok: true, undecided: true, issues: [] };
+        if (trimmed === 'true') return { ok: true, value: true, issues: [] };
+        if (trimmed === 'false') return { ok: true, value: false, issues: [] };
+        return { ok: false, issues: validate(fmt, trimmed) };
+      }
+      if (kind === 'number') {
+        if (trimmed === '') return { ok: true, undecided: true, issues: [] };
+        var n = Number(trimmed);
+        if (trimmed === '' || isNaN(n) || !isFinite(n)) return { ok: false, issues: validate(fmt, trimmed) };
+        var iss = validate(fmt, n);
+        return iss.length ? { ok: false, issues: iss } : { ok: true, value: n, issues: [] };
+      }
+      if (kind === 'stringArray') {
+        // One entry per line; blank lines dropped so a trailing newline is not an entry.
+        var arr = text.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l !== ''; });
+        return { ok: true, value: arr, issues: [] };
+      }
+      if (kind === 'options') {
+        if (trimmed === '') return { ok: true, undecided: true, issues: [] };
+        var iss2 = validate(fmt, trimmed);
+        return iss2.length ? { ok: false, issues: iss2 } : { ok: true, value: trimmed, issues: [] };
+      }
+      // text: an empty box is a REAL blank value (review-16 #1), never "undecided".
+      var iss3 = validate(fmt, text);
+      return iss3.length ? { ok: false, issues: iss3 } : { ok: true, value: text, issues: [] };
+    }
+
+    /**
+     * Every format offered by the picker for one project: the built-ins, then the
+     * project's custom formats sorted by name.
+     * @param {Project} project @returns {Object[]}
+     */
+    function list(project) {
+      var custom = ((project && project.valueFormats) || []).slice().sort(function (a, b) {
+        var an = (a.name || a.id), bn = (b.name || b.id);
+        return an < bn ? -1 : an > bn ? 1 : 0;
+      }).map(function (c) {
+        return { id: c.id, name: c.name || c.id, kind: c.kind || 'options', builtin: false,
+                 options: (c.options || []).slice(), description: c.description || '' };
+      });
+      return BUILTINS.map(function (b) { return copy(b, true, false); }).concat(custom);
+    }
+
+    /** How many register items reference this format id (for the manager + delete guard). */
+    function usageCount(project, formatId) {
+      var n = 0;
+      Object.keys((project && project.items) || {}).forEach(function (dsId) {
+        (project.items[dsId] || []).forEach(function (it) { if (it && it.format === formatId) n++; });
+      });
+      return n;
+    }
+
+    /** The description attached to one allowed option value ('' when none/not an enum). */
+    function optionDescription(fmt, value) {
+      if (!fmt || fmt.kind !== 'options') return '';
+      var o = (fmt.options || []).filter(function (x) { return x.value === value; })[0];
+      return (o && o.description) || '';
+    }
+
+    App.valueFormats = {
+      BUILTINS: BUILTINS, CUSTOM_KINDS: CUSTOM_KINDS,
+      inferId: inferId, resolve: resolve, validate: validate,
+      display: display, parseInput: parseInput, list: list,
+      usageCount: usageCount, optionDescription: optionDescription, findCustom: findCustom
+    };
   })(App);
   </script>
 
@@ -4980,31 +5552,19 @@
         ' title="' + esc(canUndo ? undoTitle(undo.label) : UNDO_OFF_TITLE) + '">↶ Undo</button>' +
         '<button data-redo="' + esc(dsId) + '"' + (canRedo ? '' : ' disabled') +
         ' title="' + esc(canRedo ? redoTitle(undo.redoLabel) : REDO_OFF_TITLE) + '">↷ Redo</button>';
-      var applyPicker = '';
+      // review-8 #2 / RV9-1: the "Apply to <action>" bulk toggle — only for datasets
+      // whose decision schema has an enum field (packages). Rendered into the side rail
+      // beneath the control picker, since it acts on the selected control.
+      var applyToHtml = '';
       if (ui.applyMode) {
-        var list = (controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
-        if (!list.length) {
-          applyPicker = '<span class="apply-picker muted" style="font-size:12px">No controls yet — add them in Control Manager.</span>';
-        } else {
-          var curTitle = '';
-          if (ui.applyControlId) { var cc = list.filter(function (x) { return x.id === ui.applyControlId; })[0]; if (cc) curTitle = cc.title; }
-          // review-8 #1: option shows the control NAME only (no type beneath it).
-          var opts = list.map(function (c) { return '<option value="' + esc(c.title) + '"></option>'; }).join('');
-          // review-8 #2: an "Apply to <action>" dropdown (only for datasets with an enum
-          // decision field, i.e. packages) that assigns the selected control to every item
-          // with the chosen action. Enabled only when a control is selected.
-          var proj = App.store.getProject();
-          var adapter = proj ? App.registry.getDataset(proj.platformProfileId, dsId) : null;
-          var actionField = adapter ? (adapter.decisionSchema || []).filter(function (f) { return f.kind === 'enum'; })[0] : null;
-          var applyTo = '';
-          if (actionField) {
-            applyTo = ' <select class="apply-to" data-apply-to="' + esc(dsId) + '" data-field="' + esc(actionField.name) + '"' + (ui.applyControlId ? '' : ' disabled') +
-              ' aria-label="Apply the selected control to all items with an action" title="' + (ui.applyControlId ? 'Apply the selected control to every item with the chosen action' : 'Select a control first') + '">' +
-              '<option value="">Apply to…</option>' +
-              actionField.options.map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; }).join('') + '</select>';
-          }
-          applyPicker = '<span class="apply-picker"><input class="apply-control" data-apply-control="' + esc(dsId) + '" list="apply-control-list" placeholder="search a control…" value="' + esc(curTitle) + '" aria-label="Control to apply">' +
-            '<datalist id="apply-control-list">' + opts + '</datalist>' + applyTo + '</span>';
+        var proj = App.store.getProject();
+        var adapter = proj ? App.registry.getDataset(proj.platformProfileId, dsId) : null;
+        var actionField = adapter ? (adapter.decisionSchema || []).filter(function (f) { return f.kind === 'enum'; })[0] : null;
+        if (actionField && (controls || []).length) {
+          applyToHtml = '<select class="apply-to" data-apply-to="' + esc(dsId) + '" data-field="' + esc(actionField.name) + '"' + (ui.applyControlId ? '' : ' disabled') +
+            ' aria-label="Apply the selected control to all items with an action" title="' + (ui.applyControlId ? 'Apply the selected control to every item with the chosen action' : 'Select a control first') + '">' +
+            '<option value="">Apply to every…</option>' +
+            actionField.options.map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; }).join('') + '</select>';
         }
       }
       // review-14: the two "parked" relevance views. Off (the default) the table hides
@@ -5020,15 +5580,84 @@
         ? '<span class="muted">Showing only ' + esc(only.join(' + ')) + ' items.</span>'
         : '<span class="muted">Reporting &amp; Irrelevant items are hidden.</span>';
 
+      // v2.1 (SP-1): the MODE controls (Apply Control Mode, Delete Items, Undo/Redo)
+      // and the control picker no longer live in this toolbar — they moved to the
+      // sticky side rail below, so changing the selected control no longer means
+      // scrolling a 438-row table back to the top. Everything here is a FILTER.
+      var railCollapsed = !!ui.railCollapsed;
       return '' +
         '<div class="toolbar">' +
         '<input class="grow" type="search" placeholder="Search key or description…" data-search="' + esc(dsId) + '" value="' + esc(ui.search || '') + '" aria-label="Search items">' +
         '<label><input type="checkbox" data-incomplete="' + esc(dsId) + '"' + (ui.incompleteOnly ? ' checked' : '') + '> Incomplete only</label>' +
         parkedToggles +
-        applyBtn + applyPicker + deleteBtn + undoBtn +
         '<span class="muted">' + esc(shown) + ' of ' + esc(total) + ' shown</span>' + parkedNote +
         '</div>' +
-        '<div id="table-host"></div>';
+        '<div class="table-wrap' + (railCollapsed ? ' rail-collapsed' : '') + '">' +
+          '<div id="table-host"></div>' +
+          renderSideRail(dsId, ui, controls, { applyBtn: applyBtn, deleteBtn: deleteBtn, undoBtn: undoBtn, applyTo: applyToHtml }) +
+        '</div>';
+    }
+
+    /**
+     * SP-1/SP-2: the sticky right-hand rail. `position:sticky` inside the table wrapper
+     * keeps it in view while a long register scrolls, which is the whole point — the
+     * control you are bulk-assigning is reachable from row 400 without scrolling back
+     * to row 1. Collapsible, because on a narrow screen the table matters more.
+     *
+     * SP-3: the control picker here is a real scrollable LIST, not the old
+     * `<input list>` + `<datalist>`. A datalist can only ever show the value, so the
+     * control's description — the thing that tells you what the control actually means
+     * while you assign it — had nowhere to go. Each entry now shows title, type and
+     * description, and the whole list is filterable.
+     */
+    function renderSideRail(dsId, ui, controls, btns) {
+      if (ui.railCollapsed) {
+        return '<aside class="side-rail collapsed" data-side-rail>' +
+          '<button type="button" class="rail-toggle" data-rail-toggle="' + esc(dsId) + '" title="Show the tools panel" aria-expanded="false">‹ Tools</button>' +
+          '</aside>';
+      }
+      var list = (controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
+      var filter = String(ui.railSearch || '').toLowerCase();
+      var shownList = filter
+        ? list.filter(function (c) {
+            return (c.title || '').toLowerCase().indexOf(filter) !== -1 ||
+                   (c.description || '').toLowerCase().indexOf(filter) !== -1 ||
+                   (c.type || '').toLowerCase().indexOf(filter) !== -1;
+          })
+        : list;
+      var picker = '';
+      if (ui.applyMode) {
+        if (!list.length) {
+          picker = '<p class="muted rail-empty">No controls yet — add them in Control Manager.</p>';
+        } else {
+          var options = shownList.map(function (c) {
+            var on = ui.applyControlId === c.id;
+            return '<button type="button" class="ctl-card' + (on ? ' active' : '') + '" data-rail-control="' + esc(c.id) + '" data-ds="' + esc(dsId) + '"' +
+              ' aria-pressed="' + on + '">' +
+              '<span class="ctl-card-head"><span class="ctl-card-title">' + esc(c.title) + '</span>' +
+              (c.type ? '<span class="ctl-card-type">' + esc(c.type) + '</span>' : '') + '</span>' +
+              '<span class="ctl-card-desc">' + (c.description ? esc(c.description) : '<em>No description — add one in Control Manager.</em>') + '</span>' +
+              '</button>';
+          }).join('');
+          picker =
+            '<div class="rail-section">' +
+              '<div class="rail-label">Control to apply</div>' +
+              '<input type="search" class="rail-search" data-rail-search="' + esc(dsId) + '" placeholder="Filter controls…" value="' + esc(ui.railSearch || '') + '" aria-label="Filter controls">' +
+              '<div class="ctl-cards">' + (options || '<p class="muted rail-empty">No control matches that filter.</p>') + '</div>' +
+              '<div class="muted rail-count">' + shownList.length + ' of ' + list.length + ' shown</div>' +
+              (btns.applyTo || '') +
+            '</div>';
+        }
+      }
+      return '<aside class="side-rail" data-side-rail>' +
+        '<div class="rail-head">' +
+          '<span class="rail-title">Tools</span>' +
+          '<button type="button" class="rail-toggle" data-rail-toggle="' + esc(dsId) + '" title="Hide the tools panel" aria-expanded="true">Hide ›</button>' +
+        '</div>' +
+        '<div class="rail-section rail-modes">' + btns.applyBtn + btns.deleteBtn + '</div>' +
+        '<div class="rail-section rail-history">' + btns.undoBtn + '</div>' +
+        picker +
+        '</aside>';
     }
 
     /** Merge each latest snapshot's captured defaults into one {key:{value,type}} map. */
@@ -5065,9 +5694,65 @@
     function ctrl(dsId, key, field, kind, extra) {
       return 'data-decision data-ds="' + esc(dsId) + '" data-key="' + esc(key) + '" data-field="' + esc(field) + '" data-kind="' + kind + '"' + (extra || '');
     }
+
+    /**
+     * VF-8: the editor for one item's VALUE, chosen by its resolved value format.
+     * This is what replaces "every value is a textarea": a boolean gets true/false, a
+     * number gets a numeric box, a custom-options format gets a real <select> whose
+     * entries carry the description of what each option does, and a string list gets a
+     * one-per-line box. `data-fmt-kind` tells the commit path how to read it back, so
+     * parse/serialise stay in App.valueFormats and never leak into DOM handling.
+     * @param {Object} fmt   from App.valueFormats.resolve
+     * @param {string} attrs the shared data-* attribute string from ctrl()
+     * @param {*} value      the value to show (decision value, else captured default)
+     * @returns {string} HTML
+     */
+    function renderValueEditor(fmt, attrs, value) {
+      var VF = App.valueFormats;
+      var shown = VF ? VF.display(fmt, value) : (typeof value === 'string' ? value : App.util.stable.stableStringify(value));
+      var kindAttr = ' data-fmt-kind="' + esc(fmt ? fmt.kind : 'string') + '"';
+      if (fmt && fmt.kind === 'bool') {
+        return '<select ' + attrs + kindAttr + ' class="val-edit val-bool" aria-label="value">' +
+          '<option value=""' + (shown === '' ? ' selected' : '') + '>—</option>' +
+          '<option value="true"' + (shown === 'true' ? ' selected' : '') + '>true</option>' +
+          '<option value="false"' + (shown === 'false' ? ' selected' : '') + '>false</option>' +
+          '</select>';
+      }
+      if (fmt && fmt.kind === 'options') {
+        var opts = (fmt.options || []);
+        // An options format with nothing defined yet must not trap the operator in an
+        // empty dropdown — fall back to a text box until the format has options.
+        if (!opts.length) {
+          return '<textarea ' + attrs + kindAttr + ' rows="1" class="val-edit" aria-label="value">' + esc(shown) + '</textarea>';
+        }
+        var known = opts.some(function (o) { return o.value === shown; });
+        return '<select ' + attrs + kindAttr + ' class="val-edit val-options" aria-label="value">' +
+          '<option value=""' + (shown === '' ? ' selected' : '') + '>—</option>' +
+          opts.map(function (o) {
+            var label = o.description ? (o.value + ' — ' + o.description) : o.value;
+            return '<option value="' + esc(o.value) + '"' + (shown === o.value ? ' selected' : '') +
+              (o.description ? ' title="' + esc(o.description) + '"' : '') + '>' + esc(label) + '</option>';
+          }).join('') +
+          // Keep an off-vocabulary captured value visible and selected rather than
+          // silently snapping it to the first option — it is exactly the mismatch the
+          // operator needs to SEE and fix (VF-7).
+          (!known && shown !== '' ? '<option value="' + esc(shown) + '" selected>' + esc(shown) + ' (not an allowed value)</option>' : '') +
+          '</select>';
+      }
+      if (fmt && fmt.kind === 'number') {
+        return '<input type="text" inputmode="decimal" ' + attrs + kindAttr + ' class="val-edit val-number" value="' + esc(shown) + '" aria-label="value">';
+      }
+      var rows = (fmt && fmt.kind === 'stringArray') ? Math.max(2, Math.min(8, shown.split('\n').length + 1)) : 1;
+      return '<textarea ' + attrs + kindAttr + ' rows="' + rows + '" class="val-edit' + (fmt && fmt.kind === 'stringArray' ? ' val-list' : '') + '"' +
+        (fmt && fmt.kind === 'stringArray' ? ' placeholder="one entry per line"' : '') +
+        ' aria-label="value">' + esc(shown) + '</textarea>';
+    }
+
     /** Render the decisionSchema-driven control(s) for one item's decision cell. */
-    function renderDecisionControl(adapter, dsId, item, captured) {
+    function renderDecisionControl(adapter, dsId, item, captured, project) {
       var d = item.decision, cap = captured[item.key];
+      var VF = App.valueFormats;
+      var fmt = VF ? VF.resolve(project || null, item, cap ? cap.type : undefined, cap ? cap.value : undefined) : null;
       var html = adapter.decisionSchema.map(function (f) {
         if (f.kind === 'enum') {
           var cur = d && d[f.name] != null ? d[f.name] : '';
@@ -5076,19 +5761,14 @@
             f.options.map(function (o) { return '<option value="' + esc(o) + '"' + (cur === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') +
             '</select>';
         }
-        if (f.kind === 'string') {
-          // Full-width, wrapping value box (review-2 #3): long values stay fully visible.
-          var cur2 = d && d[f.name] != null ? d[f.name] : (cap ? cap.value : '');
-          return '<textarea ' + ctrl(dsId, item.key, f.name, 'string') + ' rows="1" class="val-edit" aria-label="' + esc(f.name) + '">' + esc(cur2) + '</textarea>';
-        }
-        if (f.kind === 'value-typed') {
-          // review-3 #2: no type dropdown. The value is coerced on commit to the
-          // CAPTURED leaf's JS type (carried in data-vtype) so JSON-type fidelity is
-          // preserved without a user-visible type control.
-          var rawVal = d && ('value' in d) ? d.value : (cap ? cap.value : '');
-          var shown = (typeof rawVal === 'string') ? rawVal : App.util.stable.stableStringify(rawVal);
+        if (f.kind === 'string' || f.kind === 'value-typed') {
+          // VF-8: both text primaries now route through the format-driven editor. The
+          // captured leaf type still supplies the DEFAULT format (data-vtype is kept so
+          // an item with no declared format coerces exactly as it did before).
+          var rawVal = d && (f.name in d) ? d[f.name] : (cap ? cap.value : '');
           var vtype = (cap && cap.type) ? cap.type : (d && d.type ? d.type : 'string');
-          return '<textarea ' + ctrl(dsId, item.key, f.name, 'value-typed', ' data-vtype="' + esc(vtype) + '"') + ' rows="1" class="val-edit" aria-label="value">' + esc(shown) + '</textarea>';
+          var attrs = ctrl(dsId, item.key, f.name, f.kind, ' data-vtype="' + esc(vtype) + '"');
+          return renderValueEditor(fmt, attrs, rawVal);
         }
         if (f.kind === 'bool') {
           var on = !!(d && d[f.name]);
@@ -5164,7 +5844,53 @@
       return v ? '<span class="badge ' + relevanceClass(v) + '">' + esc(v) + '</span>' : '';
     }
 
-    function renderDetailRow(dsId, item, colspan, issues, controls) {
+    /**
+     * VF-4: the per-item "Value format" row in the expander — a picker over the
+     * built-ins plus the project's named formats, a live hint describing the current
+     * one, and a button into the format manager. Only rendered for datasets whose
+     * primary decision is a VALUE (a packages action is already a closed enum).
+     */
+    function formatPicker(dsId, item, project, adapter, captured) {
+      var VF = App.valueFormats;
+      var schema = (adapter && adapter.decisionSchema) || [];
+      var primary = schema[0];
+      if (!VF || !primary || (primary.kind !== 'value-typed' && primary.kind !== 'string')) return '';
+      var cap = captured && captured[item.key];
+      var capType = cap ? cap.type : undefined;
+      var cur = VF.resolve(project, item, capType, cap ? cap.value : undefined);
+      var inferredId = VF.inferId(capType, cap ? cap.value : undefined);
+      var all = VF.list(project);
+      var builtins = all.filter(function (f) { return f.builtin; });
+      var customs = all.filter(function (f) { return !f.builtin; });
+      function opt(f) {
+        var label = f.name + (f.id === inferredId && !item.format ? ' (inferred from capture)' : '');
+        return '<option value="' + esc(f.id) + '"' + (item.format === f.id ? ' selected' : '') + '>' + esc(label) + '</option>';
+      }
+      var html = '<select data-format-pick ' + 'data-ds="' + esc(dsId) + '" data-key="' + esc(item.key) + '" aria-label="Value format">' +
+        '<option value=""' + (item.format ? '' : ' selected') + '>Automatic — ' + esc((BUILTIN_NAME[inferredId] || inferredId)) + ' (from the capture)</option>' +
+        '<optgroup label="Standard formats">' + builtins.map(opt).join('') + '</optgroup>' +
+        (customs.length ? '<optgroup label="Project formats">' + customs.map(opt).join('') + '</optgroup>' : '') +
+        '</select>';
+      var hint = cur.danglingRef
+        ? '<span class="fmt-warn">Format &ldquo;' + esc(cur.danglingRef) + '&rdquo; no longer exists — using ' + esc(cur.name) + '.</span>'
+        : '<span class="muted">' + esc(cur.hint || cur.description || describeFormat(cur)) + '</span>';
+      return '<label>Value format</label><div class="fmt-cell">' + html +
+        ' <button type="button" data-format-manage title="Create and edit the project\'s named value formats">Manage…</button>' +
+        '<div class="fmt-hint">' + hint + '</div></div>';
+    }
+    var BUILTIN_NAME = { bool: 'Boolean', number: 'Number', string: 'Text', stringArray: 'String list', json: 'JSON value' };
+    /** One line describing what a custom format allows (shown under the picker). */
+    function describeFormat(f) {
+      if (f.kind === 'options') {
+        var vals = (f.options || []).map(function (o) { return o.value; });
+        return vals.length ? 'Allowed: ' + vals.join(', ') : 'No options defined yet — any text is accepted until you add some.';
+      }
+      if (f.kind === 'number') return 'A number' + (typeof f.min === 'number' || typeof f.max === 'number' ? ' between ' + (f.min != null ? f.min : '−∞') + ' and ' + (f.max != null ? f.max : '∞') : '') + '.';
+      if (f.kind === 'stringArray') return 'A list of strings, one per line.';
+      return 'Free text.';
+    }
+
+    function renderDetailRow(dsId, item, colspan, issues, controls, project, adapter, captured) {
       var key = item.key;
       var iss = (issues && issues[dsId + '|' + key]) || [];
       var issHtml = iss.length ? '<div class="detail-issues">' + iss.map(function (i) {
@@ -5187,6 +5913,7 @@
         '<label>Control Refs</label>' + controlSelect(dsId, key, item.controlRefs, controls || []) +
         rationaleCell +
         fld('rollback', 'Rollback', true, item.rollback) +
+        formatPicker(dsId, item, project, adapter, captured) +
         issHtml +
         '</div></td></tr>';
     }
@@ -5235,8 +5962,16 @@
         var tds = adapter.columns.map(function (c) {
           if (c.key === 'decision') {
             var iss = (opts.issues && opts.issues[dsId + '|' + r.item.key]) || [];
-            var invalid = iss.some(function (i) { return i.severity === 'error'; });
-            return '<td class="dcell' + (invalid ? ' invalid' : '') + '" data-ds="' + esc(dsId) + '" data-key="' + esc(r.item.key) + '">' + renderDecisionControl(adapter, dsId, r.item, captured) + '</td>';
+            // VF-7: a value that violates its declared format is invalid even when the
+            // adapter is happy with it, and the reason is shown in the cell's title so
+            // the operator is not left guessing why a row is tinted.
+            var fIss = (App.completeness && App.completeness.formatIssues)
+              ? App.completeness.formatIssues(adapter, r.item, project, captured) : [];
+            var allIss = iss.concat(fIss);
+            var invalid = allIss.some(function (i) { return i.severity === 'error'; });
+            var why = invalid ? ' title="' + esc(allIss.map(function (i) { return i.message; }).join(' ')) + '"' : '';
+            return '<td class="dcell' + (invalid ? ' invalid' : '') + '" data-ds="' + esc(dsId) + '" data-key="' + esc(r.item.key) + '"' + why + '>' +
+              renderDecisionControl(adapter, dsId, r.item, captured, project) + '</td>';
           }
           if (c.key === 'controlRefs') {
             // Resolve control ids to titles for display (spec §18.3 CTL-5).
@@ -5264,7 +5999,7 @@
           tds += '<td class="del-cell"><input type="checkbox" data-delete-check data-key="' + esc(r.item.key) + '"' + (marked ? ' checked' : '') + ' aria-label="delete ' + esc(r.item.key) + '"></td>';
         }
         var rowHtml = '<tr class="' + (r.status === 'decided' ? '' : 'undecided') + (marked ? ' del-marked' : '') + '">' + lead + tds + '</tr>';
-        if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues, controls);
+        if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues, controls, project, adapter, captured);
         return rowHtml;
       }).join('');
 
@@ -5276,6 +6011,10 @@
     App.ui = App.ui || {};
     App.ui.tables = {
       renderToolbar: renderToolbar, renderTableHtml: renderTableHtml, buildCapturedMap: buildCapturedMap,
+      // VF-8: shared so the device/group OVERRIDE editors get the same format-driven
+      // controls as the data table — a boolean must not be a textarea in one place and
+      // a true/false picker in the other.
+      renderValueEditor: renderValueEditor,
       relevanceBadge: relevanceBadge, relevanceClass: relevanceClass,
       undoTitle: undoTitle, redoTitle: redoTitle, UNDO_OFF_TITLE: UNDO_OFF_TITLE, REDO_OFF_TITLE: REDO_OFF_TITLE
     };
@@ -5798,8 +6537,10 @@
       return Object.keys(set);
     }
 
-    /** A schema-driven group-override editor, seeded with a decision (data-gov-* attrs). */
-    function govControl(adapter, decision, fieldPrefix) {
+    /** A schema-driven group-override editor, seeded with a decision (data-gov-* attrs).
+     *  `dsId`/`key` are optional and only used to resolve the item's declared value
+     *  format (VF-8) — the add-override form has no key chosen yet. */
+    function govControl(adapter, decision, fieldPrefix, dsId, key) {
       var d = decision;
       return adapter.decisionSchema.map(function (f) {
         var common = fieldPrefix + ' data-gov-field="' + esc(f.name) + '" data-gov-kind="' + f.kind + '"';
@@ -5808,15 +6549,13 @@
           return '<select ' + common + ' aria-label="' + esc(f.name) + '"><option value="">—</option>' +
             f.options.map(function (o) { return '<option value="' + esc(o) + '"' + (cur === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
         }
-        if (f.kind === 'string') {
-          var cur2 = d && d[f.name] != null ? d[f.name] : '';
-          return '<textarea ' + common + ' rows="1" class="val-edit" aria-label="' + esc(f.name) + '">' + esc(cur2) + '</textarea>';
-        }
-        if (f.kind === 'value-typed') {
-          var rawVal = d && ('value' in d) ? d.value : '';
-          var shown = (typeof rawVal === 'string') ? rawVal : App.util.stable.stableStringify(rawVal);
+        if (f.kind === 'string' || f.kind === 'value-typed') {
+          // VF-8: same format-driven editor as the data table and the device panels.
+          var rawVal = d && (f.name in d) ? d[f.name] : '';
           var vtype = (d && d.type) ? d.type : (typeof rawVal === 'boolean' ? 'bool' : (typeof rawVal === 'number' ? (rawVal % 1 === 0 ? 'int' : 'float') : 'string'));
-          return '<textarea ' + common + ' data-vtype="' + esc(vtype) + '" rows="1" class="val-edit" aria-label="value">' + esc(shown) + '</textarea>';
+          var it = itemFor(dsId, key) || { key: key };
+          var fmt = App.valueFormats ? ovFormat(dsId, it, rawVal, vtype) : null;
+          return App.ui.tables.renderValueEditor(fmt, common + ' data-vtype="' + esc(vtype) + '"', rawVal);
         }
         if (f.kind === 'bool') {
           var on = !!(d && d[f.name]);
@@ -5841,7 +6580,7 @@
           // review-6 #2: show the DEFAULT value alone (e.g. 0), not the raw decision JSON.
           var defText = dV && dV.decision != null ? String(get({ decision: dV.decision })) : '(undecided)';
           return '<tr><td>' + esc(dispKey(key)) + '</td><td>' + esc(defText) + '</td>' +
-            '<td>' + govControl(adapter, ovMap[key], 'data-gov data-gov-ds="' + esc(d.id) + '" data-gov-key="' + esc(key) + '"') + '</td>' +
+            '<td>' + govControl(adapter, ovMap[key], 'data-gov data-gov-ds="' + esc(d.id) + '" data-gov-key="' + esc(key) + '"', d.id, key) + '</td>' +
             '<td><button class="ov-revert" data-gov-remove data-ds="' + esc(d.id) + '" data-key="' + esc(key) + '">Remove</button></td></tr>';
         }).join('');
         var table = keys.length
@@ -5863,7 +6602,7 @@
         '<select data-gov-add-ds aria-label="dataset">' + dsSel + '</select> ' +
         '<input class="gov-add-key" data-gov-add-key list="gov-add-keylist" placeholder="type to search a key…" value="' + esc(_dev.groupAdd.key || '') + '" aria-label="key">' +
         '<datalist id="gov-add-keylist">' + keyOpts + '</datalist> ' +
-        (addAdapter ? govControl(addAdapter, null, 'data-gov-add-field-ctl') : '') +
+        (addAdapter ? govControl(addAdapter, null, 'data-gov-add-field-ctl', addDs, _dev.groupAdd.key) : '') +
         ' <button class="primary" data-gov-add-set data-ds="' + esc(addDs) + '">Set</button></div>';
 
       return '<div class="modal-overlay" data-group-modal>' +
@@ -5880,7 +6619,12 @@
       var decision = {}, hasValue = false;
       Array.prototype.forEach.call(controls, function (c) {
         var field = c.getAttribute('data-gov-field'), kind = c.getAttribute('data-gov-kind');
+        var fmtKind = c.getAttribute('data-fmt-kind');   // VF-8
         if (kind === 'bool') { decision[field] = c.checked; hasValue = true; }
+        else if (fmtKind && App.valueFormats) {
+          var r = App.valueFormats.parseInput({ kind: fmtKind }, c.value);
+          if (!r.undecided) { decision[field] = r.ok ? r.value : c.value; hasValue = true; }
+        }
         else if (kind === 'value-typed') { if (String(c.value) !== '') { decision[field] = coerceOv(c.value, c.getAttribute('data-vtype')); hasValue = true; } }
         else if (kind === 'enum') { if (c.value !== '') { decision[field] = c.value; hasValue = true; } }
         else { decision[field] = c.value; hasValue = true; } // string: '' is a valid value
@@ -5896,6 +6640,14 @@
       return str;
     }
 
+    /** Look up a register item by dataset + key (for format resolution); null if absent. */
+    function itemFor(dsId, key) {
+      if (!dsId || !key) return null;
+      var p = App.store.getProject();
+      if (!p || !p.items || !p.items[dsId]) return null;
+      return p.items[dsId].filter(function (i) { return i.key === key; })[0] || null;
+    }
+
     /** A schema-driven override editor for one item, seeded with the effective decision (spec §19.5). */
     function renderOverrideControl(adapter, dsId, item, effDecision) {
       var d = effDecision;
@@ -5906,15 +6658,13 @@
           return '<select ' + common + ' aria-label="override ' + esc(f.name) + '"><option value="">—</option>' +
             f.options.map(function (o) { return '<option value="' + esc(o) + '"' + (cur === o ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>';
         }
-        if (f.kind === 'string') {
-          var cur2 = d && d[f.name] != null ? d[f.name] : '';
-          return '<textarea ' + common + ' rows="1" class="val-edit" aria-label="override ' + esc(f.name) + '">' + esc(cur2) + '</textarea>';
-        }
-        if (f.kind === 'value-typed') {
-          var rawVal = d && ('value' in d) ? d.value : '';
-          var shown = (typeof rawVal === 'string') ? rawVal : App.util.stable.stableStringify(rawVal);
+        if (f.kind === 'string' || f.kind === 'value-typed') {
+          // VF-8: the override editor uses the SAME format-driven control as the data
+          // table, so a boolean overrides via true/false and a list one-per-line.
+          var rawVal = d && (f.name in d) ? d[f.name] : '';
           var vtype = (d && d.type) ? d.type : (typeof rawVal === 'boolean' ? 'bool' : (typeof rawVal === 'number' ? (rawVal % 1 === 0 ? 'int' : 'float') : 'string'));
-          return '<textarea ' + common + ' data-vtype="' + esc(vtype) + '" rows="1" class="val-edit" aria-label="override value">' + esc(shown) + '</textarea>';
+          var fmt = ovFormat(dsId, item, rawVal, vtype);
+          return App.ui.tables.renderValueEditor(fmt, common + ' data-vtype="' + esc(vtype) + '"', rawVal);
         }
         if (f.kind === 'bool') {
           var on = !!(d && d[f.name]);
@@ -5922,6 +6672,36 @@
         }
         return '';
       }).join(' ');
+    }
+
+    /**
+     * The value format in force for an override editor (VF-8). Resolved from the item's
+     * declared format, falling back to the format inferred from the CAPTURED leaf —
+     * not from the override value, which is normally empty (nothing is overridden yet)
+     * and would otherwise infer "text" for every item.
+     */
+    function ovFormat(dsId, item, rawVal, vtype) {
+      if (!App.valueFormats) return null;
+      var project = App.store.getProject();
+      var cap = capturedFor(project, dsId)[item.key];
+      if (cap) return App.valueFormats.resolve(project, item, cap.type, cap.value);
+      return App.valueFormats.resolve(project, item, vtype, rawVal);
+    }
+
+    /**
+     * Captured defaults for one dataset, merged across the latest device configs and
+     * memoised per render pass (the panels ask for the same map once per row).
+     */
+    var _capCache = { key: null, map: null };
+    function capturedFor(project, dsId) {
+      if (!project || !dsId) return {};
+      var stamp = project.meta && project.meta.modifiedUtc;
+      var ck = dsId + '|' + stamp + '|' + (project.deviceConfigs || []).length;
+      if (_capCache.key === ck) return _capCache.map;
+      var adapter = App.registry.getDataset(project.platformProfileId, dsId);
+      var map = (adapter && App.ui.tables.buildCapturedMap) ? App.ui.tables.buildCapturedMap(project, dsId, adapter) : {};
+      _capCache = { key: ck, map: map };
+      return map;
     }
 
     /**
@@ -6312,7 +7092,14 @@
         var decision = {}, clear = false;
         Array.prototype.forEach.call(controls, function (c) {
           var field = c.getAttribute('data-ov-field'), kind = c.getAttribute('data-ov-kind');
+          var fmtKind = c.getAttribute('data-fmt-kind');   // VF-8
           if (kind === 'bool') decision[field] = c.checked;
+          else if (fmtKind && App.valueFormats) {
+            // An emptied bool/number/options override means "no override" — revert to
+            // inherited — which is exactly what clearDeviceOverride does.
+            var r = App.valueFormats.parseInput({ kind: fmtKind }, c.value);
+            if (r.undecided) clear = true; else decision[field] = r.ok ? r.value : c.value;
+          }
           else if (kind === 'value-typed') decision[field] = coerceOv(c.value, c.getAttribute('data-vtype'));
           else if (kind === 'enum') { if (c.value === '') clear = true; else decision[field] = c.value; }
           else decision[field] = c.value;
@@ -6659,6 +7446,146 @@
 
   <script>
   /* =============================================================================
+   * MODULE: App.ui.views.formats  — VF-5 "Value formats" manager
+   * PURPOSE: Create and edit the project's NAMED, REUSABLE value formats: a left
+   *          list of formats, a right editor for the selected one, and — for the
+   *          `options` kind — a table of allowed values each with a description of
+   *          what it does. This is the surface behind "put in each string as a
+   *          possible option and then also a description of what that option does".
+   * PURITY:  render returns a string; wiring is registered by App.ui.app.
+   * DEPENDS: App.store, App.valueFormats, App.util.html
+   * INVARIANTS: renders only when open; every write goes through a store mutator so
+   *             it participates in dirty-tracking and validation like any other edit.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+    var esc = App.util.html.esc;
+
+    // UI-only state: which format the editor is showing. Never persisted.
+    var _fm = { open: false, selected: null, draftName: '' };
+
+    /** Open the manager, optionally selecting a format (or 'new'). */
+    function open(selectId) { _fm.open = true; _fm.selected = selectId || null; }
+    function close() { _fm.open = false; _fm.selected = null; _fm.draftName = ''; }
+    function isOpen() { return !!_fm.open; }
+
+    /** The format the editor should show: the selected one, else the first. */
+    function current(project) {
+      var list = (project && project.valueFormats) || [];
+      if (_fm.selected === 'new') return null;
+      var sel = list.filter(function (f) { return f.id === _fm.selected; })[0];
+      return sel || list[0] || null;
+    }
+
+    function kindSelect(cur) {
+      return '<select data-fmt-kind-pick aria-label="Format kind">' +
+        App.valueFormats.CUSTOM_KINDS.map(function (k) {
+          return '<option value="' + esc(k.id) + '"' + (cur === k.id ? ' selected' : '') + ' title="' + esc(k.hint) + '">' + esc(k.label) + '</option>';
+        }).join('') + '</select>';
+    }
+
+    /** The allowed-values table: one row per option, value + "what it does". */
+    function optionsTable(fmt) {
+      var opts = (fmt.options || []);
+      var rows = opts.map(function (o, i) {
+        return '<tr>' +
+          '<td><input type="text" data-fmt-opt-value data-idx="' + i + '" value="' + esc(o.value) + '" aria-label="Allowed value ' + (i + 1) + '"></td>' +
+          '<td><input type="text" data-fmt-opt-desc data-idx="' + i + '" value="' + esc(o.description || '') + '" placeholder="what this option does" aria-label="Description of ' + esc(o.value) + '"></td>' +
+          '<td><button type="button" class="danger" data-fmt-opt-remove data-idx="' + i + '" title="Remove this option">Remove</button></td>' +
+          '</tr>';
+      }).join('');
+      return '<table class="fmt-opts"><thead><tr><th>Allowed value</th><th>What it does</th><th></th></tr></thead>' +
+        '<tbody>' + (rows || '<tr><td colspan="3" class="muted">No options yet — add the first allowed value below.</td></tr>') + '</tbody></table>' +
+        '<div class="fmt-add-row">' +
+          '<input type="text" data-fmt-new-value placeholder="value, e.g. enable_both" aria-label="New allowed value">' +
+          '<input type="text" data-fmt-new-desc placeholder="what it does, e.g. Both SIM slots active" aria-label="New option description">' +
+          '<button type="button" data-fmt-opt-add>Add option</button>' +
+        '</div>';
+    }
+
+    function editor(project, fmt) {
+      if (!fmt) {
+        return '<div class="fmt-editor"><h4>New value format</h4>' +
+          '<p class="muted">Give the format a name, then choose what shape its values take. ' +
+          'Once saved you can assign it to any item from that item&rsquo;s <strong>Value format</strong> picker.</p>' +
+          '<div class="fmt-grid">' +
+            '<label>Name</label><input type="text" data-fmt-new-name placeholder="e.g. 5G radio mode" value="' + esc(_fm.draftName || '') + '" aria-label="New format name">' +
+            '<label>Kind</label>' + kindSelect('options') +
+          '</div>' +
+          '<div class="fmt-actions"><button type="button" class="primary" data-fmt-create>Create format</button></div>' +
+          '</div>';
+      }
+      var used = App.valueFormats.usageCount(project, fmt.id);
+      var body = '';
+      if ((fmt.kind || 'options') === 'options') {
+        body = '<h5>Allowed values</h5>' +
+          '<p class="muted">Each value is offered in the item&rsquo;s dropdown, with its description beside it, and anything outside this list is rejected.</p>' +
+          optionsTable(fmt);
+      } else if (fmt.kind === 'number') {
+        body = '<div class="fmt-grid">' +
+          '<label>Minimum</label><input type="text" inputmode="decimal" data-fmt-min value="' + esc(fmt.min == null ? '' : fmt.min) + '" placeholder="(no minimum)" aria-label="Minimum">' +
+          '<label>Maximum</label><input type="text" inputmode="decimal" data-fmt-max value="' + esc(fmt.max == null ? '' : fmt.max) + '" placeholder="(no maximum)" aria-label="Maximum">' +
+          '</div>';
+      } else if (fmt.kind === 'string') {
+        body = '<div class="fmt-grid">' +
+          '<label>Pattern</label><input type="text" data-fmt-pattern value="' + esc(fmt.pattern || '') + '" placeholder="optional regular expression" aria-label="Pattern">' +
+          '</div>';
+      } else {
+        body = '<p class="muted">A list of strings, entered one per line on the item.</p>';
+      }
+      return '<div class="fmt-editor">' +
+        '<div class="fmt-grid">' +
+          '<label>Name</label><input type="text" data-fmt-name value="' + esc(fmt.name || '') + '" aria-label="Format name">' +
+          '<label>Kind</label>' + kindSelect(fmt.kind || 'options') +
+          '<label>Description</label><textarea data-fmt-desc placeholder="what this format is for" aria-label="Format description">' + esc(fmt.description || '') + '</textarea>' +
+        '</div>' +
+        '<div class="muted fmt-usage">Used by <strong>' + used + '</strong> item' + (used === 1 ? '' : 's') + '.</div>' +
+        body +
+        '<div class="fmt-actions">' +
+          '<button type="button" class="danger" data-fmt-remove data-id="' + esc(fmt.id) + '" title="Delete this format; items using it fall back to the format inferred from their capture">Delete format</button>' +
+        '</div>' +
+        '</div>';
+    }
+
+    /** @returns {string} HTML for the modal, or '' when closed. */
+    function render() {
+      if (!_fm.open) return '';
+      var project = App.store.getProject();
+      if (!project) return '';
+      var list = (project.valueFormats || []).slice().sort(function (a, b) {
+        var an = a.name || a.id, bn = b.name || b.id;
+        return an < bn ? -1 : an > bn ? 1 : 0;
+      });
+      var fmt = current(project);
+      var items = list.map(function (f) {
+        var on = fmt && f.id === fmt.id && _fm.selected !== 'new';
+        var n = App.valueFormats.usageCount(project, f.id);
+        return '<button type="button" class="fmt-pick' + (on ? ' active' : '') + '" data-fmt-select="' + esc(f.id) + '">' +
+          '<span class="fmt-pick-name">' + esc(f.name || f.id) + '</span>' +
+          '<span class="fmt-pick-meta">' + esc(f.kind || 'options') + ' · ' + n + ' item' + (n === 1 ? '' : 's') + '</span>' +
+          '</button>';
+      }).join('');
+      return '<div class="modal-overlay" data-fmt-modal>' +
+        '<div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="Value formats">' +
+          '<div class="modal-head"><h3>Value formats</h3>' +
+            '<span class="modal-sub">Reusable shapes for decision values — assign one to any item from its Value format picker.</span>' +
+            '<button type="button" class="modal-close" data-fmt-close aria-label="Close">×</button></div>' +
+          '<div class="modal-body fmt-body">' +
+            '<div class="fmt-list">' + items +
+              '<button type="button" class="fmt-pick fmt-new' + (_fm.selected === 'new' ? ' active' : '') + '" data-fmt-select="new">+ New format</button>' +
+            '</div>' +
+            (_fm.selected === 'new' ? editor(project, null) : (fmt ? editor(project, fmt) : editor(project, null))) +
+          '</div>' +
+        '</div></div>';
+    }
+
+    App.ui = App.ui || {}; App.ui.views = App.ui.views || {};
+    App.ui.views.formats = { render: render, open: open, close: close, isOpen: isOpen, _fm: _fm, current: current };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
    * MODULE: App.ui.views.help
    * PURPOSE: In-app manual (spec §11, Phase 8; rewritten review-15). One section per
    *          area of the app, reached from a section strip so no single page is a
@@ -6811,7 +7738,7 @@
         deftable(['Column', 'Meaning'], [
           ['<strong>Key</strong> (Package / Key / Path)', 'The item\'s identity. This is what the generated output acts on.'],
           ['<strong>Description</strong>', 'Your plain-language note about what the item is. Shown in the report.'],
-          ['<strong>Action / Value</strong>', 'The decision itself, edited in place. On Packages, choosing <strong>—</strong> clears the decision. On Tactical the box is free text, so an <em>empty</em> box is a real decision — "set this key to blank" — and the <strong>clear</strong> button beside the box is what returns the item to undecided.'],
+          ['<strong>Action / Value</strong>', 'The decision itself, edited in place. On Packages, choosing <strong>—</strong> clears the decision. On Tactical the editor matches the item&rsquo;s <strong>value format</strong> (see below): true/false for a boolean, a numeric box for a number, one-per-line for a list, a dropdown for a defined set of options, and a text box otherwise. Where the editor is free text, an <em>empty</em> box is a real decision — "set this key to blank" — and the <strong>clear</strong> button beside it is what returns the item to undecided.'],
           ['<strong>Control Refs</strong>', 'Which controls this item helps satisfy. Edited in the row expander or with Apply Control Mode.'],
           ['<strong>Security Relevance</strong>', 'Optional tag: ' + esc(relevanceList()) + '. May be left blank.'],
           ['<strong>Applies to</strong>', 'Which devices currently have this item in their snapshot.'],
@@ -6825,8 +7752,27 @@
           '<strong>Click the Status badge to flip the item.</strong> Clicking <span class="badge decided">decided</span> returns it to undecided (the same as <strong>clear</strong>). ' +
             'Clicking <span class="badge undecided">undecided</span> accepts whatever the value box is already showing — on Tactical that is the <em>captured</em> value, so one click means "the value on the device is my decision". ' +
             'On Packages, where nothing is selected yet, it records <code>keep</code>, the no-change action. Either way the flip is undone by clicking the badge again.',
-          'Click the <strong>▸</strong> at the start of a row to expand it. The expander holds the <strong>Description</strong>, the <strong>Control Refs</strong> checklist, the <strong>Rationale</strong> (with a one-click "not required for device use-case" preset) and the <strong>Rollback</strong> note.',
-          'If a decision is invalid, the cell is tinted and the reason is listed in the expander. The value is still stored — invalid simply means "not complete yet".'
+          'Click the <strong>▸</strong> at the start of a row to expand it. The expander holds the <strong>Description</strong>, the <strong>Control Refs</strong> checklist, the <strong>Rationale</strong> (with a one-click "not required for device use-case" preset), the <strong>Rollback</strong> note and the <strong>Value format</strong> picker.',
+          'If a decision is invalid, the cell is tinted and the reason is listed in the expander (and in the cell&rsquo;s tooltip). The value is still stored — invalid simply means "not complete yet".'
+        ]) +
+        h(3, 'Value formats') +
+        p('A value format declares what shape an item&rsquo;s value is allowed to take. It does two things: it gives you the <em>right editor</em> instead of a free-text box, and it makes a wrong value <em>impossible to miss</em> — a value outside its format is an error, so the item is not complete and the device cannot reach ready until it is fixed.') +
+        p('<strong>You do not have to configure anything.</strong> Every item starts on the format inferred from what the device actually reported, so a boolean leaf already shows true/false and a number already shows a numeric box. The picker only matters when you want to be stricter than the capture.') +
+        deftable(['Format', 'What it accepts'], [
+          ['<strong>Boolean</strong>', 'Exactly <code>true</code> or <code>false</code>, chosen from a dropdown.'],
+          ['<strong>Number</strong>', 'A numeric value. A custom number format may also set a minimum and maximum.'],
+          ['<strong>Text</strong>', 'Any text. An empty box is a real value (a blank string). A custom text format may also require a pattern.'],
+          ['<strong>String list</strong>', 'A list of strings, entered <strong>one per line</strong>. An empty box means an empty list — which is what most of the Knox whitelists are.'],
+          ['<strong>JSON value</strong>', 'The raw JSON, used automatically for anything the simpler kinds cannot represent without changing its type (for example a list of numbers). Editing it as text would silently turn <code>[1,2]</code> into <code>["1","2"]</code>, which would change what gets uploaded — so the tool keeps it as JSON instead.'],
+          ['<strong>Your own formats</strong>', 'A named set of allowed values, each with a description of what it does. The item then offers a dropdown reading <code>value — what it does</code>.']
+        ]) +
+        h(3, 'Defining your own format') +
+        p('Open a row, then click <strong>Manage…</strong> beside the Value format picker. Give the format a name, choose <strong>Custom options</strong>, and add each allowed value together with a short description of what that option does. Save, then assign the format to any item from its picker.') +
+        p('Formats are <strong>named and reusable</strong> on purpose: two keys that take the same vocabulary — the two per-SIM 5G mode keys, for example — should share one definition, so you write the options and their descriptions once and both keys stay in step.') +
+        ul([
+          'A value the device reported that is <em>not</em> in your list stays visible, marked <em>(not an allowed value)</em>, rather than being quietly snapped to a legal one. That mismatch is exactly what you need to see.',
+          'The manager shows how many items use each format, so you know what a change affects.',
+          'Deleting a format does not touch any decision: the items that used it simply fall back to the format inferred from their capture.'
         ]) +
         h(3, 'Finding things') +
         deftable(['Control', 'Effect'], [
@@ -6837,10 +7783,11 @@
           ['<strong>Column headers</strong>', 'Click to sort. Security Relevance sorts by severity (HIGH first), not alphabetically.'],
           ['<strong>Column edges</strong>', 'Drag to resize. Widths are remembered for the session.']
         ]) +
-        h(3, 'Bulk tools') +
+        h(3, 'Bulk tools (the Tools panel)') +
+        p('The bulk tools live in the <strong>Tools</strong> panel pinned to the right of the table. It <em>stays in place while you scroll</em>, so on a register hundreds of rows long you can change the control you are assigning without scrolling back to the top. <strong>Hide ›</strong> collapses it when you want the full width for the table.') +
         deftable(['Tool', 'How to use it'], [
           ['<strong>Apply Control Mode</strong>',
-           'Click it, pick a control, then tick rows to attach that control to them (unticking detaches it). On Packages there is also an <em>Apply to…</em> dropdown that applies the control to every item with a chosen action at once — press it again to remove it from all of them.'],
+           'Click it, then pick a control from the list in the panel — each entry shows the control&rsquo;s <strong>name, type and description</strong>, so you can tell what it means as you assign it. Filter the list with the box above it. With a control selected, tick rows to attach it (unticking detaches it); clicking the selected control again deselects it. On Packages there is also an <em>Apply to every…</em> dropdown that applies the control to every item with a chosen action at once — press it again to remove it from all of them.'],
           ['<strong>Delete Items</strong>',
            'Click to arm Delete Mode, tick the rows to remove, then click <strong>Delete selected</strong> to action them, or <strong>Cancel</strong> to back out. Deleting also removes any device or group override that pointed at the deleted item. The capture snapshots are untouched, so re-onboarding the same file brings the item back.'],
           ['<strong>Undo</strong> / <strong>Redo</strong>',
@@ -6976,6 +7923,7 @@
           ['<strong>Item</strong>', 'One configuration entry in the register: a package or a tactical path.'],
           ['<strong>Key</strong>', 'An item\'s identity, e.g. a package name or <code>imsSettings.simSlot0.enabled</code>.'],
           ['<strong>Decision</strong>', 'What the item should be — an action for packages, a value for tactical.'],
+          ['<strong>Value format</strong>', 'The shape a value is allowed to take (boolean, number, text, string list, JSON, or your own named set of options). Inferred from the capture unless you pick one; a value outside its format blocks completeness.'],
           ['<strong>Snapshot</strong>', 'What one capture contained for one dataset: the key list plus a hash of the file.'],
           ['<strong>Applicable</strong>', 'An item is applicable to a device when its key is in that device\'s snapshot.'],
           ['<strong>Decided / undecided</strong>', 'An item is decided when its decision is present and valid.'],
@@ -7208,7 +8156,7 @@
     // ---- top-level render ----
     function render() {
       if (!_root) return;
-      _root.innerHTML = renderShell() + renderSaveModal();
+      _root.innerHTML = renderShell() + renderSaveModal() + (App.ui.views.formats ? App.ui.views.formats.render() : '');
       renderMain();
       renderDrawer();
       updateThemeButton(); // reflect current theme on the freshly-rendered toggle
@@ -7487,13 +8435,134 @@
         if (!res.ok) App.ui.activity.logIssues(res.issues, 'Security Relevance');
         // store.onChange re-renders, so the badge colour follows the new value.
       });
-      dom.on(_root, 'change', '[data-apply-control]', function (e, el) {
-        var dsId = el.getAttribute('data-apply-control'), title = el.value.trim();
-        var project = App.store.getProject();
-        var c = (project.controls || []).filter(function (x) { return x.title === title; })[0];
-        uiFor(dsId).applyControlId = c ? c.id : null;
+      // SP-3: pick the control to apply from the rail's card list. Clicking the active
+      // card again de-selects it, so the rail needs no separate "clear" affordance.
+      dom.on(_root, 'click', '[data-rail-control]', function (e, el) {
+        var dsId = el.getAttribute('data-ds'), id = el.getAttribute('data-rail-control');
+        var ui = uiFor(dsId);
+        ui.applyControlId = (ui.applyControlId === id) ? null : id;
         closeRun();     // a different control means a different action
-        renderMain();   // enable/disable the "Apply to" control + refresh checkbox states
+        renderMain();   // enable/disable "Apply to" + refresh the row checkbox states
+      });
+      // SP-3: filter the rail's control list. Re-render, then restore focus/caret so
+      // typing is not interrupted (the same trick the Control Manager search uses).
+      dom.on(_root, 'input', '[data-rail-search]', function (e, el) {
+        var dsId = el.getAttribute('data-rail-search'), pos = el.selectionStart;
+        uiFor(dsId).railSearch = el.value;
+        renderMain();
+        var again = _root.querySelector('[data-rail-search="' + dsId + '"]');
+        if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (err) {} }
+      });
+      // SP-1: collapse/expand the rail (UI-state only, per dataset).
+      dom.on(_root, 'click', '[data-rail-toggle]', function (e, el) {
+        var dsId = el.getAttribute('data-rail-toggle');
+        var ui = uiFor(dsId);
+        ui.railCollapsed = !ui.railCollapsed;
+        renderMain();
+      });
+
+      // ---- VF-4: per-item value format --------------------------------------------
+      dom.on(_root, 'change', '[data-format-pick]', function (e, el) {
+        var dsId = el.getAttribute('data-ds'), key = el.getAttribute('data-key');
+        var res = App.store.setItemFields(dsId, key, { format: el.value });
+        App.ui.activity.logIssues(res.issues, 'Value format');
+        renderMain();
+      });
+
+      // ---- VF-5: the value-format manager modal ------------------------------------
+      var FM = function () { return App.ui.views.formats; };
+      function fmtRefresh() { render(); }
+      function currentFmt() {
+        var p = App.store.getProject();
+        return FM() && p ? FM().current(p) : null;
+      }
+      /** Read the modal's option rows back into a {value, description}[] list. */
+      function readOptionRows() {
+        var out = [];
+        var vals = _root.querySelectorAll('[data-fmt-opt-value]');
+        Array.prototype.forEach.call(vals, function (v) {
+          var idx = v.getAttribute('data-idx');
+          var d = _root.querySelector('[data-fmt-opt-desc][data-idx="' + idx + '"]');
+          out.push({ value: v.value, description: d ? d.value : '' });
+        });
+        return out;
+      }
+      function saveOptions(extra) {
+        var f = currentFmt(); if (!f) return;
+        var patch = { options: readOptionRows() };
+        if (extra) patch.options = patch.options.concat([extra]);
+        var res = App.store.updateValueFormat(f.id, patch);
+        App.ui.activity.logIssues(res.issues, 'Value format');
+        fmtRefresh();
+      }
+
+      dom.on(_root, 'click', '[data-format-manage]', function () { FM().open(null); render(); });
+      dom.on(_root, 'click', '[data-fmt-close]', function () { FM().close(); render(); });
+      dom.on(_root, 'click', '[data-fmt-modal]', function (e, el) { if (e.target === el) { FM().close(); render(); } });
+      dom.on(_root, 'click', '[data-fmt-select]', function (e, el) { FM()._fm.selected = el.getAttribute('data-fmt-select'); render(); });
+      dom.on(_root, 'input', '[data-fmt-new-name]', function (e, el) { FM()._fm.draftName = el.value; });
+      dom.on(_root, 'click', '[data-fmt-create]', function () {
+        var nameEl = _root.querySelector('[data-fmt-new-name]');
+        var kindEl = _root.querySelector('[data-fmt-kind-pick]');
+        var res = App.store.addValueFormat({ name: nameEl ? nameEl.value : '', kind: kindEl ? kindEl.value : 'options' });
+        App.ui.activity.logIssues(res.issues, 'Value format');
+        if (res.ok) { FM()._fm.selected = res.id; FM()._fm.draftName = ''; }
+        render();
+      });
+      dom.on(_root, 'change', '[data-fmt-name]', function (e, el) {
+        var f = currentFmt(); if (!f) return;
+        App.ui.activity.logIssues(App.store.updateValueFormat(f.id, { name: el.value }).issues, 'Value format');
+        fmtRefresh();
+      });
+      dom.on(_root, 'change', '[data-fmt-desc]', function (e, el) {
+        var f = currentFmt(); if (!f) return;
+        App.store.updateValueFormat(f.id, { description: el.value }); fmtRefresh();
+      });
+      dom.on(_root, 'change', '[data-fmt-kind-pick]', function (e, el) {
+        // On the "new format" pane there is nothing to update yet — the kind is read
+        // at create time instead.
+        if (FM()._fm.selected === 'new') return;
+        var f = currentFmt(); if (!f) return;
+        App.ui.activity.logIssues(App.store.updateValueFormat(f.id, { kind: el.value }).issues, 'Value format');
+        fmtRefresh();
+      });
+      dom.on(_root, 'change', '[data-fmt-min]', function (e, el) {
+        var f = currentFmt(); if (!f) return;
+        var v = el.value.trim();
+        App.store.updateValueFormat(f.id, { min: v === '' ? null : Number(v) }); fmtRefresh();
+      });
+      dom.on(_root, 'change', '[data-fmt-max]', function (e, el) {
+        var f = currentFmt(); if (!f) return;
+        var v = el.value.trim();
+        App.store.updateValueFormat(f.id, { max: v === '' ? null : Number(v) }); fmtRefresh();
+      });
+      dom.on(_root, 'change', '[data-fmt-pattern]', function (e, el) {
+        var f = currentFmt(); if (!f) return;
+        App.store.updateValueFormat(f.id, { pattern: el.value.trim() }); fmtRefresh();
+      });
+      dom.on(_root, 'change', '[data-fmt-opt-value]', function () { saveOptions(); });
+      dom.on(_root, 'change', '[data-fmt-opt-desc]', function () { saveOptions(); });
+      dom.on(_root, 'click', '[data-fmt-opt-remove]', function (e, el) {
+        var f = currentFmt(); if (!f) return;
+        var idx = parseInt(el.getAttribute('data-idx'), 10);
+        var rows = readOptionRows().filter(function (_, i) { return i !== idx; });
+        App.store.updateValueFormat(f.id, { options: rows });
+        fmtRefresh();
+      });
+      dom.on(_root, 'click', '[data-fmt-opt-add]', function () {
+        var vEl = _root.querySelector('[data-fmt-new-value]'), dEl = _root.querySelector('[data-fmt-new-desc]');
+        var v = vEl ? vEl.value.trim() : '';
+        if (!v) { App.ui.activity.log({ severity: 'error', message: 'Value format: an allowed value cannot be blank.' }); return; }
+        saveOptions({ value: v, description: dEl ? dEl.value : '' });
+      });
+      dom.on(_root, 'click', '[data-fmt-remove]', function (e, el) {
+        var id = el.getAttribute('data-id');
+        var p = App.store.getProject();
+        var used = App.valueFormats.usageCount(p, id);
+        if (used && !window.confirm('Delete this format? ' + used + ' item(s) use it and will fall back to the format inferred from their capture. Their values are not changed.')) return;
+        App.ui.activity.logIssues(App.store.removeValueFormat(id).issues, 'Value format');
+        FM()._fm.selected = null;
+        render();
       });
       // review-8 #2 / review-9 #1: apply the selected control to all items with the chosen
       // action — but TOGGLE: if every matching item already has it, remove it from all;
@@ -7663,13 +8732,30 @@
       // only way to return a text-valued item to undecided.
       var primary = adapter.decisionSchema[0].name, pr = raw[primary];
       if (pr && pr.kind === 'enum' && pr.v === '') return null;
+      // VF-8: when the editor carries a format kind, the value is read back through
+      // App.valueFormats.parseInput — the exact inverse of what rendered it. That is
+      // also where "what does an empty box mean?" is answered per kind: '' for text
+      // (review-16 #1), [] for a string list, and UNDECIDED for bool/number/options,
+      // which have nothing sensible for empty to mean.
+      if (pr && pr.fmtKind && App.valueFormats) {
+        var pfmt = { kind: pr.fmtKind };
+        var parsed = App.valueFormats.parseInput(pfmt, pr.v);
+        if (parsed.undecided) return null;
+      }
       var decision = {};
       Object.keys(raw).forEach(function (f) {
         var c = raw[f];
         if (c.kind === 'enum') { if (c.v !== '') decision[f] = c.v; }
-        else if (c.kind === 'string') decision[f] = c.v;
         else if (c.kind === 'bool') decision[f] = !!c.v;
-        // value-typed: coerce by the captured leaf type (data-vtype) — review-3 #2.
+        else if (c.fmtKind && App.valueFormats) {
+          // Format-driven read-back. An unparseable value (e.g. "abc" in a number box)
+          // is still stored verbatim so the operator sees what they typed and gets a
+          // located reason, rather than having their keystrokes silently discarded.
+          var r = App.valueFormats.parseInput({ kind: c.fmtKind }, c.v);
+          decision[f] = r.ok ? r.value : c.v;
+        }
+        else if (c.kind === 'string') decision[f] = c.v;
+        // value-typed with no format hint: coerce by the captured leaf type — review-3 #2.
         else if (c.kind === 'value-typed') decision[f] = coerce(c.v, c.vtype || 'string');
       });
       return decision;
@@ -7685,7 +8771,12 @@
       var controls = cell.querySelectorAll('[data-decision]');
       var raw = {};
       Array.prototype.forEach.call(controls, function (c) {
-        raw[c.getAttribute('data-field')] = { v: (c.type === 'checkbox' ? c.checked : c.value), kind: c.getAttribute('data-kind'), vtype: c.getAttribute('data-vtype') };
+        raw[c.getAttribute('data-field')] = {
+          v: (c.type === 'checkbox' ? c.checked : c.value),
+          kind: c.getAttribute('data-kind'),
+          vtype: c.getAttribute('data-vtype'),
+          fmtKind: c.getAttribute('data-fmt-kind')   // VF-8
+        };
       });
       var decision = decisionFromRaw(adapter, raw);
       if (decision === null) { App.store.setDecision(dsId, key, null); _editIssues[dsId + '|' + key] = []; renderTableHost(); return; }
@@ -7722,12 +8813,13 @@
       var raw = {};
       Array.prototype.forEach.call(cell.querySelectorAll('[data-decision]'), function (c) {
         var field = c.getAttribute('data-field'), kind = c.getAttribute('data-kind');
+        var fmtKind = c.getAttribute('data-fmt-kind');
         var v = (c.type === 'checkbox' ? c.checked : c.value);
         if (kind === 'enum' && v === '') {
           var f = adapter.decisionSchema.filter(function (x) { return x.name === field; })[0];
           if (f && f.options && f.options.length) v = f.options[0];
         }
-        raw[field] = { v: v, kind: kind, vtype: c.getAttribute('data-vtype') };
+        raw[field] = { v: v, kind: kind, vtype: c.getAttribute('data-vtype'), fmtKind: fmtKind };
       });
       var decision = decisionFromRaw(adapter, raw);
       if (decision === null) return; // nothing to adopt — leave it undecided
@@ -8260,11 +9352,14 @@
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { expanded: { 'com.a': true } }, {});
         T.assert(/detail-form/.test(html) && /data-field-edit="description"/.test(html) && /data-field-edit="rollback"/.test(html));
       });
-      s.test('tactical prefills the value box from the capture (full-width, wrapping)', function () {
+      s.test('tactical prefills the value editor from the capture, typed by format (VF-8)', function () {
         deviceProject();
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', { sortKey: 'key' }, {});
-        T.assert(/class="val-edit"/.test(html), 'no full-width value box');
-        T.assert(/>true<\/textarea>/.test(html), 'captured value not prefilled');
+        // The captured leaf is a BOOLEAN, so the inferred format gives a true/false
+        // picker rather than a free-text box, pre-selected from the capture.
+        T.assert(/class="val-edit val-bool"/.test(html), 'a bool leaf should render a true/false picker');
+        T.assert(/data-fmt-kind="bool"/.test(html), 'the editor must declare its format kind');
+        T.assert(/<option value="true" selected>true<\/option>/.test(html), 'captured value not pre-selected');
       });
       s.test('invalid-decision cell is flagged when issues passed', function () {
         deviceProject();
@@ -9370,9 +10465,10 @@
       });
       s.test('a text value box is a full-width wrapping textarea', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        // A STRING leaf (not a bool) — the kind that still wants a wrapping text box.
+        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"note":"hi there"}') } });
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, {});
-        T.assert(/class="val-edit"/.test(html), 'value box not a val-edit textarea');
+        T.assert(/<textarea [^>]*class="val-edit"/.test(html), 'value box not a val-edit textarea');
       });
       s.test('table columns are resizable: handles + width styles + stored width override', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
@@ -9405,16 +10501,17 @@
         T.assert(/>Expand all</.test(D.renderDetail(w.project, 'dev-m1')), 'should read "Expand all" when all collapsed');
         D._dev.collapsed = {};
       });
-      s.test('#2 toolbar shows the Apply Control Mode button + a searchable picker when on', function () {
+      s.test('#2 the side rail shows the Apply Control Mode button + a filterable picker when on', function () {
         var w = withCtl();
         var off = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, w.project.controls);
         T.assert(/data-apply-toggle="android.packages"/.test(off) && />Apply Control Mode</.test(off), 'no apply-mode button');
-        T.assert(off.indexOf('data-apply-control') === -1, 'picker must be hidden when mode is off');
+        T.assert(off.indexOf('data-rail-control') === -1, 'picker must be hidden when mode is off');
         var on = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
         T.assert(/class="active"/.test(on) && />Exit control mode</.test(on), 'button not in active/exit state');
-        T.assert(/data-apply-control="android.packages"[^>]*list="apply-control-list"/.test(on), 'no searchable control input');
-        T.assert(/<datalist id="apply-control-list"><option value="No Bluetooth">/.test(on), 'datalist missing the controls');
-        T.assert(/class="apply-control"[^>]*value="No Bluetooth"/.test(on), 'selected control title not shown in the input');
+        T.assert(/data-rail-search="android.packages"/.test(on), 'no control filter box in the rail');
+        T.assert(on.indexOf('data-rail-control="' + w.id + '"') !== -1, 'the control is not offered as a card in the rail');
+        T.assert(new RegExp('class="ctl-card active" data-rail-control="' + w.id + '"').test(on), 'the selected control is not marked active');
+        T.assert(/<aside class="side-rail" data-side-rail>/.test(on), 'the rail itself is missing');
       });
       s.test('#2 table adds an Apply column + per-row checkboxes reflecting membership', function () {
         var w = withCtl(); // com.a already has the control; com.b does not
@@ -9444,11 +10541,15 @@
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         return App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
       }
-      s.test('#1 the control picker options show the NAME only (no type text)', function () {
+      s.test('#1 SUPERSEDED by SP-3 — the picker now shows name AND description', function () {
+        // RV8-1 asked for a name-only picker because the old <datalist> could not show
+        // anything else legibly. SP-3 replaces it with a card list, and the description
+        // is the point: it is what tells you what a control means while assigning it.
         var id = withCtl();
         var on = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
-        T.assert(/<option value="No Bluetooth"><\/option>/.test(on), 'option should be name-only');
-        T.assert(!/<option value="No Bluetooth">ISM<\/option>/.test(on), 'the type must not appear under the name');
+        T.assert(/class="ctl-card-title">No Bluetooth</.test(on), 'the control title must show');
+        T.assert(/class="ctl-card-desc">/.test(on), 'the control description must show beside the title');
+        T.assert(on.indexOf('apply-control-list') === -1, 'the old datalist picker should be gone');
       });
       s.test('#2 packages has an "Apply to" action dropdown, enabled only with a control (old hint gone)', function () {
         var id = withCtl();
@@ -10187,7 +11288,9 @@
         Hv._help.section = 'overview';
         ['Apply Control Mode', 'Delete Mode', 'Undo', 'Redo', 'Security Relevance', 'Device columns',
          'Satisfied', 'override', 'Verification', 'Control report', 'manifest', 'Draft autosave',
-         'Export CSV', 'Triage', 'group'].forEach(function (topic) {
+         'Export CSV', 'Triage', 'group',
+         // v2.1
+         'Value format', 'String list', 'Custom options', 'Tools'].forEach(function (topic) {
           T.assert(all.indexOf(topic) !== -1, 'the manual never mentions "' + topic + '"');
         });
       });
@@ -10479,6 +11582,345 @@
     // v2.0: Settings was retired. Projects saved by v1.x still carry android.settings
     // items/snapshots/overrides; those ids are no longer datasets of the platform, so
     // without the retirement path validateSchema would reject every existing project.
+    // ---- v2.1: value formats (VF), sticky tools rail (SP) ------------------------
+    T.suite('VF value formats — inference, editors, enforcement', function (s) {
+      var VF = App.valueFormats;
+      /** A device whose tactical capture has one leaf of every interesting shape. */
+      function vfProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'VF', model: 'M1', firmware: 'F', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical',
+            '{"flag":true,"mtu":1500,"mode":"enable_both","names":["a","b"],"ports":[1,2]}') } });
+        return App.store.getProject();
+      }
+      function adapter() { ensureA(); return App.registry.getDataset('android-adb', 'android.tactical'); }
+      function captured(p) { return adapter().capturedDefaults(p.deviceConfigs[0].snapshots['android.tactical']); }
+      function item(p, key) { return p.items['android.tactical'].filter(function (i) { return i.key === key; })[0]; }
+      function fmtFor(p, key) { var c = captured(p)[key]; return VF.resolve(p, item(p, key), c && c.type, c && c.value); }
+
+      s.test('VF-2 every shape infers its editor from the capture, with NO configuration', function () {
+        var p = vfProject();
+        T.assertEqual(fmtFor(p, 'flag').kind, 'bool');
+        T.assertEqual(fmtFor(p, 'mtu').kind, 'number', 'the flattener reports int/float, not "number"');
+        T.assertEqual(fmtFor(p, 'mode').kind, 'string');
+        T.assertEqual(fmtFor(p, 'names').kind, 'stringArray');
+        // An array that is NOT all strings would change JSON type through a text editor,
+        // so it stays raw JSON rather than being silently stringified.
+        T.assertEqual(fmtFor(p, 'ports').kind, 'json', 'a non-string array must keep JSON fidelity');
+      });
+
+      s.test('VF-8 the rendered editor matches the format', function () {
+        var p = vfProject();
+        var boolHtml = App.ui.tables.renderTableHtml(p, 'android.tactical', { search: 'flag' }, {});
+        T.assert(/class="val-edit val-bool"/.test(boolHtml) && /<option value="true" selected>/.test(boolHtml), 'bool should be a true/false picker seeded from the capture');
+        var numHtml = App.ui.tables.renderTableHtml(p, 'android.tactical', { search: 'mtu' }, {});
+        T.assert(/class="val-edit val-number"[^>]*value="1500"/.test(numHtml), 'number should be a numeric box');
+        var listHtml = App.ui.tables.renderTableHtml(p, 'android.tactical', { search: 'names' }, {});
+        T.assert(/class="val-edit val-list"/.test(listHtml) && /placeholder="one entry per line"/.test(listHtml), 'a string list should be a one-per-line box');
+      });
+
+      s.test('VF-1 display/parseInput are exact inverses for every kind', function () {
+        [['bool', true], ['bool', false], ['number', 1500], ['number', 0],
+         ['string', 'hello'], ['string', ''], ['stringArray', ['a', 'b']], ['stringArray', []],
+         ['json', { a: [1, 2] }]].forEach(function (pair) {
+          var fmt = { kind: pair[0] }, val = pair[1];
+          var back = VF.parseInput(fmt, VF.display(fmt, val));
+          if (back.undecided) { T.assert(val === '' || val === undefined, pair[0] + ': unexpected undecided for ' + JSON.stringify(val)); return; }
+          T.assertDeepEqual(back.value, val, pair[0] + ' did not round-trip');
+        });
+      });
+
+      s.test('VF-1 an empty box means the right thing per kind', function () {
+        T.assertEqual(VF.parseInput({ kind: 'bool' }, '').undecided, true, 'blank bool = undecided');
+        T.assertEqual(VF.parseInput({ kind: 'number' }, '').undecided, true, 'blank number = undecided');
+        T.assertEqual(VF.parseInput({ kind: 'options' }, '').undecided, true, 'blank option = undecided');
+        // review-16 #1 is preserved: a blank TEXT box is a real value, not undecided.
+        T.assertDeepEqual(VF.parseInput({ kind: 'string' }, ''), { ok: true, value: '', issues: [] });
+        // ...and a blank LIST is a real empty list (a dozen Knox whitelists are exactly this).
+        T.assertDeepEqual(VF.parseInput({ kind: 'stringArray' }, '').value, []);
+      });
+
+      s.test('VF-5 a named options format is reusable across keys and round-trips', function () {
+        var p = vfProject();
+        var res = App.store.addValueFormat({ name: '5G radio mode', kind: 'options', description: 'How the radio is driven.',
+          options: [{ value: 'enable_both', description: 'Both SA and NSA' }, { value: 'disable', description: 'Radio off' }] });
+        T.assertEqual(res.ok, true, JSON.stringify(res.issues));
+        T.assertEqual(res.id, '5g-radio-mode', 'id should be slugified from the name');
+        var ap = App.store.setItemFormats('android.tactical', ['mode'], res.id);
+        T.assertEqual(ap.applied, 1);
+        var p2 = App.store.getProject();
+        T.assertEqual(App.valueFormats.usageCount(p2, res.id), 1);
+        var text = App.projectIo.serializeProject(p2);
+        var back = App.projectIo.parseProject(text);
+        T.assertEqual(back.ok, true, JSON.stringify(back.issues));
+        T.assertEqual(App.projectIo.serializeProject(back.value), text, 'a project with formats must round-trip byte-identically');
+        T.assertDeepEqual(back.value.valueFormats[0].options[0], { value: 'enable_both', description: 'Both SA and NSA' });
+        T.assertEqual(item(back.value, 'mode').format, res.id);
+      });
+
+      s.test('VF-8 an options format renders a select carrying each option description', function () {
+        var p = vfProject();
+        var id = App.store.addValueFormat({ name: 'Mode', kind: 'options',
+          options: [{ value: 'enable_both', description: 'Both SIM slots active' }, { value: 'disable', description: 'Off' }] }).id;
+        App.store.setItemFormats('android.tactical', ['mode'], id);
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', { search: 'mode' }, {});
+        T.assert(/class="val-edit val-options"/.test(html), 'expected an options select');
+        T.assert(html.indexOf('enable_both — Both SIM slots active') !== -1, 'the option must show its description');
+        T.assert(/<option value="enable_both" selected/.test(html), 'the captured value must be pre-selected');
+      });
+
+      s.test('VF-7 a value outside its format blocks completeness, with a reason', function () {
+        var p = vfProject();
+        var id = App.store.addValueFormat({ name: 'Mode', kind: 'options',
+          options: [{ value: 'enable_both', description: '' }, { value: 'disable', description: '' }] }).id;
+        App.store.setItemFormats('android.tactical', ['mode'], id);
+        App.store.setDecision('android.tactical', 'mode', { value: 'nonsense' });
+        var p2 = App.store.getProject(), a = adapter(), cap = captured(p2);
+        var it = item(p2, 'mode');
+        T.assertEqual(a.isComplete(it), true, 'the adapter alone has no opinion about the vocabulary');
+        T.assertEqual(App.completeness.itemComplete(a, it, p2, cap), false, 'the format must block completeness');
+        var iss = App.completeness.formatIssues(a, it, p2, cap);
+        T.assertEqual(iss.length, 1);
+        T.assert(/must be one of/.test(iss[0].message), 'got: ' + iss[0].message);
+        // ...and the device is therefore not ready.
+        T.assertEqual(App.completeness.deviceReadiness(p2, p2.deviceConfigs[0].id).ready, false);
+        // A legal value clears it.
+        App.store.setDecision('android.tactical', 'mode', { value: 'disable' });
+        var p3 = App.store.getProject();
+        T.assertEqual(App.completeness.itemComplete(a, item(p3, 'mode'), p3, captured(p3)), true);
+      });
+
+      s.test('VF-7 an off-vocabulary value stays visible instead of snapping to a legal one', function () {
+        var p = vfProject();
+        var id = App.store.addValueFormat({ name: 'Mode', kind: 'options', options: [{ value: 'disable', description: '' }] }).id;
+        App.store.setItemFormats('android.tactical', ['mode'], id);
+        // The CAPTURED value ('enable_both') is not in the vocabulary.
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', { search: 'mode' }, {});
+        T.assert(html.indexOf('enable_both (not an allowed value)') !== -1, 'the mismatch must be shown, not hidden');
+      });
+
+      s.test('VF-7 numbers and lists are enforced too', function () {
+        var fmtN = { kind: 'number' }, fmtL = { kind: 'stringArray' };
+        T.assertEqual(VF.validate(fmtN, 12).length, 0);
+        T.assertEqual(VF.validate(fmtN, '12').length, 1, 'a numeric STRING is not a number');
+        T.assertEqual(VF.validate(fmtN, 5, 'k').length, 0);
+        T.assertEqual(VF.validate({ kind: 'number', min: 10 }, 5).length, 1, 'min must be enforced');
+        T.assertEqual(VF.validate({ kind: 'number', max: 1 }, 5).length, 1, 'max must be enforced');
+        T.assertEqual(VF.validate(fmtL, ['a']).length, 0);
+        T.assertEqual(VF.validate(fmtL, 'a').length, 1, 'a bare string is not a list');
+        T.assertEqual(VF.validate(fmtL, [1]).length, 1, 'list entries must be strings');
+        T.assertEqual(VF.validate({ kind: 'json' }, { anything: [1, true] }).length, 0, 'json accepts any value');
+      });
+
+      s.test('VF-5 deleting a format releases its items rather than breaking them', function () {
+        var p = vfProject();
+        var id = App.store.addValueFormat({ name: 'Mode', kind: 'options', options: [{ value: 'enable_both', description: '' }] }).id;
+        App.store.setItemFormats('android.tactical', ['mode'], id);
+        App.store.setDecision('android.tactical', 'mode', { value: 'enable_both' });
+        var rm = App.store.removeValueFormat(id);
+        T.assertEqual(rm.ok, true);
+        var p2 = App.store.getProject();
+        T.assertEqual(item(p2, 'mode').format, undefined, 'the dangling ref must be cleared from the item');
+        T.assertDeepEqual(item(p2, 'mode').decision, { value: 'enable_both' }, 'the decision itself must be untouched');
+        T.assertEqual(fmtFor(p2, 'mode').kind, 'string', 'the item falls back to its inferred format');
+      });
+
+      s.test('VF-3 a dangling format ref degrades instead of breaking the project', function () {
+        var p = vfProject();
+        App.store.setItemFields('android.tactical', 'mode', { format: 'no-such-format' });
+        var p2 = App.store.getProject();
+        // Still loads...
+        var res = App.projectIo.parseProject(App.projectIo.serializeProject(p2));
+        T.assertEqual(res.ok, true, 'a dangling format ref must never stop a project opening');
+        // ...and resolves to the inferred built-in, flagged so the UI can say so.
+        var f = fmtFor(p2, 'mode');
+        T.assertEqual(f.kind, 'string');
+        T.assertEqual(f.danglingRef, 'no-such-format');
+      });
+
+      s.test('VF-3 the schema rejects a malformed format but accepts a well-formed one', function () {
+        var p = vfProject();
+        App.store.addValueFormat({ name: 'Mode', kind: 'options', options: [{ value: 'x', description: 'y' }] });
+        var good = App.store.getProject();
+        T.assertEqual(App.projectIo.validateSchema(good).filter(function (i) { return i.severity === 'error'; }).length, 0);
+        var bad = JSON.parse(App.projectIo.serializeProject(good));
+        bad.valueFormats[0].kind = 'nonsense';
+        T.assert(App.projectIo.validateSchema(bad).some(function (i) { return /ValueFormat.kind/.test(i.message) && i.severity === 'error'; }));
+        var bad2 = JSON.parse(App.projectIo.serializeProject(good));
+        bad2.valueFormats[0].id = 'bool'; // collides with a built-in
+        T.assert(App.projectIo.validateSchema(bad2).some(function (i) { return /collides with a built-in/.test(i.message); }));
+      });
+
+      s.test('VF-3 the built-in id list is the same in projectIo and App.valueFormats', function () {
+        T.assertDeepEqual(App.projectIo.BUILTIN_FORMAT_IDS.slice().sort(),
+          App.valueFormats.BUILTINS.map(function (b) { return b.id; }).sort(),
+          'the duplicated vocabulary has drifted');
+      });
+
+      s.test('VF-4 the row expander offers the picker (value datasets only)', function () {
+        var p = vfProject();
+        var tac = App.ui.tables.renderTableHtml(p, 'android.tactical', { expanded: { mode: true } }, {});
+        T.assert(/data-format-pick/.test(tac), 'no value-format picker in the tactical expander');
+        T.assert(/data-format-manage/.test(tac), 'no route into the format manager');
+        T.assert(/Automatic — Text \(from the capture\)/.test(tac), 'the automatic option should name the inferred format');
+        // Packages decide an ACTION from a closed enum — a value format is meaningless there.
+        var pkg = App.ui.tables.renderTableHtml(p, 'android.packages', { expanded: { 'com.a': true } }, {});
+        T.assert(pkg.indexOf('data-format-pick') === -1, 'packages must not offer a value format');
+      });
+
+      s.test('VF-5 the manager modal lists formats and edits the selected one', function () {
+        var p = vfProject();
+        var id = App.store.addValueFormat({ name: '5G radio mode', kind: 'options',
+          options: [{ value: 'enable_both', description: 'Both SIM slots active' }] }).id;
+        var F = App.ui.views.formats;
+        T.assertEqual(F.render(), '', 'closed by default');
+        F.open(id);
+        var html = F.render();
+        T.assert(/data-fmt-modal/.test(html) && /data-fmt-close/.test(html), 'no modal/close');
+        T.assert(new RegExp('data-fmt-select="' + id + '"').test(html), 'the format is not listed');
+        T.assert(/class="fmt-opts"/.test(html), 'no allowed-values table');
+        T.assert(html.indexOf('Both SIM slots active') !== -1, 'the option description must be editable');
+        T.assert(/data-fmt-opt-add/.test(html) && /data-fmt-new-value/.test(html), 'no way to add another option');
+        T.assert(/Used by <strong>0<\/strong> items/.test(html), 'usage count missing');
+        F.close();
+        T.assertEqual(F.render(), '', 'closed again');
+      });
+
+      s.test('VF-8 the device + group OVERRIDE editors use the same format-driven controls', function () {
+        var p = vfProject();
+        var D = App.ui.views.devices;
+        D._dev.collapsed = {};
+        var panels = D.renderPanels(App.store.getProject(), 'vf-m1', '');
+        // A bool leaf must override via true/false, not a textarea — the two surfaces
+        // must not disagree about what an editor for the same value looks like.
+        T.assert(/data-ov[^>]*data-fmt-kind="bool"/.test(panels) || /data-fmt-kind="bool"[^>]*data-ov/.test(panels),
+          'the device override editor should be format-driven');
+        T.assert(/class="val-edit val-bool"/.test(panels), 'a bool override should be a true/false picker');
+        // ...and a string list overrides one-per-line.
+        T.assert(/class="val-edit val-list"/.test(panels), 'a list override should be a one-per-line box');
+      });
+
+      s.test('VF-7 an override that violates the format blocks readiness too', function () {
+        var p = vfProject();
+        var id = App.store.addValueFormat({ name: 'Mode', kind: 'options', options: [{ value: 'disable', description: '' }] }).id;
+        App.store.setItemFormats('android.tactical', ['mode'], id);
+        // Decide everything legally first, so only the override can break readiness.
+        var cap = captured(App.store.getProject());
+        App.store.getProject().items['android.tactical'].forEach(function (it) {
+          App.store.setDecision('android.tactical', it.key, { value: it.key === 'mode' ? 'disable' : (cap[it.key] ? cap[it.key].value : '') });
+        });
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        var ready1 = App.completeness.deviceReadiness(App.store.getProject(), 'vf-m1');
+        T.assert(ready1.ready, 'baseline should be ready; blocked on ' + JSON.stringify(ready1.reasons));
+        // Now override that item with a value outside its vocabulary.
+        var ov = App.store.setDeviceOverride('vf-m1', 'android.tactical', 'mode', { value: 'not_allowed' });
+        T.assertEqual(ov.ok, true, 'the adapter accepts any string, so the override is stored');
+        var ready2 = App.completeness.deviceReadiness(App.store.getProject(), 'vf-m1');
+        T.assertEqual(ready2.ready, false, 'an override outside the format must block readiness (OVR-3 + VF-7)');
+      });
+
+      s.test('VF-6 real Knox shapes all infer sensibly — no false blocking', function () {
+        // The regression that matters: with formats switched on, a device whose every
+        // decision is simply the captured value must still reach READY. If inference
+        // were wrong anywhere (int/float, empty arrays, the injected imsSettings slots)
+        // this fails and generation is blocked for no reason.
+        var p = vfProject();
+        var a = adapter(), cap = captured(p);
+        p.items['android.tactical'].forEach(function (it) {
+          var c = cap[it.key];
+          App.store.setDecision('android.tactical', it.key, { value: c ? c.value : '' });
+        });
+        App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
+        var p2 = App.store.getProject();
+        var rdy = App.completeness.deviceReadiness(p2, p2.deviceConfigs[0].id);
+        T.assert(rdy.ready, 'deciding every item as captured must reach ready; blocked on: ' + JSON.stringify(rdy.reasons));
+      });
+    });
+
+    T.suite('SP sticky tools rail', function (s) {
+      function railProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'SP', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM', description: 'Bluetooth radio must be off in the field.' }).id;
+        App.store.addControl({ title: 'Debloat', type: 'AHG', description: 'Remove vendor apps with no operational need.' });
+        return { id: id, project: App.store.getProject() };
+      }
+      function toolbar(ui) {
+        var w = railProject();
+        return { html: App.ui.tables.renderToolbar('android.packages', ui || {}, 2, 2, w.project.controls), w: w };
+      }
+
+      s.test('SP-1 the mode + history controls live in the rail, not the filter toolbar', function () {
+        var r = toolbar({});
+        var html = r.html;
+        var railAt = html.indexOf('<aside class="side-rail"');
+        T.assert(railAt !== -1, 'no side rail');
+        // Every mode control must sit AFTER the rail opens, i.e. inside it.
+        ['data-apply-toggle', 'data-delete-toggle', 'data-undo', 'data-redo'].forEach(function (attr) {
+          var at = html.indexOf(attr);
+          T.assert(at > railAt, attr + ' should be inside the rail, not the toolbar');
+        });
+        // ...and the filters must stay in the toolbar, before it.
+        ['data-search', 'data-incomplete', 'data-only-rel'].forEach(function (attr) {
+          T.assert(html.indexOf(attr) < railAt, attr + ' should stay in the filter toolbar');
+        });
+      });
+
+      s.test('SP-2 the rail is sticky and collapsible', function () {
+        var r = toolbar({});
+        T.assert(/class="table-wrap"/.test(r.html), 'the table and rail must share a flex wrapper');
+        T.assert(/data-rail-toggle="android.packages"/.test(r.html), 'no collapse control');
+        var collapsed = App.ui.tables.renderToolbar('android.packages', { railCollapsed: true }, 2, 2, r.w.project.controls);
+        T.assert(/class="side-rail collapsed"/.test(collapsed), 'collapsed state not rendered');
+        T.assert(collapsed.indexOf('data-apply-toggle') === -1, 'a collapsed rail shows only its toggle');
+      });
+
+      s.test('SP-3 the control picker shows title, type AND description', function () {
+        var w = railProject();
+        var on = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
+        T.assert(/class="ctl-card-title">No Bluetooth</.test(on), 'title missing');
+        T.assert(/class="ctl-card-type">ISM</.test(on), 'type missing');
+        T.assert(on.indexOf('Bluetooth radio must be off in the field.') !== -1, 'DESCRIPTION missing — the whole point of SP-3');
+        T.assert(new RegExp('class="ctl-card active" data-rail-control="' + w.id + '"').test(on), 'selection not marked');
+        T.assert(on.indexOf('apply-control-list') === -1, 'the old datalist must be gone');
+      });
+
+      s.test('SP-3 a control with no description says so rather than rendering blank', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'SP2', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'Bare', type: 'Custom' }).id;
+        var on = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: id }, 1, 1, App.store.getProject().controls);
+        T.assert(/No description — add one in Control Manager\./.test(on), 'an empty description should prompt for one');
+      });
+
+      s.test('SP-3 the rail filter narrows the control list by title, type or description', function () {
+        var w = railProject();
+        function cards(html) { return (html.match(/data-rail-control="/g) || []).length; }
+        var all = App.ui.tables.renderToolbar('android.packages', { applyMode: true }, 2, 2, w.project.controls);
+        T.assertEqual(cards(all), 2, 'both controls should show unfiltered');
+        var byTitle = App.ui.tables.renderToolbar('android.packages', { applyMode: true, railSearch: 'debloat' }, 2, 2, w.project.controls);
+        T.assertEqual(cards(byTitle), 1);
+        var byDesc = App.ui.tables.renderToolbar('android.packages', { applyMode: true, railSearch: 'vendor apps' }, 2, 2, w.project.controls);
+        T.assertEqual(cards(byDesc), 1, 'the filter must search descriptions too');
+        var none = App.ui.tables.renderToolbar('android.packages', { applyMode: true, railSearch: 'zzz' }, 2, 2, w.project.controls);
+        T.assert(/No control matches that filter/.test(none), 'an empty result must say so');
+      });
+
+      s.test('SP-3 "Apply to <action>" moved to the rail and stays enum-only', function () {
+        var w = railProject();
+        var pkg = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
+        T.assert(/data-apply-to="android.packages"/.test(pkg), 'packages should still offer Apply-to');
+        T.assert(pkg.indexOf('data-apply-to') > pkg.indexOf('side-rail'), 'Apply-to belongs in the rail');
+        var tac = App.ui.tables.renderToolbar('android.tactical', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
+        T.assert(tac.indexOf('data-apply-to=') === -1, 'tactical has no enum decision field, so no Apply-to');
+      });
+    });
+
     T.suite('v2.0 Settings retirement (legacy projects still load)', function (s) {
       var RETIRED = 'android.settings';
 

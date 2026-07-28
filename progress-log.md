@@ -28,8 +28,8 @@ Process per task (build phase): **build → review → devise tests → log defe
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
-COMPLETE** + **v2.0 PHASE 12 COMPLETE** + reviews 1–17 + report-gen. **290/290 embedded self-tests
-pass.** Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
+**314/314 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
 checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
 `report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
@@ -746,6 +746,107 @@ rejected now matches; completion is idempotent). **300/300 self-tests pass.**
 
 **Defects:** 2 found (RV17-4 user-reported missing setting; RV17-4b user-reported — older snapshots
 made the completed import unmatchable), both FIXED.
+
+---
+
+### 2026-07-28 — Phase 13 (v2.1): value formats + the sticky tools rail — ✅ COMPLETE
+
+Three requests, built per the new spec §22 / task breakdown Phase 13.
+
+#### 1. Value formats (VF-1…VF-8)
+
+**Problem.** Every tactical decision was a free-text box, because the only type information
+available was the captured leaf's JS type, applied silently at commit. On the real Knox capture
+that is 134 identical textareas covering four genuinely different shapes — and nothing stopped
+someone typing `enabl_both` into a key that accepts exactly three values.
+
+**Model.** A new pure module `App.valueFormats` owns what a value may be. Five **built-in kinds**
+need no configuration (`bool`, `number`, `string`, `stringArray`, `json`), and a project may define
+**named, reusable custom formats** — most importantly `options`, a closed set of allowed strings
+each carrying **a description of what it does**. It is a catalogue plus a per-item reference, exactly
+like `controls`/`controlRefs`, so the two per-SIM 5G keys share one definition instead of each
+carrying its own copy of the option list. Additive: top-level `valueFormats`, optional
+`RegisterItem.format`, **no schemaVersion bump**.
+
+**Nothing to configure by default.** An item with no declared format uses the format inferred from
+its captured leaf. Over the reference capture that resolves, with zero operator action, to
+**106 bool · 12 string list · 7 number · 9 text** — every one of the 134 leaves gets the right
+editor immediately.
+
+Two traps found and closed while building this:
+- The tactical flattener reports numbers as `int`/`float`, **not** `number`, so the first cut left
+  all 7 numeric leaves as text. Inference now maps both.
+- A captured array that is **not** all strings (e.g. `[1,2,3]`) must not get the one-per-line text
+  editor: committing would return `["1","2","3"]` and change the emitted `tactical.json`. Those
+  leaves infer the new `json` kind instead, which preserves type fidelity. Inference therefore
+  considers the captured **value**, not just its type.
+
+**Enforcement.** A value outside its format is an **error**: the item is not complete, so the device
+cannot reach *ready*. That lives in `App.completeness.itemComplete` rather than the adapter, because
+the catalogue is project state and adapters are project-blind — `project`/`captured` are optional
+parameters, so every pre-existing caller is untouched. It evaluates the **effective** decision, so a
+device or group override that violates a format blocks readiness too. It never blocks loading,
+parsing or saving. A captured value outside a declared vocabulary stays **visible and selected**,
+marked *(not an allowed value)* — that mismatch is the finding, and hiding it would be worse than
+not enforcing at all.
+
+**Editors.** `renderValueEditor` picks the control from the resolved format: true/false picker,
+numeric box, `value — what it does` dropdown, one-per-line list box, or a textarea. It carries
+`data-fmt-kind` so the commit path reads back through `parseInput`, the exact inverse of what
+rendered it — `display`/`parseInput` are asserted inverses for every kind. The empty box keeps its
+per-kind meaning: `''` for text (review-16 #1 preserved), `[]` for a list, undecided for
+bool/number/options. The **same** editor is used by the data table, the device-panel override editor
+and the group-deviation editor; a first cut had the override editors inferring "text" for everything
+because they resolved from the (empty) override value rather than the capture.
+
+**UI.** A **Value format** picker in the row expander (only for datasets whose primary decision is a
+value — a packages action is already a closed enum) and a **Value formats** manager modal: format
+list, editor, and for `options` a table of allowed values each with its description, plus add/remove
+and a usage count. Deleting a format clears the ref from its items and changes no decision.
+
+#### 2. The sticky tools rail (SP-1, SP-2)
+
+Apply Control Mode, Delete Items and Undo/Redo moved out of the filter toolbar into a **tools rail**
+pinned to the right of the table (`position:sticky` inside a flex wrapper; `align-self:flex-start`
+is what makes sticky work in a flex row). It stays in view as a long register scrolls, so on the
+438-row Packages table the control being assigned is reachable from the last row without scrolling
+back to the first. Collapsible per dataset, and it stacks above the table below ~1100px. The toolbar
+now holds only filters.
+
+#### 3. A bigger control picker that shows descriptions (SP-3)
+
+The old picker was an `<input list>` + `<datalist>`, which can only ever render the value — the
+control's description had nowhere to go. It is now a scrollable **card list**: title, type and
+description per card, filterable across all three, click-to-toggle selection, and an explicit "No
+description — add one in Control Manager" where one is missing. "Apply to `<action>`" moved into the
+rail beneath it (still enum-only).
+
+This **supersedes RV8-1** (§19.11), which required a name-only picker *because* the datalist could
+not legibly show anything else. Recorded as superseded in both the spec and the task breakdown
+rather than silently dropped; the old self-test is retained, inverted, and says why.
+
+**Tests:** +24 self-tests across two new suites (`VF value formats`, `SP sticky tools rail`) —
+inference per shape incl. the int/float and non-string-array traps; display/parseInput inverses;
+the per-kind empty-box rule; a named options format reusable across keys and byte-identical through
+save/load; the described dropdown; enforcement blocking completeness and readiness with a located
+reason, for defaults and for overrides; an off-vocabulary value staying visible; format deletion
+releasing items without touching decisions; a dangling ref still loading; schema rejection of a
+malformed format and of a built-in id collision; the duplicated built-in id list in `projectIo`
+matching `App.valueFormats`; the picker appearing for tactical and not packages; the manager modal;
+override editors matching the table; mode controls in the rail and filters out of it; collapse;
+card title/type/description; the three-way filter; and the regression that matters —
+**deciding every item as captured still reaches ready**, i.e. formats introduce no false blocking.
+**314/314 self-tests pass** (76 suites), no load-time errors.
+
+**Real-data check.** The reference capture still parses with 0 errors (438 packages, 134 tactical
+leaves), reaches *ready*, emits `packages.impl.ps1` + `tactical.json` + `manifest.json`, and
+round-trips byte-identically. A `5G radio mode` options format defined with three described values
+and applied to both `nr5gModeStateSimSlot0/1` renders the described dropdown with the captured
+`enable_both` pre-selected, rejects `not_a_real_mode` with *"Value must be one of: enable_both,
+enable_sa, disable."*, and survives save/load with its option descriptions intact.
+
+**Defects:** 2 found during build (numeric leaves inferring as text; override editors inferring from
+the empty override value instead of the capture), both FIXED before commit.
 
 ---
 

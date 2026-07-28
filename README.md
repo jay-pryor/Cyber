@@ -13,7 +13,9 @@ Built to `android-ch-config-tool-build-spec-v2.0.md` (normative). The deliverabl
 
 1. Open `ch-config-tool.html` in Chrome, Edge, or Firefox.
 2. **Onboard** a device by supplying its two capture files (see formats below).
-3. Record decisions in the data tabs (Packages / Tactical). Undecided items are flagged.
+3. Record decisions in the data tabs (Packages / Tactical). Undecided items are flagged. Each value
+   gets the editor its **value format** implies — true/false, a number box, a one-per-line list, or a
+   dropdown of allowed options; define your own named formats from any row's **Value format** picker.
 4. **Save project** — the downloaded JSON is the single source of truth (keep it in SharePoint).
 5. When a device is fully decided, use the **Generate** tab to produce Implementation / Verification /
    Reporting `.zip` bundles.
@@ -62,7 +64,7 @@ suite in-page. It must show all green. The harness is also runnable headlessly (
 | DOD-9 | Device view: read-only applicable decided items, one panel per dataset | ✅ |
 | DOD-10 | Malformed inputs → located, non-fatal errors; never silent | ✅ |
 | DOD-11 | A new dataset/platform needs **no core edits** (adapter/profile only) | ✅ portability self-test (mock platform) |
-| DOD-12 | Module headers + JSDoc; embedded self-tests pass | ✅ 290/290 |
+| DOD-12 | Module headers + JSDoc; embedded self-tests pass | ✅ 314/314 |
 
 **Manual checks remaining:** DOD-1 (open the file in all three browsers and confirm a clean console)
 and DOD-8 (open a generated `report.html` in Microsoft Word). All other items are covered by the

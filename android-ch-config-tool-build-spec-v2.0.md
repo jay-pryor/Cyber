@@ -27,6 +27,10 @@ cites them at their call sites. What changed:
 3. `schemaVersion` is **3** throughout (§19.7). `controlRefs`, `controls`, `controlTypes`, `groups`,
    per-config `overrides` and `RegisterItem.relevance` are all part of the current model.
 
+4. **v2.1 (§22)** adds *value formats* — a declared, enforceable shape for a decision
+   value, with a reusable catalogue of named custom formats — and moves the bulk-edit
+   controls into a sticky tools rail. Additive: no `schemaVersion` bump.
+
 Read §21 first if you are migrating an implementation or a project file from v1.x.
 
 ---
@@ -54,6 +58,7 @@ Read §21 first if you are migrating an implementation or a project file from v1
 19. v1.2 feature set — per-config decision overrides & device groups (schemaVersion 3)
 20. Generation customisation (v1.3)
 21. **v2.0 — retirement of the Settings dataset**
+22. **v2.1 — value formats & the sticky tools rail**
 
 ---
 
@@ -1913,3 +1918,120 @@ var RETIRED_DATASETS = { 'android.settings': 'Settings' };   // id -> human labe
   contains `packages.verify.ps1` (+ the tactical read-back where exposed). There is no settings script.
 - Any hardening previously expressed as a settings value MUST be re-expressed as a package action or a
   tactical policy value, or documented as accepted risk outside the tool.
+
+---
+
+# 22. v2.1 — value formats & the sticky tools rail
+
+Two additive features. Neither changes `schemaVersion` (both extend the project the way
+`controlTypes` and `relevance` did) and neither requires a `DatasetAdapter` change, so
+**DOD-11 still holds**.
+
+## 22.1 Value formats (VF-1…VF-8)
+
+### Problem
+
+Every tactical decision was a free-text box, because the only type information available
+was the captured leaf's JS type, used silently at commit time. On a real Knox capture that
+means 134 identical textareas covering four genuinely different shapes — and nothing stops
+an operator typing `enabl_both` into a key that accepts exactly three values.
+
+### 22.1.1 The model
+
+- **VF-1 (MUST)** A **value format** declares the shape a decision value may take. Five
+  **built-in kinds** need no configuration: `bool`, `number`, `string` (text), `stringArray`
+  (a list of strings) and `json` (the raw value, for anything the others cannot represent
+  without changing its JSON type). `display(fmt, value)` and `parseInput(fmt, text)` MUST be
+  exact inverses for every kind, so an editor round trip can never silently alter a value.
+- **VF-2 (MUST — zero configuration by default)** An item with no declared format uses the
+  format **inferred from its captured leaf**: `bool`→bool, `int`/`float`→number,
+  an all-strings (or empty) array→stringArray, any other array or `null`→json, else text.
+  The inference MUST consider the captured **value**, not only its type: a captured
+  `[1,2,3]` edited as one-per-line text would come back `["1","2","3"]` and change the
+  emitted JSON, so it stays `json`. On the reference capture this yields, with no operator
+  action at all: **106 bool · 12 stringArray · 7 number · 9 text**.
+- **VF-3 (MUST)** A project MAY carry a top-level **`valueFormats`** array of *named,
+  reusable custom formats*; a `RegisterItem` MAY carry **`format`**, the id of a built-in or
+  a custom format. Both are optional and additive (no schema bump). A custom format is
+  `{ id (slug, unique, never a built-in id), name, kind ∈ options|number|string|stringArray,
+  description?, options?, min?, max?, pattern? }`, where `options` is an ordered list of
+  `{ value, description }`. **Option order is meaningful** (it is the order of the picker)
+  and MUST NOT be sorted by canonical serialization; the `valueFormats` array itself sorts
+  by `id`.
+  A **dangling `format` ref MUST NOT block loading** — it degrades to the inferred built-in
+  and is flagged so the UI can say so. Only the *type* of `format` is structural.
+- **VF-4 (MUST)** The item's expander offers a **Value format** picker (Automatic + the
+  built-ins + the project's formats) and a route into the manager. It appears **only** for
+  datasets whose primary decision field is a value (`string`/`value-typed`); a packages
+  action is already a closed enum, so a value format there is meaningless.
+- **VF-5 (MUST)** A **manager** creates and edits custom formats: name, kind, description,
+  and — for `options` — a table of allowed values each with a **description of what that
+  option does**. It shows how many items use each format. `store.addValueFormat` /
+  `updateValueFormat` / `removeValueFormat` are transactional; **remove strips the id from
+  every item that referenced it** (those items fall back to their inferred format) and MUST
+  NOT alter any decision.
+- **VF-6 (SHOULD)** `store.setItemFormats(datasetId, keys, formatId)` applies one format to
+  many items in a single transaction, so a shared vocabulary is assigned once. Formats being
+  *named and reusable* is the point: the two per-SIM 5G mode keys share one definition
+  rather than each carrying its own copy of the option list.
+
+### 22.1.2 Enforcement (VF-7)
+
+- **VF-7 (MUST)** A value that does not satisfy its format is an **error**: the item is not
+  complete, so its device cannot reach *ready* and cannot generate. This is what makes a
+  "required format" required. Enforcement lives in `App.completeness.itemComplete`, not in
+  the adapter, because the format catalogue is project state and adapters are project-blind;
+  `project`/`captured` are optional parameters so every pre-existing caller is unaffected.
+- **VF-7a (MUST)** Enforcement applies to the **effective** decision (OVR-3), so a device or
+  group **override** that violates the format blocks readiness exactly as a default would.
+- **VF-7b (MUST)** It MUST NEVER block loading, parsing or saving — only readiness.
+- **VF-7c (MUST)** A captured value outside a declared vocabulary MUST stay **visible and
+  selected**, marked *(not an allowed value)*, rather than being snapped to a legal option.
+  That mismatch is the finding, and hiding it would be worse than not enforcing at all.
+
+### 22.1.3 Editors (VF-8)
+
+- **VF-8 (MUST)** The rendered editor is chosen by the resolved format: `bool` → a
+  true/false picker; `number` → a numeric box; `options` → a `<select>` whose entries read
+  **`value — what it does`**; `stringArray` → a one-per-line box; `string`/`json` → a
+  wrapping textarea. The control carries `data-fmt-kind` so the commit path reads it back
+  through `parseInput` — the exact inverse of what rendered it.
+- **VF-8a (MUST)** An empty box means what makes sense for its kind: **text** → `''` (a real
+  blank value, preserving review-16 #1), **string list** → `[]` (a real empty list — most
+  Knox whitelists are exactly this), **bool/number/options** → **undecided**.
+- **VF-8b (MUST)** The **same** editor is used by the data table, the device-config override
+  panels and the group-deviation editor. A boolean must not be a true/false picker in one
+  place and a textarea in another. The override editors resolve their format from the
+  **captured** leaf, not from the (usually empty) override value.
+
+## 22.2 The sticky tools rail (SP-1…SP-3)
+
+- **SP-1 (MUST)** The **mode** controls — Apply Control Mode, Delete Items, Undo/Redo — move
+  out of the filter toolbar into a **tools rail** on the right of the table. The toolbar
+  keeps only filters (search, Incomplete only, the parked-relevance toggles, the counts).
+- **SP-2 (MUST)** The rail is **`position:sticky`** inside a flex wrapper around the table,
+  so it stays in view as a long register scrolls: on a 438-row Packages table the control
+  being assigned is reachable from the last row without scrolling back to the first. It is
+  collapsible (UI state only, per dataset) and stacks above the table below ~1100px.
+- **SP-3 (MUST)** The control picker is a scrollable **card list**, not an `<input list>` +
+  `<datalist>`. Each card shows the control's **title, type and description**; the list is
+  filterable across all three; clicking the selected card deselects it. A control with no
+  description says so rather than rendering blank.
+  > This **supersedes RV8-1** (§19.11), which required a name-only picker *because* a
+  > `<datalist>` could not legibly show anything else. The description is precisely what
+  > tells an operator what a control means while they are assigning it.
+- **SP-3a (MUST)** The "Apply to `<action>`" bulk toggle (RV8-2/RV9-1) moves into the rail
+  beneath the picker, since it acts on the selected control. It remains enum-only.
+
+## 22.3 Acceptance (additive to §1.1)
+
+- **VF-A** With no configuration, every leaf of the reference Knox capture resolves to a
+  sensible editor, and deciding every item *as captured* still reaches **ready** — i.e.
+  turning formats on introduces no false blocking.
+- **VF-B** A named `options` format assigned to two keys renders a described dropdown on
+  both, round-trips byte-identically, and rejects an out-of-vocabulary value by blocking
+  completeness with a located reason.
+- **VF-C** Deleting a format clears the ref from its items and changes no decision; a
+  dangling ref still opens.
+- **SP-A** Every mode control renders inside the rail and every filter outside it; the rail
+  collapses; the picker shows title, type and description and filters on all three.

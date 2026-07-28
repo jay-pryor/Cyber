@@ -11,6 +11,9 @@ withdrawn**, every task that assumed three datasets now reads *per dataset*, and
 records the retirement itself (§21). Withdrawn tasks are retained as tombstones rather than deleted,
 so a reader tracing a task id from an older log finds out what happened to it.
 
+**Phase 13** adds the v2.1 features (§22): value formats and the sticky tools rail. It supersedes
+**T-RV8.1** (the name-only control picker).
+
 **How to use this document (read first).** Each task below is written so that an implementing agent
 can take **just that one task block**, read the referenced spec sections and the already-built
 modules, and complete the task **in a single pass** with no further planning. Tasks are listed in
@@ -1343,3 +1346,107 @@ overrides, generate or the report shell.
 ### Phase 12 dependency map
 - **T12.1** (remove adapter + wiring) → **T12.2** (compat load path), **T12.3** (copy), **T12.4** (tests).
 - **T12.1–T12.4** → **T12.5** (acceptance).
+
+---
+
+## Phase 13 — v2.1: value formats & the sticky tools rail
+
+> **Spec:** §22 (VF-1…VF-8, SP-1…SP-3, VF-A…VF-C, SP-A).
+> Exit gate: the full suite is green; the reference capture still reaches *ready* with no
+> configuration; a project carrying custom formats round-trips byte-identically.
+
+### T13.1 · `App.valueFormats` (new pure module)
+- **Depends on:** T1.1, T2.5
+- **Spec:** §22.1.1 (VF-1, VF-2)
+- **Objective:** One pure module owning what a value may be, so no other module has to.
+- **Build:** the five built-ins; `inferId(capturedType, capturedValue)`;
+  `resolve(project, item, capturedType, capturedValue)` (explicit format → custom → inferred,
+  never throwing, flagging a dangling ref); `validate(fmt, value)`; `display`/`parseInput`
+  (exact inverses); `list(project)`; `usageCount`; `optionDescription`.
+  **Watch the two traps:** the tactical flattener reports numbers as `int`/`float`, not
+  `number`; and an array that is not all-strings must infer `json`, or a text editor will
+  turn `[1,2]` into `["1","2"]` and change what gets uploaded.
+- **Self-tests:** every kind round-trips through display→parseInput; the empty-box rule per
+  kind; each shape of the reference capture infers correctly.
+- **Definition of done:** pure, no store access, no DOM; callers pass the project in.
+
+### T13.2 · Schema + store CRUD
+- **Depends on:** T13.1
+- **Spec:** §22.1.1 (VF-3, VF-5, VF-6)
+- **Objective:** Persist the catalogue and the per-item reference.
+- **Build:** add `valueFormats` to `TOP_KEYS` and validate it (slug id unique and not
+  colliding with a built-in, name, kind, options with unique non-empty values, optional
+  min/max/pattern); validate `RegisterItem.format` as a **string only** — existence is
+  deliberately NOT checked, because a dangling ref must degrade, not refuse to open. Sort
+  `valueFormats` by id in `serializeProject` and **never sort options** (their order is the
+  picker's). Add `addValueFormat`/`updateValueFormat`/`removeValueFormat`/`setItemFormats`,
+  and accept `format` in `setItemFields`. Duplicate the built-in id list in `projectIo`
+  (it loads before `App.valueFormats`) and assert the two copies match in a self-test.
+- **Self-tests:** round-trip with formats; malformed format rejected; built-in id collision
+  rejected; remove clears refs without touching decisions; dangling ref still loads.
+
+### T13.3 · Enforcement in completeness
+- **Depends on:** T13.1, T13.2
+- **Spec:** §22.1.2 (VF-7)
+- **Objective:** Make "required format" actually required.
+- **Build:** `itemComplete(adapter, item, project, captured)` — the last two OPTIONAL so
+  every existing caller is unchanged — folding in `formatIssues(...)`. Export `formatIssues`
+  so the table can show *why*. `deviceReadiness` computes each dataset's captured map once
+  and passes it, and evaluates the **effective** item, so an override that violates a format
+  blocks readiness too.
+- **Self-tests:** an out-of-vocabulary value is complete per the adapter but not per
+  completeness, blocks readiness, and reports a located reason; a bad override does the same.
+
+### T13.4 · Format-driven editors
+- **Depends on:** T13.3
+- **Spec:** §22.1.3 (VF-8)
+- **Objective:** The right control for the shape, everywhere.
+- **Build:** `renderValueEditor(fmt, attrs, value)` in `App.ui.tables` (exported), emitting
+  `data-fmt-kind`; route the data table's `string`/`value-typed` branches, the device-panel
+  override editor and the group-deviation editor through it. Read back via `parseInput` in
+  `decisionFromRaw`, `toggleStatus`, and both override commit paths. The override editors
+  must resolve their format from the **captured** leaf — the override value is normally
+  empty and would infer "text" for everything.
+- **Self-tests:** each kind renders its control; an options select carries each option's
+  description; an off-vocabulary captured value stays visible and marked; the override
+  panels render the same controls as the table.
+
+### T13.5 · Picker + manager UI
+- **Depends on:** T13.2
+- **Spec:** §22.1.1 (VF-4, VF-5)
+- **Objective:** Somewhere to say what a value may be.
+- **Build:** the expander's Value format picker (value datasets only) with a live hint and a
+  "Manage…" button; `App.ui.views.formats` — a modal with a format list, an editor, and for
+  `options` a table of allowed values each with a description, plus add/remove. Every write
+  goes through a store mutator so it dirty-tracks like any other edit.
+- **Self-tests:** the picker renders for tactical and NOT for packages; the modal lists
+  formats, shows the options table with descriptions and a usage count, and closes.
+
+### T13.6 · The sticky tools rail
+- **Depends on:** T3.1
+- **Spec:** §22.2 (SP-1…SP-3)
+- **Objective:** Stop the operator scrolling to the top to change the control they are assigning.
+- **Build:** wrap the table and a new `<aside class="side-rail">` in a flex `.table-wrap`;
+  move Apply Control Mode, Delete Items and Undo/Redo into it, leaving only filters in the
+  toolbar; make it `position:sticky` with `align-self:flex-start` (sticky does not work in a
+  flex row without it) and collapsible per dataset. Replace the datalist picker with a
+  filterable card list showing title, type and description; move "Apply to `<action>`"
+  beneath it. Stack the rail above the table under ~1100px.
+- **Self-tests:** mode controls render inside the rail and filters outside it; collapse
+  renders only the toggle; cards carry title/type/description; the filter matches all three;
+  Apply-to stays enum-only and sits in the rail.
+- **Note:** this SUPERSEDES **T-RV8.1** (name-only picker) — record it, do not silently drop it.
+
+### T13.7 · v2.1 acceptance
+- **Depends on:** T13.1–T13.6
+- **Spec:** §22.3
+- **Objective:** Prove no regression and no false blocking.
+- **Build:** full suite headless; then the real-data check — the reference capture must still
+  parse with 0 errors, reach *ready* when every item is decided as captured (VF-A), generate
+  the same artifacts, and round-trip byte-identically; plus a custom `options` format applied
+  to both 5G keys rendering described dropdowns and rejecting a bad value (VF-B).
+- **Definition of done:** VF-A…VF-C and SP-A green; DOD-1…DOD-12 unaffected.
+
+### Phase 13 dependency map
+- **T13.1** → **T13.2** → **T13.3** → **T13.4**; **T13.2** → **T13.5**; **T13.6** independent.
+- **T13.1–T13.6** → **T13.7** (acceptance).
