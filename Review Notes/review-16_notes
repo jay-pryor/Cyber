@@ -1,0 +1,1 @@
+1. When a setting is a comma separated list e.g. 'bluetooth,wifi', if I try and make it blank, it doesn't work.

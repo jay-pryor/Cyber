@@ -1,0 +1,14 @@
+1. Change the order of the tabs to: Onboard, Packages, Settings, Tactical, Devices, Control Manager, Generate, Help.
+2. Put the clear button in the Settings and Tactical tables next to the text box rather than beneath it in each line.
+3. Make it so that clicking the decided or undecided badge in the tables flips it.
+4. The Knox Tactical Settings imports in both onboarding and decision setting in the Devices tab need to include this setting, which is missing. It should be optional whether it is included in the uploaded jsons:
+  "imsSettings": [
+    {
+      "enabled": false,
+      "simSlotId": 0
+    },
+    {
+      "enabled": false,
+      "simSlotId": 1
+    }
+  ]

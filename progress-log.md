@@ -28,10 +28,10 @@ Process per task (build phase): **build → review → devise tests → log defe
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
-COMPLETE** + reviews 1–14 + report-gen. **268/268 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
+COMPLETE** + reviews 1–16 + report-gen. **282/282 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
 v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
 `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
-Word (DOD-8). Defect register: 8 defects found during review, all FIXED.
+Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
 
 ### 2026-06-30 — Phase 9 (v1.1): dark mode · set-from-files · Control Manager — ✅ COMPLETE
 
@@ -568,6 +568,180 @@ new values while still rejecting near-misses; a settings import applying them en
 parked). **268/268 self-tests pass.**
 
 **Defects:** none.
+
+### 2026-07-27 — Review-15 changes (column widths + Help rewritten as a manual) — ✅ COMPLETE
+
+Actioned the two review-15 notes:
+
+1. **Wider starting columns (RV15-1).** `colDefaultWidth` now takes the dataset id: **Description**
+   starts at 660px (3× the old 220) in all three tables, and the **Settings** key column starts at
+   360px (1.5× the shared 240). Packages/Tactical keys are unchanged, and a width the user has dragged
+   still wins over the default.
+2. **Help rewritten from scratch (RV15-2).** The old four-heading page is replaced by a sectioned
+   manual with a section strip (pill buttons, current section marked with `aria-current`) and one
+   readable column per section: **Overview** (what the tool is, the five ideas, what each tab is for),
+   **Getting started**, **Onboarding** (what is recorded, capture formats, re-capture/versioning,
+   triage), **Data tables** (columns, editing, finding, the bulk tools, CSV export), **Devices &
+   groups** (badges, effective-decision precedence, overrides, per-device control satisfaction,
+   groups, bulk decision import incl. the optional CSV columns), **Controls**, **Generating output**
+   (the four commands, readiness gating, per-command options, running the output, the manifest),
+   **Saving & recovery**, and **Reference** (glossary, a symptom→cause troubleshooting table, good
+   habits, developer notes). Language is deliberately plain; every screen concept is named the way the
+   UI names it.
+
+   Content is generated from the LIVE app where possible — dataset labels from the registry, capture
+   instructions from the platform profile, the relevance vocabulary from `App.projectIo` — so the
+   manual cannot drift from the code it documents. Section state is UI-only; Help still renders with
+   no project loaded.
+
+**Tests:** +8 self-tests (Description 3× in all three tables, Settings key 1.5×, stored widths still
+win; every Help section renders + marks itself current + has no placeholder text, unknown section
+falls back to Overview, renders with no project, content is sourced from the registry/vocabularies,
+and a coverage check that every feature area is documented somewhere). **276/276 self-tests pass.**
+
+**Defects:** none.
+
+### 2026-07-27 — Review-16 changes (blanking a text value) — ✅ COMPLETE
+
+Actioned the one review-16 note.
+
+**Defect (RV16-1, reported by the user).** A settings value could not be set to blank. Clearing the
+box — e.g. emptying a comma-separated list like `bluetooth,wifi` — appeared to do nothing: the item
+silently reverted to *undecided* and the editor re-prefilled the captured value, so the change looked
+like it had been ignored.
+
+**Cause.** `commitDecisionFromCell` applied one rule to every dataset: *empty primary field ⇒ clear
+the decision*. That is right for **Packages**, whose primary field is an enum with an explicit "—"
+option, but wrong for **Settings** and **Tactical**, whose primary field is a free-text box where ""
+is a legitimate value. The commit was therefore read as "undecided", and because an undecided text
+cell prefills from the capture, the old value reappeared.
+
+**Fix.**
+1. The empty-clears rule is now scoped to `kind === 'enum'` primaries only. For text primaries an
+   empty box commits `{ value: '' }` — a real decision. The item stays *decided*, round-trips through
+   save/load, and generates `settings put <ns> <key> ''` (quoted through both PowerShell and POSIX
+   sh, as every other value is).
+2. Because an empty box no longer means "undecided", text-valued cells gained an explicit **clear**
+   button (rendered only when the item is decided) that returns the item to undecided. Enum cells are
+   unchanged and keep clearing via "—".
+3. The decision-assembly logic was split out of `commitDecisionFromCell` into `decisionFromRaw`
+   (exported as `App.ui.app._decisionFromRaw`) so the rule is testable without synthesising DOM.
+4. The Help manual now states the rule in the *Action / Value* column description and under
+   *Editing an item*.
+
+The group- and device-override editors already treated `''` as a valid string value, so they needed
+no change and now agree with the main tables.
+
+**Hardware note for validation:** `settings get` on a key explicitly set to empty is expected to print
+an empty line, but some Android builds report `null` for an empty value. Worth confirming on the
+target device when running the verification script.
+
+**Tests:** +6 self-tests in a `review-16 #1` suite (an emptied settings box commits a blank value and
+stays decided; the same for a tactical leaf; an empty package action still means undecided; the blank
+value survives a save/load round-trip; generation emits an explicit empty-string put rather than
+skipping the line; decided text cells offer the clear button while undecided and enum cells do not).
+**282/282 self-tests pass.**
+
+**Defects:** 1 found (RV16-1, user-reported), FIXED.
+
+---
+
+### 2026-07-28 — Review-17 changes (tab order · clear beside the box · badge flip · imsSettings) — ✅ COMPLETE
+
+Actioned all four review-17 notes.
+
+**#1 — Tab order.** The strip now reads **Onboard · Packages · Settings · Tactical · Devices ·
+Control Manager · Generate · Help**. It previously ran data tabs first and put Onboard between
+Devices and Generate, which did not match the workflow — or the Help manual, whose "the tabs, in the
+order you normally use them" table already listed this order. Onboard is now rendered unconditionally
+(it was already the only tab shown with no project), so the strip does not reshuffle when a project
+is created; the remaining tabs simply appear.
+
+**#2 — Clear button beside the value box.** The `clear` button on decided Settings/Tactical cells was
+`display:block; margin-left:auto`, so it dropped onto its own line under the box and doubled every
+row's height. The box and the button now share one `.dec-row` flex row (`val-edit` takes `flex:1`, the
+button `flex:0 0 auto`), so each item is one line.
+
+**#3 — The Status badge is a switch.** Clicking (or Enter/Space on) the badge flips the item:
+- **decided → undecided** clears the decision — identical to the `clear` button.
+- **undecided → decided** adopts what the row's value editor is *already showing*. On Settings and
+  Tactical that box is prefilled with the **captured** value, so one click means "what the device has
+  is my decision" — the common case when working down a long register. On Packages the enum has no
+  selection to adopt, so the **first** schema option is used: `keep`, the no-change action.
+
+The badge carries `role="button"`/`tabindex="0"` and a title explaining which way it will go. The flip
+routes through `App.store.setDecision`, so it participates in validation, dirty-tracking and undo like
+any other edit, and clicking again reverses it.
+
+**#4 — `imsSettings` is optional on upload (user-reported gap).** A Knox tactical export only carries
+`imsSettings` once it has been touched — the reference capture does not have it — so the per-SIM IMS
+toggle was simply absent from the register and from the emitted `tactical.json`. Three changes, all
+inside the tactical adapter (no core edits):
+
+1. **Parser completes the document.** If the uploaded JSON has no `imsSettings` key at all, the
+   default block `[{enabled:false,simSlotId:0},{enabled:false,simSlotId:1}]` is added to the retained
+   template and a **warning** is logged to the Activity drawer — the injection is never silent. A
+   document that already carries the key is left exactly as captured, whatever its shape. Because
+   `parseAssignment` delegates to `parse`, this covers **both** entry points the note asked for:
+   onboarding and the Devices-tab "set decisions from files" import.
+2. **Flattener keys by SLOT, not array index** — `imsSettings.simSlot0.enabled` — so `simSlotId` is
+   treated as the slot's *identity* and never becomes a decision of its own. This mirrors the existing
+   `policyList` special-case (review-3 #3), where `name` is identity and `checked` is the setting.
+   Without it the naive walk would have produced four items, two of them meaningless (`simSlotId = 0`)
+   that would nonetheless have blocked device readiness.
+3. **Rebuild mirrors both rules** and re-creates the block (sorted by slot) on a template that predates
+   it, so projects saved before this change still emit a correct `tactical.json`.
+
+**Follow-up (RV17-4b, reported by the user against the first cut).** Completing the *file* was not
+enough. A device onboarded **before** the change has a stored snapshot whose `keys` do not list the
+two slots, so the Devices-tab tactical import failed ASG-2 exact-key-set equality:
+
+> File keys must exactly match this device's applicable Tactical keys (no more, no less).
+> 2 key(s) in the file are not applicable to this device: imsSettings.simSlot0.enabled, …
+
+The parser was completing the uploaded JSON while the device's applicable set stayed short, so the two
+sides could never agree. Fixed by completing **stored snapshots on load**, via a generic hook rather
+than an imsSettings special-case in core:
+
+- New optional adapter hook **`completeSnapshot(snap)`** — "bring this stored snapshot up to the keys
+  this dataset now guarantees" — returning the keys it added. Implemented on `android.tactical`
+  (ensure `template.imsSettings`, add any missing slot keys to `snap.keys`); idempotent, so a
+  complete snapshot is untouched.
+- `projectIo.selfHealV3` (which already runs on every load, including draft restore) now calls the
+  hook for every device-config snapshot whose adapter offers it, mirrors each added key into the
+  register as an **undecided** item, and warns per dataset listing exactly what was added. Core stays
+  dataset-agnostic, so DOD-11 holds.
+
+Loading an existing project therefore heals it in place: the slots appear in the Tactical tab as
+undecided, the device lists them as applicable, and the import that was rejected now matches. Loading
+an already-complete project is a byte-for-byte no-op (asserted).
+
+**Fixture impact.** Every tactical onboard now yields two more register items, so the shared test
+fixtures that decide "everything" gained the two slots and three count assertions moved (4 → 6
+undecided; the `tactical.json` deep-equal now includes the block, which is emitted from the template
+even when undecided).
+
+**Real-data check.** The reference capture `policy-config-01042026_101449.json` parses with 0 errors
+into **134 leaves** (2 of them the injected slots), 26 top-level keys become 27, and after deciding
+`simSlot1.enabled = true` the rebuilt document is **identical to the input in every other respect**,
+with the block in the exact Knox shape (`enabled` / `simSlotId` per entry).
+
+**Help manual updated** for all four: the Status column and *Editing an item* describe the badge flip
+and which value it adopts; the *Action / Value* column now says the clear button is *beside* the box;
+and the onboarding section gains a note that `imsSettings` is optional in the upload, what the default
+is, and that the same rule applies to the Devices-tab import.
+
+**Tests:** +15 self-tests across four `review-17` suites (tab order with and without a project; the
+clear button and value box share one flex row; both badge states render as toggles carrying ds+key;
+decided flips to cleared; undecided adopts the shown value; a package with no selection adopts `keep`;
+imsSettings injected when absent with a warning; used as captured when present; `simSlotId` never
+decidable; decisions rebuild into the Knox shape; rebuild re-creates the block on an older template;
+onboarding surfaces both slots; the Devices-tab import completes the block; the emitted JSON always
+carries it; a project saved before the change is completed on load; the import that older projects
+rejected now matches; completion is idempotent). **300/300 self-tests pass.**
+
+**Defects:** 2 found (RV17-4 user-reported missing setting; RV17-4b user-reported — older snapshots
+made the completed import unmatchable), both FIXED.
 
 ---
 

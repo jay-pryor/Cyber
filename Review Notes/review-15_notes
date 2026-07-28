@@ -1,0 +1,2 @@
+1. Make it so that the Description column for the Packages, Settings, and Tactical tables starts 3x the width it currently starts at, and the Key column in the Settings table is 1.5x the current starting width.
+2. Rewrite the 'Help' tab from scratch to reflect all aspects of the application. Make it using simple but precise language. If need be, include subsections, tabs, whatever to make it easily navigable and whatnot.

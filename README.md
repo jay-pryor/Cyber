@@ -69,5 +69,7 @@ embedded self-tests and headless verification.
 - `ch-config-tool.html` — the application (the only runtime artifact).
 - `android-ch-config-tool-build-spec-v1.0.md` — the normative build spec.
 - `progress-log.md` — per-phase build log (what was built, tests, results).
+- `validation-testing-plan.md` — manual plan to validate a full CH config onto real hardware, and to
+  compare it against an independently hand-hardened device.
 - `defect-register.md` — defects found during review and their fixes.
 - `Reference Input Files/` — real sample captures used to validate the parsers/generators.
