@@ -2044,6 +2044,50 @@ an operator typing `enabl_both` into a key that accepts exactly three values.
   is the very problem the rail exists to solve. Scroll is preserved **within** a tab only:
   changing tab lands at the top of the new one.
 
+## 22.4 Bulk assignment over the shown set, and holding a decision (v2.1.1)
+
+### BULK-1 (MUST) — apply the selected control to everything currently shown
+The rail carries a single **"Apply to all N shown"** button. *Shown* means exactly what the
+table is displaying — whatever the search box and every filter (Incomplete only, the parked
+toggles) have narrowed it to — so `search: bluetooth` followed by one click tags every
+Bluetooth-related item. It toggles like RV9-1: when every shown row already carries the
+control the button reads **"Remove from all N shown"** and the click takes it off.
+
+This **supersedes RV8-2/RV9-1's "Apply to `<action>`" dropdown** (§19.11), which could only
+slice by an enum decision field. That made it packages-only and unable to express the query
+people actually have ("everything to do with Bluetooth"). The replacement is
+**dataset-agnostic**, so Tactical gets it too.
+
+The button's LABEL and the click's ACTION MUST come from **one** shared plan
+(`App.ui.model.applyAllShownPlan`), so the count the button promises and the set it acts on
+cannot drift. The whole run is one undo entry, and the Activity log records the count and
+the search term in force.
+
+### BULK-2 (MUST) — the tick columns are full-cell hit targets
+The Apply and Delete checkboxes MUST be wrapped in a cell-filling `<label>` so a click
+anywhere in the column toggles them; a ~13px target in a 74px cell is a precision task
+repeated hundreds of times. It MUST remain a real `<input type="checkbox">` with its
+`aria-label` — a click handler on the `<td>` would lose keyboard and screen-reader access —
+and clicking the box itself MUST toggle exactly once, not twice.
+
+### HELD-1 (MUST) — flag for review without losing the answer
+`RegisterItem` MAY carry **`held: true`** meaning *"this has a value, and I want to look at
+it again"*. Its `decision` is untouched. The item is simply **not complete** (HELD-2), so it
+reads as undecided, blocks device readiness, and is excluded from generation until released.
+Additive and optional; `held` is only ever `true` when present (canonical form omits it).
+
+- **HELD-2 (MUST)** `completeness.itemComplete` returns false for a held item before any
+  other check. Readiness and generation therefore honour it automatically.
+- **HELD-3 (MUST)** The **Status badge flip** holds rather than clears: clicking
+  <em>decided</em> moves the item to held **with its value intact**, and clicking again
+  releases it back to decided with the same value. Wiping a value remains the job of the
+  cell's explicit **clear** button — the two actions are deliberately different.
+- **HELD-4 (MUST)** Editing the value releases the hold, because editing *is* reviewing.
+- **HELD-5 (SHOULD)** A held item gets its **own badge** ("review"), distinct from
+  "undecided": being able to tell "answered, re-check me" from "never answered" at a glance
+  is the reason the state exists. It appears in the data tables and the device panels.
+- **HELD-6 (MUST)** Holding an item that has no value is refused — there is nothing to review.
+
 ## 22.3 Acceptance (additive to §1.1)
 
 - **VF-A** With no configuration, every leaf of the reference Knox capture resolves to a
@@ -2061,3 +2105,10 @@ an operator typing `enabl_both` into a key that accepts exactly three values.
 - **SP-C** In a real browser, with a register long enough to scroll, the rail's viewport
   offset is **constant** across scroll depths, and the scroll position survives selecting a
   control. This is a browser check — it cannot be established by reasoning about the CSS.
+- **BULK-A** With a search active, the button names the shown count, acts on exactly that
+  set, leaves every hidden row untouched, and flips to "Remove from all" on a second run.
+- **BULK-B** In a real browser, a click on cell *whitespace* toggles the tick, and a click on
+  the box itself toggles it exactly once.
+- **HELD-A** Flipping a decided item retains its `decision` byte-for-byte, marks it held,
+  drops the device out of ready, and excludes it from the generated script; flipping back
+  restores the same value. Editing releases the hold; `clear` still clears.

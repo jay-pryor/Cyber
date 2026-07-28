@@ -178,6 +178,18 @@
   /* review-7 #2: Apply Control Mode affordances + row checkbox column. */
   .toolbar button.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
   table.data th.apply-col, table.data td.apply-cell { text-align: center; width: 74px; }
+  /* BULK-2: make the tick columns a full-cell hit target. The <label> fills the cell and
+     is what a click lands on, so you no longer have to hit a 13px box; the checkbox is
+     still a real focusable control underneath. `padding:0` on the td lets the label
+     cover it completely. */
+  table.data td.apply-cell, table.data td.del-cell { padding: 0; }
+  .cell-check { display: flex; align-items: center; justify-content: center; width: 100%;
+                min-height: 34px; padding: 4px 0; cursor: pointer; }
+  .cell-check:hover { background: var(--c-surface-alt); }
+  .cell-check input { width: 16px; height: 16px; cursor: pointer; }
+  /* BULK-1: the apply-to-all-shown button + its caption. */
+  .side-rail .apply-all { width: 100%; }
+  .apply-all-note { font-size: 11px; line-height: 1.35; }
 
   /* ---- SP-1/SP-2/SP-3: the sticky tools rail ------------------------------------
      The table and the rail sit side by side; the rail is `position:sticky` so it
@@ -293,6 +305,10 @@
   .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--c-border); }
   .badge.undecided { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
   .badge.decided { background: var(--c-ok-bg); color: var(--c-ok); border-color: var(--c-ok); }
+  /* HELD-1: "decided, but flagged for review". Deliberately its own colour: it counts as
+     undecided, but it still HOLDS a value, and telling those two apart at a glance is the
+     entire reason the state exists. */
+  .badge.held { background: var(--c-info-bg); color: var(--c-info); border-color: var(--c-info); font-weight: 600; }
   /* review-17 #3: a status badge that flips the item's decided/undecided state on click. */
   .badge.flip { cursor: pointer; user-select: none; }
   .badge.flip:hover { filter: brightness(1.08); text-decoration: underline; }
@@ -1814,6 +1830,11 @@
         if (typeof it.relevance !== 'string') issues.push(issue('error', 'RegisterItem.relevance must be a string when present.', loc + '.relevance'));
         else if (RELEVANCE_VALUES.indexOf(it.relevance) === -1) issues.push(issue('error', 'RegisterItem.relevance must be empty or one of ' + RELEVANCE_OPTIONS.join('/') + '.', loc + '.relevance'));
       }
+      // HELD-1: optional "flagged for review" marker. Only ever `true` when present —
+      // absent means not held, so the canonical form has no `false`.
+      if (it.held !== undefined && it.held !== true) {
+        issues.push(issue('error', 'RegisterItem.held must be true when present (omit it otherwise).', loc + '.held'));
+      }
       // VF-3: optional value-format reference — a built-in id or a project format id.
       // Deliberately NOT checked for existence here: a dangling ref degrades to the
       // inferred built-in at render time (App.valueFormats.resolve) rather than
@@ -2519,8 +2540,38 @@
       commit(function (p) {
         var it = p.items[datasetId].filter(function (i) { return i.key === key; })[0];
         it.decision = decision;
+        // HELD-3: editing a value IS reviewing it, so a held item is released. (Clearing
+        // the decision outright also drops the flag — there is no value left to review.)
+        delete it.held;
       });
       return { ok: issues.every(function (i) { return i.severity !== 'error'; }), issues: issues };
+    }
+
+    /**
+     * HELD-1: mark an item "decided but flagged for review" — or release it.
+     *
+     * The point is to be able to record a value and STILL be forced back to it later.
+     * Previously the only way to make an item undecided was to clear its decision, which
+     * threw the value away; you could not say "this is my answer, but check it again".
+     * A held item keeps its `decision` untouched and simply does not count as complete,
+     * so it reads as undecided everywhere and blocks the device from being ready.
+     * @param {string} datasetId @param {string} key @param {boolean} held
+     * @returns {{ok:boolean, issues:Issue[]}}
+     */
+    function setHeld(datasetId, key, held) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var items = _project.items[datasetId];
+      var item = items && items.filter(function (i) { return i.key === key; })[0];
+      if (!item) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'Unknown item "' + key + '".', location: datasetId }] };
+      if (held && item.decision == null) {
+        return { ok: false, issues: [{ category: 'state', severity: 'error',
+          message: 'Nothing to hold — this item has no recorded value yet.', location: datasetId + ' / ' + key }] };
+      }
+      commit(function (p) {
+        var it = p.items[datasetId].filter(function (i) { return i.key === key; })[0];
+        if (held) it.held = true; else delete it.held;   // absent ⇒ not held (canonical)
+      });
+      return { ok: true, issues: [] };
     }
 
     /**
@@ -3108,6 +3159,7 @@
       setDecision: setDecision, setItemFields: setItemFields, applyDeviceAssignment: applyDeviceAssignment,
       // review-12 #2: explicit item deletion + the one-step undo primitives.
       removeItems: removeItems, datasetSnapshot: datasetSnapshot, restoreDatasetSnapshot: restoreDatasetSnapshot,
+      setHeld: setHeld,
       addControl: addControl, updateControl: updateControl, removeControl: removeControl,
       // VF-5/VF-6: the reusable value-format catalogue + bulk item assignment.
       addValueFormat: addValueFormat, updateValueFormat: updateValueFormat,
@@ -4422,6 +4474,10 @@
      * @returns {boolean}
      */
     function itemComplete(adapter, item, project, captured) {
+      // HELD-2: "decided, but I want to look at this again". The value is intact; it just
+      // does not count as done, so the item reads as undecided and the device stays
+      // un-ready until someone releases it. Checked first — nothing else matters.
+      if (item && item.held) return false;
       if (!adapter || !adapter.isComplete(item)) return false;
       if (mod.REQUIRE_CONTROL_REF && !(item.controlRefs && item.controlRefs.length)) return false;
       if (project && App.valueFormats) {
@@ -5471,10 +5527,31 @@
     }
 
     App.ui = App.ui || {};
+    /**
+     * BULK-1: the plan for "apply this control to everything currently shown".
+     *
+     * Shared by the button's LABEL and the button's ACTION so the two can never disagree
+     * about what "shown" means — the label promises a count, and the click must act on
+     * exactly that set. `removing` mirrors RV9-1: when every shown row already carries the
+     * control, the click takes it away instead of being a no-op.
+     * @param {Project} project @param {string} dsId @param {Object} ui  per-dataset UI state
+     * @param {string} controlId
+     * @returns {{items:RegisterItem[], removing:boolean, changing:number}}
+     */
+    function applyAllShownPlan(project, dsId, ui, controlId) {
+      var adapter = project ? App.registry.getDataset(project.platformProfileId, dsId) : null;
+      if (!project || !adapter || !controlId) return { items: [], removing: false, changing: 0 };
+      var items = filterSortRows(project, dsId, adapter, ui || {}).map(function (r) { return r.item; });
+      var have = items.filter(function (it) { return (it.controlRefs || []).indexOf(controlId) !== -1; }).length;
+      var removing = items.length > 0 && have === items.length;
+      return { items: items, removing: removing, changing: removing ? have : items.length - have };
+    }
+
     App.ui.model = {
       getLatestConfigs: getLatestConfigs, isLatest: isLatest,
       computeAppliesTo: computeAppliesTo, countIncomplete: countIncomplete,
-      filterSortRows: filterSortRows, relevanceViewFilter: relevanceViewFilter
+      filterSortRows: filterSortRows, relevanceViewFilter: relevanceViewFilter,
+      applyAllShownPlan: applyAllShownPlan
     };
   })(App);
   </script>
@@ -5564,20 +5641,30 @@
         ' title="' + esc(canUndo ? undoTitle(undo.label) : UNDO_OFF_TITLE) + '">↶ Undo</button>' +
         '<button data-redo="' + esc(dsId) + '"' + (canRedo ? '' : ' disabled') +
         ' title="' + esc(canRedo ? redoTitle(undo.redoLabel) : REDO_OFF_TITLE) + '">↷ Redo</button>';
-      // review-8 #2 / RV9-1: the "Apply to <action>" bulk toggle — only for datasets
-      // whose decision schema has an enum field (packages). Rendered into the side rail
-      // beneath the control picker, since it acts on the selected control.
+      // BULK-1: one button that applies the selected control to EVERY ROW CURRENTLY
+      // SHOWN — i.e. whatever the search box and filters have narrowed the table to.
+      // This replaces the old "Apply to <action>" dropdown, which could only ever slice
+      // by an enum decision field: it was packages-only, and it could not express
+      // "everything Bluetooth-related", which is how people actually work. Search
+      // `bluetooth`, click once. It toggles like RV9-1: if every shown item already has
+      // the control, the click removes it from all of them.
       var applyToHtml = '';
-      if (ui.applyMode) {
-        var proj = App.store.getProject();
-        var adapter = proj ? App.registry.getDataset(proj.platformProfileId, dsId) : null;
-        var actionField = adapter ? (adapter.decisionSchema || []).filter(function (f) { return f.kind === 'enum'; })[0] : null;
-        if (actionField && (controls || []).length) {
-          applyToHtml = '<select class="apply-to" data-apply-to="' + esc(dsId) + '" data-field="' + esc(actionField.name) + '"' + (ui.applyControlId ? '' : ' disabled') +
-            ' aria-label="Apply the selected control to all items with an action" title="' + (ui.applyControlId ? 'Apply the selected control to every item with the chosen action' : 'Select a control first') + '">' +
-            '<option value="">Apply to every…</option>' +
-            actionField.options.map(function (o) { return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; }).join('') + '</select>';
-        }
+      if (ui.applyMode && (controls || []).length) {
+        var ready = !!ui.applyControlId;
+        var plan = ready ? App.ui.model.applyAllShownPlan(App.store.getProject(), dsId, ui, ui.applyControlId)
+                         : { removing: false, changing: 0 };
+        var label = !ready ? 'Apply to all ' + shown + ' shown'
+          : plan.removing ? 'Remove from all ' + shown + ' shown'
+          : 'Apply to all ' + shown + ' shown';
+        applyToHtml = '<button type="button" class="apply-all' + (plan.removing ? ' danger' : '') + '" data-apply-all="' + esc(dsId) + '"' +
+          (ready && shown ? '' : ' disabled') +
+          ' title="' + esc(!ready ? 'Select a control first'
+            : !shown ? 'No rows are shown — adjust the search or filters'
+            : (plan.removing
+                ? 'Every row currently shown already has this control — click to remove it from all ' + shown
+                : 'Add this control to the ' + plan.changing + ' of ' + shown + ' shown row(s) that do not have it yet. The search and filters above decide what "shown" means.')) + '">' +
+          esc(label) + '</button>' +
+          (ready && shown ? '<div class="muted apply-all-note">Acts on exactly what the table shows — narrow it with the search box first.</div>' : '');
       }
       // review-14: the two "parked" relevance views. Off (the default) the table hides
       // REPORTING/IRRELEVANT items entirely; ticking one shows ONLY that category.
@@ -5997,18 +6084,28 @@
         // review-17 #3: the status badge is a toggle — clicking it flips the item
         // between decided (adopting what the value editor shows) and undecided.
         var statusAttrs = ' role="button" tabindex="0" data-status-toggle data-ds="' + esc(dsId) + '" data-key="' + esc(r.item.key) + '"';
-        tds += '<td>' + (r.status === 'decided'
-          ? '<span class="badge decided flip"' + statusAttrs + ' title="Click to return this item to undecided">decided</span>'
-          : '<span class="badge undecided flip"' + statusAttrs + ' title="Click to accept the value shown and mark this item decided">undecided</span>') + '</td>';
+        // HELD-1: three states, not two. A HELD item is undecided *and* still holds its
+        // value, so it gets its own badge — otherwise you could not tell, at a glance,
+        // which undecided rows are "never answered" and which are "answered, re-check me".
+        tds += '<td>' + (r.item.held
+          ? '<span class="badge held flip"' + statusAttrs + ' title="Flagged for review — the recorded value is kept. Click to accept it and mark this item decided.">review</span>'
+          : r.item.status === 'decided'
+            ? '<span class="badge decided flip"' + statusAttrs + ' title="Click to flag for review — the value is kept, the item just stops counting as decided">decided</span>'
+            : '<span class="badge undecided flip"' + statusAttrs + ' title="Click to accept the value shown and mark this item decided">undecided</span>') + '</td>';
         if (applyMode) {
           // Checked iff the SELECTED control is already in this item's controlRefs
           // (so the box always reflects current membership).
           var checked = applyControlId && (r.item.controlRefs || []).indexOf(applyControlId) !== -1;
-          tds += '<td class="apply-cell"><input type="checkbox" data-apply-check data-key="' + esc(r.item.key) + '"' + (checked ? ' checked' : '') + (applyControlId ? '' : ' disabled') + ' aria-label="apply the selected control to ' + esc(r.item.key) + '"></td>';
+          // BULK-2: the whole cell is the hit target, not just the ~13px box. A <label>
+          // filling the cell means a click anywhere in the column toggles it — and it
+          // stays a real checkbox for keyboard and screen readers, which a click handler
+          // bolted onto the <td> would not be.
+          tds += '<td class="apply-cell"><label class="cell-check"><input type="checkbox" data-apply-check data-key="' + esc(r.item.key) + '"' + (checked ? ' checked' : '') + (applyControlId ? '' : ' disabled') + ' aria-label="apply the selected control to ' + esc(r.item.key) + '"></label></td>';
         }
         var marked = deleteMode && !!deleteSel[r.item.key];
         if (deleteMode) {
-          tds += '<td class="del-cell"><input type="checkbox" data-delete-check data-key="' + esc(r.item.key) + '"' + (marked ? ' checked' : '') + ' aria-label="delete ' + esc(r.item.key) + '"></td>';
+          // BULK-2: same click-anywhere target as the apply column.
+          tds += '<td class="del-cell"><label class="cell-check"><input type="checkbox" data-delete-check data-key="' + esc(r.item.key) + '"' + (marked ? ' checked' : '') + ' aria-label="delete ' + esc(r.item.key) + '"></label></td>';
         }
         var rowHtml = '<tr class="' + (r.status === 'decided' ? '' : 'undecided') + (marked ? ' del-marked' : '') + '">' + lead + tds + '</tr>';
         if (isOpen) rowHtml += renderDetailRow(dsId, r.item, colspan, opts.issues, controls, project, adapter, captured);
@@ -6861,9 +6958,11 @@
           return (it.controlRefs || []).indexOf(controlId) !== -1;
         }).sort(function (a, b) { return a.key < b.key ? -1 : 1; });
         var rows = items.map(function (it) {
-          var statusBadge = it.status === 'decided'
-            ? '<span class="badge decided">decided</span>'
-            : '<span class="badge undecided">undecided</span>';
+          var statusBadge = it.held
+            ? '<span class="badge held" title="Flagged for review — the value is kept but not yet accepted">review</span>'
+            : it.status === 'decided'
+              ? '<span class="badge decided">decided</span>'
+              : '<span class="badge undecided">undecided</span>';
           return '<tr><td>' + esc(dispKey(it.key)) + '</td><td>' + esc(it.decision ? String(get(it)) : '') + '</td><td>' + statusBadge + '</td></tr>';
         }).join('');
         var body = items.length
@@ -7754,16 +7853,18 @@
           ['<strong>Control Refs</strong>', 'Which controls this item helps satisfy. Edited in the row expander or with Apply Control Mode.'],
           ['<strong>Security Relevance</strong>', 'Optional tag: ' + esc(relevanceList()) + '. May be left blank.'],
           ['<strong>Applies to</strong>', 'Which devices currently have this item in their snapshot.'],
-          ['<strong>Status</strong>', '<span class="badge decided">decided</span> once the decision is complete and valid, otherwise <span class="badge undecided">undecided</span>. ' +
+          ['<strong>Status</strong>', '<span class="badge decided">decided</span> once the decision is complete and valid, <span class="badge undecided">undecided</span> if it has never been answered, or <span class="badge held">review</span> if it holds a value you have flagged to come back to. ' +
             'The badge is also a <strong>switch</strong> — click it to flip the item (see below).']
         ]) +
         h(3, 'Editing an item') +
         ul([
           'Edit the decision directly in its cell. Changes save into the in-memory project immediately (the unsaved dot appears in the top bar).',
           'To blank a value — for example to empty a comma-separated list like <code>bluetooth,wifi</code> — clear the box and click away. The item stays <span class="badge decided">decided</span> and the generated command sets the key to an empty string. Use <strong>clear</strong> instead if you meant "I have not decided this yet".',
-          '<strong>Click the Status badge to flip the item.</strong> Clicking <span class="badge decided">decided</span> returns it to undecided (the same as <strong>clear</strong>). ' +
-            'Clicking <span class="badge undecided">undecided</span> accepts whatever the value box is already showing — on Tactical that is the <em>captured</em> value, so one click means "the value on the device is my decision". ' +
-            'On Packages, where nothing is selected yet, it records <code>keep</code>, the no-change action. Either way the flip is undone by clicking the badge again.',
+          '<strong>Click the Status badge to flip the item.</strong> Clicking <span class="badge undecided">undecided</span> accepts whatever the value box is already showing — on Tactical that is the <em>captured</em> value, so one click means "the value on the device is my decision". ' +
+            'On Packages, where nothing is selected yet, it records <code>keep</code>, the no-change action.',
+          '<strong>Flagging something for review keeps your answer.</strong> Clicking <span class="badge decided">decided</span> does <em>not</em> wipe the value — it moves the item to <span class="badge held">review</span>: your choice is recorded exactly as you left it, but the item stops counting as decided, so it shows as outstanding and the device cannot be generated until you come back to it. Click the badge again to accept the same value and return it to <span class="badge decided">decided</span>. ' +
+            'Editing the value also clears the flag, because editing <em>is</em> reviewing. ' +
+            'If you actually want to throw the answer away, use <strong>clear</strong> beside the value box — that is the difference between the two.',
           'Click the <strong>▸</strong> at the start of a row to expand it. The expander holds the <strong>Description</strong>, the <strong>Control Refs</strong> checklist, the <strong>Rationale</strong> (with a one-click "not required for device use-case" preset), the <strong>Rollback</strong> note and the <strong>Value format</strong> picker.',
           'If a decision is invalid, the cell is tinted and the reason is listed in the expander (and in the cell&rsquo;s tooltip). The value is still stored — invalid simply means "not complete yet".'
         ]) +
@@ -7799,7 +7900,9 @@
         p('The bulk tools live in the <strong>Tools</strong> panel pinned to the right of the table. It <em>stays in place while you scroll</em>, so on a register hundreds of rows long you can change the control you are assigning without scrolling back to the top. <strong>Hide ›</strong> collapses it when you want the full width for the table.') +
         deftable(['Tool', 'How to use it'], [
           ['<strong>Apply Control Mode</strong>',
-           'Click it, then pick a control from the list in the panel — each entry shows the control&rsquo;s <strong>name, type and description</strong>, so you can tell what it means as you assign it. Filter the list with the box above it. With a control selected, tick rows to attach it (unticking detaches it); clicking the selected control again deselects it. On Packages there is also an <em>Apply to every…</em> dropdown that applies the control to every item with a chosen action at once — press it again to remove it from all of them.'],
+           'Click it, then pick a control from the list in the panel — each entry shows the control&rsquo;s <strong>name, type and description</strong>, so you can tell what it means as you assign it. Filter the list with the box above it. With a control selected, tick rows to attach it (unticking detaches it); clicking anywhere in the tick column works, not just on the small box. Clicking the selected control again deselects it.'],
+          ['<strong>Apply to all N shown</strong>',
+           'The fastest way to work. Narrow the table with the <strong>search box</strong> first — say <code>bluetooth</code> — then click this button in the Tools panel to attach the selected control to <em>every row the table is showing</em>, in one go. It acts on exactly what you can see, so every filter counts (search, Incomplete only, the parked toggles). If all the shown rows already have that control, the button turns into <strong>Remove from all N shown</strong>, so the same click takes it back off.'],
           ['<strong>Delete Items</strong>',
            'Click to arm Delete Mode, tick the rows to remove, then click <strong>Delete selected</strong> to action them, or <strong>Cancel</strong> to back out. Deleting also removes any device or group override that pointed at the deleted item. The capture snapshots are untouched, so re-onboarding the same file brings the item back.'],
           ['<strong>Undo</strong> / <strong>Redo</strong>',
@@ -8624,30 +8727,40 @@
       // review-8 #2 / review-9 #1: apply the selected control to all items with the chosen
       // action — but TOGGLE: if every matching item already has it, remove it from all;
       // otherwise add it to the ones still missing it.
-      dom.on(_root, 'change', '[data-apply-to]', function (e, el) {
-        var dsId = el.getAttribute('data-apply-to'), field = el.getAttribute('data-field'), action = el.value;
+      // BULK-1: apply (or remove) the selected control across every row the table is
+      // currently showing. "Currently showing" is whatever the search box and filters
+      // have narrowed it to, so `search: bluetooth` → one click tags every Bluetooth
+      // package. The plan comes from the same helper that labelled the button, so the
+      // count promised and the set acted on cannot drift apart.
+      dom.on(_root, 'click', '[data-apply-all]', function (e, el) {
+        var dsId = el.getAttribute('data-apply-all');
         var ui = uiFor(dsId);
-        if (!action || !ui.applyControlId) { el.value = ''; return; }
         var controlId = ui.applyControlId;
+        if (!controlId) return;
         var project = App.store.getProject();
-        var plan = applyToTogglePlan(project.items[dsId] || [], field, action, controlId);
-        var matching = plan.matching, removing = plan.removing;
-        var count = 0;
-        // review-12 #2: one undo entry for the whole bulk apply-to-action.
+        var plan = App.ui.model.applyAllShownPlan(project, dsId, ui, controlId);
+        if (!plan.items.length) return;
+        var removing = plan.removing, count = 0;
+        var ctl = (project.controls || []).filter(function (c) { return c.id === controlId; })[0];
+        var what = (ctl && ctl.title) || controlId;
+        // review-12 #2: the whole bulk run is ONE undo entry.
         closeRun();
-        pushUndo(dsId, (removing ? 'removal' : 'application') + ' of a control to all "' + field + '=' + action + '" items');
+        pushUndo(dsId, (removing ? 'removal' : 'application') + ' of "' + what + '" to ' + plan.items.length + ' shown item(s)');
         _suppressRender = true;
         try {
-          matching.forEach(function (it) {
-            var has = (it.controlRefs || []).indexOf(controlId) !== -1;
-            if (removing && has) { App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).filter(function (r) { return r !== controlId; }) }); count++; }
-            else if (!removing && !has) { App.store.setItemFields(dsId, it.key, { controlRefs: (it.controlRefs || []).concat([controlId]) }); count++; }
+          plan.items.forEach(function (it) {
+            var refs = it.controlRefs || [];
+            var has = refs.indexOf(controlId) !== -1;
+            if (removing && has) { App.store.setItemFields(dsId, it.key, { controlRefs: refs.filter(function (r) { return r !== controlId; }) }); count++; }
+            else if (!removing && !has) { App.store.setItemFields(dsId, it.key, { controlRefs: refs.concat([controlId]) }); count++; }
           });
         } finally { _suppressRender = false; }
-        if (!count) dropUndo(dsId); // no item actually changed
-        var ctrl = (project.controls || []).filter(function (c) { return c.id === controlId; })[0];
-        App.ui.activity.log({ severity: 'info', message: (removing ? 'Removed' : 'Applied') + ' control "' + ((ctrl && ctrl.title) || controlId) + '" ' + (removing ? 'from' : 'to') + ' ' + count + ' item(s) with ' + field + '=' + action + '.' });
-        renderMain(); // refresh checkbox states + reset the "Apply to" select
+        if (!count) dropUndo(dsId); // nothing actually changed
+        App.ui.activity.log({ severity: 'info',
+          message: (removing ? 'Removed' : 'Applied') + ' control "' + what + '" ' + (removing ? 'from' : 'to') + ' ' +
+            count + ' of the ' + plan.items.length + ' item(s) shown' +
+            (ui.search ? ' (search: "' + ui.search + '")' : '') + '.' });
+        renderMain(); // refresh the checkbox states and the button label
       });
       // Tick/untick a row's box: add/remove the selected control from that item's
       // controlRefs. Suppress the full re-render so bulk assignment stays fast and the
@@ -8843,11 +8956,18 @@
     }
 
     /**
-     * review-17 #3: flip one item's decided/undecided state from its Status badge.
-     *  - decided   -> undecided: clear the decision (same as the cell's "clear" button).
-     *  - undecided -> decided:   adopt what the row's value editor already shows. For
-     *    a text primary (Tactical) that is the CAPTURED value (the box is prefilled with it),
-     *    so one click means "the captured value is my decision". For an enum primary
+     * review-17 #3, amended by HELD-1: flip one item's decided/undecided state from its
+     * Status badge — WITHOUT destroying the value.
+     *  - decided -> undecided: **hold** the item. The recorded value stays exactly where
+     *    it is; the item simply stops counting as complete, so it reads as undecided and
+     *    keeps the device un-ready until it is reviewed. This is the whole point: you can
+     *    record an answer and still be forced back to it. (Previously this cleared the
+     *    decision, which threw the answer away — use the cell's "clear" button for that.)
+     *  - held -> decided: release the hold. The value was never touched, so it is simply
+     *    in force again.
+     *  - never-decided -> decided: adopt what the row's value editor already shows. For
+     *    a text primary (Tactical) that is the CAPTURED value (the box is prefilled with
+     *    it), so one click means "the captured value is my decision". For an enum primary
      *    with no selection (Packages) there is nothing to adopt, so the FIRST schema
      *    option is used — for packages that is `keep`, the no-change action.
      * @param {Element} el the badge that was activated
@@ -8857,9 +8977,14 @@
       var dsId = el.getAttribute('data-ds'), key = el.getAttribute('data-key');
       var item = (project.items[dsId] || []).filter(function (it) { return it.key === key; })[0];
       if (!item) return;
-      if (item.status === 'decided') {
-        App.store.setDecision(dsId, key, null);
-        _editIssues[dsId + '|' + key] = [];
+      if (item.held) {                       // held -> decided: just release it
+        App.store.setHeld(dsId, key, false);
+        renderTableHost();
+        return;
+      }
+      if (item.status === 'decided') {       // decided -> held (value retained)
+        var res0 = App.store.setHeld(dsId, key, true);
+        if (!res0.ok) App.ui.activity.logIssues(res0.issues, 'Review flag');
         renderTableHost();
         return;
       }
@@ -10608,15 +10733,18 @@
         T.assert(/class="ctl-card-desc">/.test(on), 'the control description must show beside the title');
         T.assert(on.indexOf('apply-control-list') === -1, 'the old datalist picker should be gone');
       });
-      s.test('#2 packages has an "Apply to" action dropdown, enabled only with a control (old hint gone)', function () {
+      s.test('#2 SUPERSEDED by BULK-1 — the action dropdown is now an apply-to-all-shown button', function () {
+        // RV8-2 sliced the bulk apply by an enum decision field, which made it
+        // packages-only and could not express "everything Bluetooth-related". BULK-1
+        // replaces it with one button over whatever the table currently shows.
         var id = withCtl();
         var noCtl = App.ui.tables.renderToolbar('android.packages', { applyMode: true }, 2, 2, App.store.getProject().controls);
         T.assert(noCtl.indexOf('pick a control, then tick rows') === -1, 'old hint text should be removed');
-        T.assert(/data-apply-to="android.packages"[^>]*disabled/.test(noCtl), 'Apply-to should be disabled without a control');
+        T.assert(noCtl.indexOf('data-apply-to=') === -1, 'the action dropdown should be gone');
+        T.assert(/data-apply-all="android.packages"[^>]*disabled/.test(noCtl), 'the button should be disabled without a control');
         var withC = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
-        T.assert(/data-apply-to="android.packages" data-field="action"/.test(withC), 'no Apply-to action select');
-        T.assert(!/data-apply-to="android.packages"[^>]*disabled/.test(withC), 'Apply-to should be enabled with a control');
-        T.assert(/<option value="remove">remove<\/option>/.test(withC) && /<option value="disable">disable<\/option>/.test(withC) && /<option value="keep">keep<\/option>/.test(withC), 'action options missing');
+        T.assert(/data-apply-all="android.packages"/.test(withC), 'no apply-to-all button');
+        T.assert(!/data-apply-all="android.packages"[^>]*disabled/.test(withC), 'the button should be enabled with a control');
       });
       s.test('#2 tactical has NO "Apply to" (it has no enum decision field)', function () {
         var id = withCtl();
@@ -11499,13 +11627,14 @@
         T.assert(/<span class="badge decided flip" role="button" tabindex="0" data-status-toggle data-ds="android\.tactical" data-key="enabled"/.test(dec),
           'the decided badge must be a toggle');
       });
-      s.test('a decided item flips back to undecided (decision cleared)', function () {
+      s.test('AMENDED by HELD-1 — flipping a decided item KEEPS its value', function () {
         r17();
         App.store.setDecision('android.tactical', 'enabled', { value: true });
         App.ui.app._toggleStatus(fakeBadge('android.tactical', 'enabled'));
         var it = tacItem('enabled');
-        T.assertEqual(it.status, 'undecided');
-        T.assertEqual(it.decision, null);
+        T.assertEqual(it.status, 'undecided', 'it must read as undecided');
+        T.assertDeepEqual(it.decision, { value: true }, 'the recorded value must NOT be wiped');
+        T.assertEqual(it.held, true, 'it is held for review');
       });
       s.test('an undecided item adopts the value its editor shows', function () {
         r17();
@@ -11895,6 +12024,217 @@
       });
     });
 
+    T.suite('BULK-1 apply the selected control to everything SHOWN', function (s) {
+      function bulkProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'BK', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages',
+            'com.vendor.bluetooth\ncom.vendor.bluetooth.share\ncom.vendor.wifi\ncom.vendor.camera'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM', description: 'Radio off.' }).id;
+        return { id: id, project: App.store.getProject() };
+      }
+      function refs(key) {
+        return (App.store.getProject().items['android.packages'].filter(function (i) { return i.key === key; })[0] || {}).controlRefs || [];
+      }
+
+      s.test('the plan is exactly the rows the current search shows', function () {
+        var w = bulkProject();
+        var all = App.ui.model.applyAllShownPlan(w.project, 'android.packages', {}, w.id);
+        T.assertEqual(all.items.length, 4, 'no search ⇒ every row');
+        var bt = App.ui.model.applyAllShownPlan(w.project, 'android.packages', { search: 'bluetooth' }, w.id);
+        T.assertDeepEqual(bt.items.map(function (i) { return i.key; }),
+          ['com.vendor.bluetooth', 'com.vendor.bluetooth.share'], 'the search must define the set');
+        T.assertEqual(bt.removing, false);
+        T.assertEqual(bt.changing, 2, 'both still need the control');
+      });
+
+      s.test('it toggles: a second run over the same set removes the control', function () {
+        var w = bulkProject();
+        var ui = { search: 'bluetooth' };
+        // Simulate the click's effect through the same plan the button uses.
+        var p1 = App.ui.model.applyAllShownPlan(App.store.getProject(), 'android.packages', ui, w.id);
+        p1.items.forEach(function (it) { App.store.setItemFields('android.packages', it.key, { controlRefs: (it.controlRefs || []).concat([w.id]) }); });
+        T.assertDeepEqual(refs('com.vendor.bluetooth'), [w.id]);
+        T.assertDeepEqual(refs('com.vendor.wifi'), [], 'a row outside the search must be untouched');
+        var p2 = App.ui.model.applyAllShownPlan(App.store.getProject(), 'android.packages', ui, w.id);
+        T.assertEqual(p2.removing, true, 'all shown already have it ⇒ the next run removes');
+        T.assertEqual(p2.changing, 2);
+      });
+
+      s.test('the plan honours every filter, not just search', function () {
+        var w = bulkProject();
+        App.store.setItemFields('android.packages', 'com.vendor.wifi', { relevance: 'IRRELEVANT' });
+        var p = App.store.getProject();
+        var def = App.ui.model.applyAllShownPlan(p, 'android.packages', {}, w.id);
+        T.assertEqual(def.items.length, 3, 'a parked item is hidden, so it must not be acted on');
+        var parked = App.ui.model.applyAllShownPlan(p, 'android.packages', { onlyRelevance: ['IRRELEVANT'] }, w.id);
+        T.assertDeepEqual(parked.items.map(function (i) { return i.key; }), ['com.vendor.wifi']);
+        App.store.setDecision('android.packages', 'com.vendor.camera', { action: 'keep' });
+        var inc = App.ui.model.applyAllShownPlan(App.store.getProject(), 'android.packages', { incompleteOnly: true }, w.id);
+        T.assert(inc.items.every(function (i) { return i.key !== 'com.vendor.camera'; }), 'Incomplete-only must narrow it too');
+      });
+
+      s.test('the button label promises the same count the plan will act on', function () {
+        var w = bulkProject();
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        var ui = { applyMode: true, applyControlId: w.id, search: 'bluetooth' };
+        var shown = App.ui.model.filterSortRows(w.project, 'android.packages', a, ui).length;
+        var html = App.ui.tables.renderToolbar('android.packages', ui, 4, shown, w.project.controls);
+        T.assertEqual(shown, 2);
+        T.assert(html.indexOf('Apply to all 2 shown') !== -1, 'the label must name the shown count, got: ' + html.slice(html.indexOf('apply-all'), html.indexOf('apply-all') + 200));
+      });
+
+      s.test('with no control selected, or nothing shown, the button is inert', function () {
+        var w = bulkProject();
+        var noCtl = App.ui.tables.renderToolbar('android.packages', { applyMode: true }, 4, 4, w.project.controls);
+        T.assert(/data-apply-all="android.packages"[^>]*disabled/.test(noCtl));
+        var nothing = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: w.id, search: 'zzz' }, 4, 0, w.project.controls);
+        T.assert(/data-apply-all="android.packages"[^>]*disabled/.test(nothing), 'nothing shown ⇒ nothing to apply to');
+      });
+    });
+
+    T.suite('BULK-2 the tick columns are full-cell hit targets', function (s) {
+      function tickProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'TK', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        return App.store.addControl({ title: 'C', type: 'ISM' }).id;
+      }
+      s.test('the apply checkbox is wrapped in a cell-filling label', function () {
+        var id = tickProject();
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { applyMode: true, applyControlId: id }, {});
+        T.assert(/<td class="apply-cell"><label class="cell-check"><input type="checkbox" data-apply-check/.test(html),
+          'the checkbox must sit inside a cell-filling <label> so a click anywhere in the cell hits it');
+      });
+      s.test('the delete checkbox gets the same treatment', function () {
+        tickProject();
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { deleteMode: true }, {});
+        T.assert(/<td class="del-cell"><label class="cell-check"><input type="checkbox" data-delete-check/.test(html),
+          'the delete column should be just as easy to hit');
+      });
+      s.test('it stays a real checkbox (keyboard + screen reader), not a div', function () {
+        var id = tickProject();
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { applyMode: true, applyControlId: id }, {});
+        T.assert(/data-apply-check data-key="com.a"[^>]*aria-label=/.test(html), 'the input must keep its accessible name');
+        T.assert(/type="checkbox"/.test(html), 'it must remain an <input type=checkbox>');
+      });
+    });
+
+    T.suite('HELD-1 flag for review without losing the value', function (s) {
+      function heldProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'HD', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        return App.store.getProject();
+      }
+      function pkg() { return App.store.getProject().items['android.packages'][0]; }
+
+      s.test('holding keeps the decision and reads as undecided', function () {
+        heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        T.assertEqual(pkg().status, 'decided');
+        T.assertEqual(App.store.setHeld('android.packages', 'com.a', true).ok, true);
+        var it = pkg();
+        T.assertDeepEqual(it.decision, { action: 'remove' }, 'THE POINT: the value survives');
+        T.assertEqual(it.held, true);
+        T.assertEqual(it.status, 'undecided', 'it must read as undecided');
+      });
+
+      s.test('a held item blocks device readiness until it is reviewed', function () {
+        var p = heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        var cap = App.registry.getDataset('android-adb', 'android.tactical').capturedDefaults(p.deviceConfigs[0].snapshots['android.tactical']);
+        App.store.getProject().items['android.tactical'].forEach(function (it) {
+          App.store.setDecision('android.tactical', it.key, { value: cap[it.key] ? cap[it.key].value : '' });
+        });
+        T.assertEqual(App.completeness.deviceReadiness(App.store.getProject(), 'hd-m1').ready, true, 'baseline ready');
+        App.store.setHeld('android.packages', 'com.a', true);
+        var r = App.completeness.deviceReadiness(App.store.getProject(), 'hd-m1');
+        T.assertEqual(r.ready, false, 'a held item must block generation — that is what "review later" means');
+        T.assertEqual(r.totalUndecided, 1);
+        App.store.setHeld('android.packages', 'com.a', false);
+        T.assertEqual(App.completeness.deviceReadiness(App.store.getProject(), 'hd-m1').ready, true, 'releasing restores readiness');
+      });
+
+      s.test('the badge flip holds rather than wipes, and flips back', function () {
+        heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        var badge = { tagName: 'SPAN', parentNode: null, getAttribute: function (n) { return n === 'data-ds' ? 'android.packages' : n === 'data-key' ? 'com.a' : null; } };
+        App.ui.app._toggleStatus(badge);
+        T.assertDeepEqual(pkg().decision, { action: 'remove' }, 'flipping must not wipe the value');
+        T.assertEqual(pkg().held, true);
+        App.ui.app._toggleStatus(badge);   // flip back
+        T.assertEqual(pkg().held, undefined, 'flipping back releases the hold');
+        T.assertEqual(pkg().status, 'decided');
+        T.assertDeepEqual(pkg().decision, { action: 'remove' }, 'and the value is still the same one');
+      });
+
+      s.test('the held state has its own badge, distinct from never-decided', function () {
+        heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        App.store.setHeld('android.packages', 'com.a', true);
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', {}, {});
+        T.assert(/<span class="badge held flip"[^>]*>review<\/span>/.test(html),
+          'a held item needs its own badge so you can tell it from one that was never answered');
+      });
+
+      s.test('editing the value releases the hold (editing IS reviewing)', function () {
+        heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        App.store.setHeld('android.packages', 'com.a', true);
+        App.store.setDecision('android.packages', 'com.a', { action: 'disable' });
+        T.assertEqual(pkg().held, undefined, 'a fresh decision clears the review flag');
+        T.assertEqual(pkg().status, 'decided');
+      });
+
+      s.test('the "clear" button still wipes — hold and clear are different things', function () {
+        heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        App.store.setDecision('android.packages', 'com.a', null);
+        T.assertEqual(pkg().decision, null, 'clear must still clear');
+        T.assertEqual(pkg().held, undefined);
+      });
+
+      s.test('holding an item with no value is refused', function () {
+        heldProject();
+        var res = App.store.setHeld('android.packages', 'com.a', true);
+        T.assertEqual(res.ok, false, 'there is nothing to review');
+        T.assert(/Nothing to hold/.test(res.issues[0].message));
+      });
+
+      s.test('the flag round-trips and is schema-checked', function () {
+        heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        App.store.setHeld('android.packages', 'com.a', true);
+        var text = App.projectIo.serializeProject(App.store.getProject());
+        var back = App.projectIo.parseProject(text);
+        T.assertEqual(back.ok, true, JSON.stringify(back.issues));
+        T.assertEqual(back.value.items['android.packages'][0].held, true);
+        T.assertEqual(App.projectIo.serializeProject(back.value), text, 'must round-trip byte-identically');
+        var bad = JSON.parse(text); bad.items['android.packages'][0].held = false;
+        T.assert(App.projectIo.validateSchema(bad).some(function (i) { return /held/.test(i.message) && i.severity === 'error'; }),
+          'held:false is not canonical — omit it instead');
+      });
+
+      s.test('a held item is excluded from generation, like any incomplete item', function () {
+        var p = heldProject();
+        App.store.setDecision('android.packages', 'com.a', { action: 'remove' });
+        var cap = App.registry.getDataset('android-adb', 'android.tactical').capturedDefaults(p.deviceConfigs[0].snapshots['android.tactical']);
+        App.store.getProject().items['android.tactical'].forEach(function (it) {
+          App.store.setDecision('android.tactical', it.key, { value: cap[it.key] ? cap[it.key].value : '' });
+        });
+        var withIt = App.generate.buildImplementation(App.store.getProject(), 'hd-m1');
+        T.assert(/pm uninstall/.test(withIt.files.filter(function (f) { return f.name === 'packages.impl.ps1'; })[0].content), 'baseline should emit the uninstall');
+        App.store.setHeld('android.packages', 'com.a', true);
+        var held = App.generate.buildImplementation(App.store.getProject(), 'hd-m1');
+        T.assert(!/pm uninstall/.test(held.files.filter(function (f) { return f.name === 'packages.impl.ps1'; })[0].content),
+          'a held item must not be acted on until it has been reviewed');
+      });
+    });
+
     T.suite('SP-4 the rail is actually sticky (CSS invariants)', function (s) {
       // `position:sticky` fails SILENTLY when the layout around it is wrong, and no
       // amount of render-to-string testing can see it — this was shipped broken once
@@ -12024,13 +12364,14 @@
         T.assert(/No control matches that filter/.test(none), 'an empty result must say so');
       });
 
-      s.test('SP-3 "Apply to <action>" moved to the rail and stays enum-only', function () {
+      s.test('SP-3/BULK-1 the apply-to-all-shown button lives in the rail, for EVERY dataset', function () {
         var w = railProject();
         var pkg = App.ui.tables.renderToolbar('android.packages', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
-        T.assert(/data-apply-to="android.packages"/.test(pkg), 'packages should still offer Apply-to');
-        T.assert(pkg.indexOf('data-apply-to') > pkg.indexOf('side-rail'), 'Apply-to belongs in the rail');
+        T.assert(/data-apply-all="android.packages"/.test(pkg), 'packages should offer apply-to-all');
+        T.assert(pkg.indexOf('data-apply-all') > pkg.indexOf('side-rail'), 'it belongs in the rail');
+        // Unlike the old enum-keyed dropdown this is dataset-agnostic, so tactical gets it too.
         var tac = App.ui.tables.renderToolbar('android.tactical', { applyMode: true, applyControlId: w.id }, 2, 2, w.project.controls);
-        T.assert(tac.indexOf('data-apply-to=') === -1, 'tactical has no enum decision field, so no Apply-to');
+        T.assert(/data-apply-all="android.tactical"/.test(tac), 'tactical should offer it as well now');
       });
     });
 

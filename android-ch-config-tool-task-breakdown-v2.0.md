@@ -1477,3 +1477,31 @@ overrides, generate or the report shell.
   from render-to-string tests, which is why the bug shipped.
 - **Definition of done:** rail pinned at a constant offset at any scroll depth; scroll kept
   across re-renders; suite green in-browser with no console errors.
+
+### T13.9 · Bulk-over-shown, bigger hit targets, hold-for-review (BULK-1/2, HELD-1)
+- **Depends on:** T13.6
+- **Spec:** §22.4, §22.3 (BULK-A/B, HELD-A)
+- **Objective:** Three usability changes from review, one of which is a data-model addition.
+- **Build:**
+  - **BULK-1.** Replace the "Apply to `<action>`" dropdown with an **Apply to all N shown**
+    button. Put the plan in `App.ui.model.applyAllShownPlan(project, dsId, ui, controlId)` —
+    it reuses `filterSortRows`, so "shown" is *by construction* the same set the table
+    renders — and have BOTH the button label and the click handler consume it, or the count
+    promised and the set acted on will drift. Toggle semantics per RV9-1. One undo entry per
+    run; log the count and the active search. Drop the enum-only restriction: the new button
+    is dataset-agnostic. Record RV8-2/RV9-1 as **superseded**.
+  - **BULK-2.** Wrap the apply/delete checkboxes in `<label class="cell-check">` filling the
+    cell (`td{padding:0}`), keeping the real `<input>` and its `aria-label`. Do **not** put a
+    click handler on the `<td>` — that loses keyboard/AT access. Verify in a browser that a
+    click on the box itself toggles once, not twice.
+  - **HELD-1.** Add optional `RegisterItem.held`, a `store.setHeld` mutator, the
+    `completeness.itemComplete` short-circuit, schema validation (`true` only), a third
+    badge, and the amended badge-flip. `setDecision` clears `held` (editing is reviewing);
+    refuse to hold an item with no decision.
+- **Self-tests:** the plan honours search AND every filter and leaves hidden rows alone; the
+  label matches the plan; the button is inert with no control or nothing shown; both tick
+  columns are cell-filling labels and stay real checkboxes; holding retains the decision,
+  reads undecided, blocks readiness, excludes the item from generation, round-trips, and
+  rejects `held:false`; flipping back restores the value; editing releases; clear still clears.
+- **Out-of-band:** drive a browser for BULK-B (cell-whitespace click, no double-toggle) and
+  to confirm the end-to-end search→apply flow.

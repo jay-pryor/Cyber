@@ -29,7 +29,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**318/318 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+**335/335 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
 checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
 `report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
@@ -847,6 +847,61 @@ enable_sa, disable."*, and survives save/load with its option descriptions intac
 
 **Defects:** 2 found during build (numeric leaves inferring as text; override editors inferring from
 the empty override value instead of the capture), both FIXED before commit.
+
+---
+
+### 2026-07-28 — BULK-1/2 + HELD-1: bulk-over-shown, bigger hit targets, hold-for-review — ✅ COMPLETE
+
+Three review items, one of which turned out to be a data-model change.
+
+**BULK-1 — "Apply to all N shown" replaces the action dropdown.** The old *Apply to
+`<action>`* select could only slice by an enum decision field, which made it packages-only and
+unable to express the query people actually have: *everything to do with Bluetooth*. It is now
+a single button that applies the selected control to **exactly the rows the table is
+currently showing** — search `bluetooth`, click once. Every filter counts, not just the search
+box (Incomplete only and the parked toggles narrow it too), and it toggles: when all shown rows
+already carry the control the button reads **Remove from all N shown**.
+
+The label and the click share one plan (`App.ui.model.applyAllShownPlan`, built on the same
+`filterSortRows` the table renders from), so the count the button promises and the set it acts
+on cannot drift apart. One undo entry per run; the Activity log names the count and the search
+term. Dropping the enum requirement means **Tactical gets it too**. RV8-2/RV9-1 recorded as
+superseded rather than quietly removed.
+
+**BULK-2 — the tick columns are full-cell targets.** A ~13px checkbox inside a 74px cell is a
+precision task you repeat hundreds of times. Both the Apply and Delete boxes are now wrapped in
+a cell-filling `<label>`, so a click anywhere in the column registers. Deliberately a `<label>`
+and not a click handler on the `<td>`: it stays a real `<input type="checkbox">` with its
+`aria-label`, so keyboard and screen-reader access are unchanged. Verified in a browser that
+clicking the box *itself* still toggles exactly once — a label wrapping its own input is a
+classic double-toggle trap.
+
+**HELD-1 — flag for review without losing the answer.** Previously the only way to make an item
+undecided was to clear its decision, which threw the answer away; you could not say *"this is my
+choice, but check it again"*. `RegisterItem` now takes an optional **`held`** flag: the decision
+is left completely untouched, the item simply stops counting as complete. So it reads as
+outstanding, blocks device readiness, and is excluded from the generated script — which is the
+whole point of "review later" — while the value you chose is still sitting there when you return.
+
+- The **badge flip** now holds rather than wipes; clicking again accepts the same value back.
+- Editing the value releases the hold, because editing *is* reviewing.
+- **`clear` still clears.** Hold and clear are deliberately different actions.
+- A held item gets its **own badge** (`review`, blue) in the data tables and device panels:
+  being able to tell "answered, re-check me" from "never answered" at a glance is the reason
+  the state exists. Holding an item with no value is refused — there is nothing to review.
+
+**Tests:** +17 across three new suites (BULK-1 plan/label/filters/toggle/inert states; BULK-2
+markup and accessibility; HELD-1 retention, readiness, generation exclusion, badge, round-trip,
+schema rejection of `held:false`, flip-back, edit-releases, clear-still-clears). **335/335 pass**
+(80 suites), headless and in Chrome, no console errors.
+
+**Browser-verified end to end** (these are behaviours render-to-string tests cannot see):
+search `bluetooth` → button reads *Apply to all 3 shown* → click → exactly the three Bluetooth
+packages tagged, wifi/camera/maps untouched → button becomes *Remove from all 3 shown*; a click
+30px left of a checkbox toggles it; a decided item flipped to review keeps
+`{"action":"remove"}` with the badge reading `review`.
+
+**Defects:** none.
 
 ---
 
