@@ -2022,6 +2022,27 @@ an operator typing `enabl_both` into a key that accepts exactly three values.
   > tells an operator what a control means while they are assigning it.
 - **SP-3a (MUST)** The "Apply to `<action>`" bulk toggle (RV8-2/RV9-1) moves into the rail
   beneath the picker, since it acts on the selected control. It remains enum-only.
+- **SP-4 (MUST — the layout sticky depends on).** `position:sticky` fails **silently** when
+  the surrounding layout is wrong, so these four properties are binding, not incidental:
+  1. `#app-root` has a **fixed** `height:100vh`. With `min-height` it grows with its content,
+     the **body** scrolls, and `.main`'s `overflow:auto` never actually scrolls.
+  2. `.main` keeps `overflow:auto` **and** `min-height:0` — a flex child will not shrink
+     below its content height without it, so `.main` would overflow the shell and nothing
+     would scroll.
+  3. `.side-rail` is `position:sticky` with an inset (`top:0`) and `align-self:flex-start`;
+     a stretched flex item fills the row and has no room to stick.
+  4. Nothing between the rail and `.main` sets `overflow` — the **nearest overflow ancestor
+     becomes the sticky scrollport even if it never scrolls**, which is precisely how this
+     shipped broken once: `.main` was the sticky scrollport but the body did the scrolling,
+     so the rail pinned itself to a viewport that never moved.
+  Because none of this is visible to render-to-string tests, it MUST be covered by
+  assertions over the stylesheet itself (§22.3 SP-B).
+- **SP-5 (MUST)** With `.main` as the scroll region, replacing its `innerHTML` resets
+  `scrollTop`. Everyday actions re-render (picking a control, ticking an Apply checkbox,
+  editing a decision), so the main scroll offset and the rail's own list offsets MUST be
+  captured before a render and restored after — otherwise every click jumps to row 1, which
+  is the very problem the rail exists to solve. Scroll is preserved **within** a tab only:
+  changing tab lands at the top of the new one.
 
 ## 22.3 Acceptance (additive to §1.1)
 
@@ -2035,3 +2056,8 @@ an operator typing `enabl_both` into a key that accepts exactly three values.
   dangling ref still opens.
 - **SP-A** Every mode control renders inside the rail and every filter outside it; the rail
   collapses; the picker shows title, type and description and filters on all three.
+- **SP-B** The four SP-4 layout properties are asserted against the stylesheet, and the
+  assertions must FAIL if any is reverted (verify by reverting one).
+- **SP-C** In a real browser, with a register long enough to scroll, the rail's viewport
+  offset is **constant** across scroll depths, and the scroll position survives selecting a
+  control. This is a browser check — it cannot be established by reasoning about the CSS.

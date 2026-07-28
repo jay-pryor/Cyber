@@ -53,7 +53,7 @@ suite in-page. It must show all green. The harness is also runnable headlessly (
 
 | DOD | What | Status |
 |-----|------|--------|
-| DOD-1 | Single `.html`, runs from `file://` with no console errors / no network | ✅ no network/external refs (verified); **manual:** open in Chrome/Edge/Firefox |
+| DOD-1 | Single `.html`, runs from `file://` with no console errors / no network | ✅ no network/external refs; **verified in headless Chrome from `file://` — full suite green, zero console errors**; manual pass in Edge/Firefox still advised |
 | DOD-2 | Load → the data tables → search/sort/filter → save losslessly | ✅ engine round-trip tested; tables data-driven |
 | DOD-3 | Onboard via the capture files; Onboard disabled until all parse | ✅ |
 | DOD-4 | Onboarding embeds hashed snapshots, inherits keys, appends new undecided, triage summary | ✅ |
@@ -64,7 +64,7 @@ suite in-page. It must show all green. The harness is also runnable headlessly (
 | DOD-9 | Device view: read-only applicable decided items, one panel per dataset | ✅ |
 | DOD-10 | Malformed inputs → located, non-fatal errors; never silent | ✅ |
 | DOD-11 | A new dataset/platform needs **no core edits** (adapter/profile only) | ✅ portability self-test (mock platform) |
-| DOD-12 | Module headers + JSDoc; embedded self-tests pass | ✅ 314/314 |
+| DOD-12 | Module headers + JSDoc; embedded self-tests pass | ✅ 318/318 |
 
 **Manual checks remaining:** DOD-1 (open the file in all three browsers and confirm a clean console)
 and DOD-8 (open a generated `report.html` in Microsoft Word). All other items are covered by the

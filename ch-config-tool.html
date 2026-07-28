@@ -132,7 +132,15 @@
   .st-summary { font-weight: 600; padding: var(--sp-2) var(--sp-3); }
 
   /* App chrome */
-  #app-root { min-height: 100vh; display: flex; flex-direction: column; }
+  /* SP-4: the app is a fixed-height shell whose MAIN area is the scroll region.
+     This was previously `min-height:100vh`, which let #app-root grow with its content
+     so the BODY scrolled and `.main{overflow:auto}` never actually scrolled. That
+     combination silently breaks `position:sticky` inside .main: an overflow:auto
+     ancestor becomes the nearest scrollport for sticky even when it never scrolls, so
+     the tools rail was pinned to a viewport that never moved and scrolled away with
+     the page. Making the height fixed (and letting .main shrink via min-height:0) puts
+     the scrolling where the layout always intended it. */
+  #app-root { height: 100vh; display: flex; flex-direction: column; }
 
   .topbar {
     display: flex; align-items: center; gap: var(--sp-3);
@@ -159,7 +167,9 @@
   .tabnav button.active { color: var(--c-text); border-bottom-color: var(--c-accent); font-weight: 600; }
   .tabnav .count-badge { background: var(--c-badge-bg); border-radius: 10px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
 
-  .main { flex: 1; padding: var(--sp-4); overflow: auto; }
+  /* min-height:0 is required: without it a flex child refuses to shrink below its
+     content height, .main would overflow the shell and nothing would scroll. */
+  .main { flex: 1; min-height: 0; padding: var(--sp-4); overflow: auto; }
   .empty-state { color: var(--c-text-muted); padding: var(--sp-5); text-align: center; }
 
   .toolbar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
@@ -176,10 +186,12 @@
      `align-self:flex-start` is what lets sticky work inside a flex row. */
   .table-wrap { display: flex; align-items: flex-start; gap: var(--sp-3); }
   .table-wrap > #table-host { flex: 1; min-width: 0; }
-  .side-rail { position: sticky; top: var(--sp-3); align-self: flex-start; flex: 0 0 300px; width: 300px;
-               max-height: calc(100vh - 130px); overflow-y: auto; background: var(--c-surface);
+  /* `top:0` is measured from the top of .main's scrollport, so the rail pins itself
+     just under the tab bar. It scrolls internally if the viewport is too short for it. */
+  .side-rail { position: sticky; top: 0; align-self: flex-start; flex: 0 0 300px; width: 300px;
+               max-height: calc(100vh - 200px); overflow-y: auto; background: var(--c-surface);
                border: 1px solid var(--c-border); border-radius: 8px; padding: 10px; display: flex;
-               flex-direction: column; gap: 10px; }
+               flex-direction: column; gap: 10px; z-index: 2; }
   .side-rail.collapsed { flex-basis: auto; width: auto; padding: 6px; }
   .rail-head { display: flex; align-items: center; gap: 8px; }
   .rail-title { font-weight: 600; font-size: 13px; }
@@ -8153,11 +8165,40 @@
       return ds.length ? ds[0].id : 'devices';
     }
 
+    // ---- scroll preservation (SP-4) --------------------------------------------
+    // Now that `.main` is the scroll region rather than the page, replacing its
+    // innerHTML resets scrollTop to 0. Several everyday actions re-render (picking a
+    // control in the rail, ticking an Apply checkbox, editing a decision), and a jump
+    // to row 1 on each of those would be exactly the problem the rail exists to solve.
+    // So snapshot the scroll offsets of the containers that survive a render — the main
+    // area and the rail's own control list — and restore them afterwards.
+    var SCROLL_KEEP = ['.ctl-cards', '.fmt-list', '.ctl-opts'];
+    function captureScroll() {
+      var snap = { main: 0, inner: [] };
+      var main = document.getElementById('main');
+      if (main) snap.main = main.scrollTop;
+      if (_root) SCROLL_KEEP.forEach(function (sel) {
+        var el = _root.querySelector(sel);
+        if (el && el.scrollTop) snap.inner.push([sel, el.scrollTop]);
+      });
+      return snap;
+    }
+    function restoreScroll(snap) {
+      if (!snap) return;
+      var main = document.getElementById('main');
+      if (main && snap.main) main.scrollTop = snap.main;
+      if (_root) snap.inner.forEach(function (pair) {
+        var el = _root.querySelector(pair[0]);
+        if (el) el.scrollTop = pair[1];
+      });
+    }
+
     // ---- top-level render ----
     function render() {
       if (!_root) return;
+      var scroll = captureScroll();
       _root.innerHTML = renderShell() + renderSaveModal() + (App.ui.views.formats ? App.ui.views.formats.render() : '');
-      renderMain();
+      renderMain(scroll);
       renderDrawer();
       updateThemeButton(); // reflect current theme on the freshly-rendered toggle
       if (_state.saveModal) { var n = _root.querySelector('[data-save-name]'); if (n) { n.focus(); n.select(); } }
@@ -8274,12 +8315,28 @@
         '</div>';
     }
 
-    function renderMain() {
+    var _lastRenderedTab = null;
+    /** @param {Object} [scroll] a captureScroll() snapshot to restore after rendering. */
+    function renderMain(scroll) {
       var main = document.getElementById('main');
       if (!main) return;
+      // Called directly (not via render()) for most in-tab updates, so it takes its own
+      // snapshot unless the caller already has one.
+      var snap = scroll || captureScroll();
+      var before = _lastRenderedTab;
+      try { return renderMainInner(main); }
+      finally {
+        // Preserve the scroll offset only WITHIN a tab. Changing tab should land you at
+        // the top of the new one, not at whatever row number you happened to be on.
+        if (_lastRenderedTab === before) restoreScroll(snap);
+        else if (main) main.scrollTop = 0;
+      }
+    }
+    function renderMainInner(main) {
       var project = App.store.getProject();
       if (!_state.activeTab) _state.activeTab = project ? defaultTab() : 'onboard';
       var tab = _state.activeTab;
+      _lastRenderedTab = tab;
 
       // View tabs (onboard/devices/generate) render with OR without a project.
       if (App.ui.views && App.ui.views[tab]) {
@@ -11835,6 +11892,62 @@
         var p2 = App.store.getProject();
         var rdy = App.completeness.deviceReadiness(p2, p2.deviceConfigs[0].id);
         T.assert(rdy.ready, 'deciding every item as captured must reach ready; blocked on: ' + JSON.stringify(rdy.reasons));
+      });
+    });
+
+    T.suite('SP-4 the rail is actually sticky (CSS invariants)', function (s) {
+      // `position:sticky` fails SILENTLY when the layout around it is wrong, and no
+      // amount of render-to-string testing can see it — this was shipped broken once
+      // already. These assertions pin the four properties the behaviour depends on, so
+      // a well-meant layout tidy-up cannot quietly un-stick the rail again.
+      function css() {
+        // The stylesheet is inline in this file; in the test environment we read it back
+        // from the document. Fall back to the live CSSOM when the raw text is absent.
+        var el = document.querySelector('style');
+        return (el && (el.textContent || el.innerHTML)) || '';
+      }
+      function rule(sheet, selector) {
+        var i = sheet.indexOf(selector + ' {');
+        if (i === -1) i = sheet.indexOf(selector + '{');
+        if (i === -1) return '';
+        var open = sheet.indexOf('{', i), close = sheet.indexOf('}', open);
+        return close === -1 ? '' : sheet.slice(open + 1, close);
+      }
+
+      s.test('#app-root has a FIXED height, so .main can be the scroll region', function () {
+        var r = rule(css(), '#app-root');
+        if (!r) return; // no inline stylesheet in this environment — nothing to assert
+        T.assert(/height:\s*100vh/.test(r), '#app-root must set height:100vh');
+        T.assert(!/min-height:\s*100vh/.test(r),
+          'min-height lets #app-root grow with its content, so .main never scrolls and ' +
+          'position:sticky inside it silently stops working');
+      });
+
+      s.test('.main is a scrollport that can shrink', function () {
+        var r = rule(css(), '.main');
+        if (!r) return;
+        T.assert(/overflow:\s*auto/.test(r), '.main must scroll');
+        T.assert(/min-height:\s*0/.test(r),
+          'without min-height:0 a flex child will not shrink below its content, so .main ' +
+          'overflows the shell and nothing scrolls');
+      });
+
+      s.test('.side-rail is sticky and self-aligned to the start', function () {
+        var r = rule(css(), '.side-rail');
+        if (!r) return;
+        T.assert(/position:\s*sticky/.test(r), '.side-rail must be position:sticky');
+        T.assert(/align-self:\s*flex-start/.test(r),
+          'a stretched flex item fills the row and has no room to stick — align-self:flex-start is required');
+        T.assert(/top:\s*0/.test(r), 'sticky needs an inset to pin against');
+      });
+
+      s.test('nothing between the rail and .main introduces another scrollport', function () {
+        var r = rule(css(), '.table-wrap');
+        if (!r) return;
+        T.assert(!/overflow/.test(r),
+          '.table-wrap must not scroll — an overflow ancestor would become the sticky ' +
+          'scrollport instead of .main');
+        T.assert(/align-items:\s*flex-start/.test(r), '.table-wrap must not stretch its children');
       });
     });
 

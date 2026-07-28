@@ -29,7 +29,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**314/314 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+**318/318 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
 checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
 `report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
@@ -847,6 +847,47 @@ enable_sa, disable."*, and survives save/load with its option descriptions intac
 
 **Defects:** 2 found during build (numeric leaves inferring as text; override editors inferring from
 the empty override value instead of the capture), both FIXED before commit.
+
+---
+
+### 2026-07-28 — SP-4/SP-5: the tools rail did not actually stick — ✅ FIXED
+
+**Defect (user-reported).** The rail rendered exactly as intended but scrolled off the top with the
+table, so its whole purpose — reaching the control picker from row 400 — did not work.
+
+**Cause.** Not the rail. `#app-root` was `min-height:100vh`, so it grew with its content, the **body**
+did the scrolling, and `.main`'s `overflow:auto` never actually scrolled. That combination is the
+classic silent killer of `position:sticky`: **the nearest overflow ancestor becomes the sticky
+scrollport even when it never scrolls**, so the rail was faithfully pinning itself to a viewport that
+never moved. The CSS was, in isolation, correct.
+
+**Fix.** Make the shell what its own CSS always intended: `#app-root { height:100vh }` (fixed, not
+min-) and `.main { min-height:0 }` — a flex child will not shrink below its content height without
+that, so `.main` would otherwise overflow the shell and still not scroll. `.main` is now the scroll
+region. Bonus: the top bar, tab strip and Activity drawer stay put too.
+
+**Consequential fix (SP-5).** With `.main` scrolling, replacing its `innerHTML` resets `scrollTop`,
+and picking a control re-renders — so the first cut jumped to row 1 on every click, which would have
+been *worse* than the original bug. Scroll offsets for `#main` and the rail's own card list are now
+captured before a render and restored after, **within a tab only** (changing tab lands at the top).
+
+**Why no test caught it.** Every existing assertion is over rendered HTML strings, and the HTML was
+right. Sticky is a *layout* behaviour, invisible to render-to-string testing. Two things were added:
+- **SP-B — 4 assertions over the stylesheet itself** (`#app-root` fixed height; `.main`
+  `min-height:0` + `overflow:auto`; `.side-rail` sticky + `align-self:flex-start` + inset;
+  `.table-wrap` free of `overflow`), each carrying the reason it exists. Each was **verified to fail
+  when its property is reverted** — a guard that cannot fail is not a guard.
+- **SP-C — a real-browser check.** Headless Chrome over a 400-row table: the rail's viewport offset
+  is **119px at scroll depths 2 000 / 6 000 / 12 000 / 19 000** (constant = genuinely pinned), and
+  selecting a control leaves the table at 4 000. Also confirmed the whole suite runs in-browser from
+  `file://` with **no console errors** — which is **DOD-1**, previously a standing manual check.
+
+Rail `max-height` tightened to `calc(100vh - 200px)` so it cannot exceed the visible main area while
+the Activity drawer is open; it scrolls internally if the viewport is short.
+
+**Tests:** +4 (318/318, 77 suites), plus the two out-of-band browser scripts.
+
+**Defects:** 1 found (user-reported, SP-4), FIXED.
 
 ---
 

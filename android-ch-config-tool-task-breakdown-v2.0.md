@@ -1450,3 +1450,30 @@ overrides, generate or the report shell.
 ### Phase 13 dependency map
 - **T13.1** → **T13.2** → **T13.3** → **T13.4**; **T13.2** → **T13.5**; **T13.6** independent.
 - **T13.1–T13.6** → **T13.7** (acceptance).
+
+### T13.8 · Make the rail actually stick (SP-4, SP-5)
+- **Depends on:** T13.6
+- **Spec:** §22.2 (SP-4, SP-5), §22.3 (SP-B, SP-C)
+- **Objective:** The rail rendered correctly but scrolled away with the page. Fix the layout
+  it depends on, and make the failure impossible to reintroduce silently.
+- **Build:**
+  - `#app-root`: `min-height:100vh` → **`height:100vh`**; `.main`: add **`min-height:0`**.
+    Together these make `.main` the real scroll region. Previously `#app-root` grew with its
+    content so the body scrolled while `.main`'s `overflow:auto` never did — and an
+    overflow ancestor becomes the sticky scrollport *even when it never scrolls*, so the
+    rail was pinned to something stationary.
+  - `.side-rail`: `top:0` (measured from `.main`'s scrollport) and a `max-height` that
+    leaves room for the chrome and the Activity drawer; it scrolls internally if cramped.
+  - **Scroll preservation:** snapshot `#main.scrollTop` plus the rail's `.ctl-cards` (and the
+    format manager's lists) before a render and restore after, or every re-render jumps to
+    row 1. Preserve **within a tab only** — a tab change should land at the top.
+- **Self-tests:** four assertions over the inline stylesheet covering the SP-4 properties
+  (fixed height, `min-height:0` + `overflow:auto`, sticky + `align-self:flex-start` + inset,
+  no overflow on `.table-wrap`). **Verify each fails when its property is reverted** — a
+  guard that cannot fail is not a guard.
+- **Out-of-band check (SP-C):** drive a real browser (a headless Chrome script is enough)
+  over a 400-row table: assert the rail's viewport offset is identical at several scroll
+  depths and that selecting a control does not move the table. None of this is observable
+  from render-to-string tests, which is why the bug shipped.
+- **Definition of done:** rail pinned at a constant offset at any scroll depth; scroll kept
+  across re-renders; suite green in-browser with no console errors.
