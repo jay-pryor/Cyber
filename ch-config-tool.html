@@ -1808,6 +1808,52 @@
       return out;
     }
 
+    // ---- retired datasets (v2.0) ----------------------------------------------
+    // `android.settings` was retired: every hardening change the fleet needs is
+    // expressible through Packages and Tactical, so the Settings register was pure
+    // noise. Projects saved by an earlier build still carry its items, snapshots
+    // and overrides, and the dataset-id cross-checks in validateSchema would reject
+    // those as "not a dataset of this platform" — i.e. every existing project would
+    // fail to open. So retired ids are stripped on load, LOUDLY (one warning per
+    // dataset in the Activity drawer), never silently. Everything else in the file
+    // is untouched, so the project keeps its devices, controls, groups and history.
+    var RETIRED_DATASETS = { 'android.settings': 'Settings' };
+
+    /**
+     * Remove every trace of a retired dataset from a just-parsed project. Mutates `p`.
+     * @param {Object} p
+     * @returns {Issue[]} one warning per retired dataset that was actually present
+     */
+    function dropRetiredDatasets(p) {
+      var warnings = [];
+      if (!isPlainObject(p)) return warnings;
+      Object.keys(RETIRED_DATASETS).forEach(function (dsId) {
+        var label = RETIRED_DATASETS[dsId], hit = false, itemCount = 0, deviceCount = 0;
+        if (isPlainObject(p.items) && p.items[dsId] !== undefined) {
+          itemCount = Array.isArray(p.items[dsId]) ? p.items[dsId].length : 0;
+          delete p.items[dsId]; hit = true;
+        }
+        (Array.isArray(p.deviceConfigs) ? p.deviceConfigs : []).forEach(function (dc) {
+          if (!isPlainObject(dc)) return;
+          if (isPlainObject(dc.snapshots) && dc.snapshots[dsId] !== undefined) { delete dc.snapshots[dsId]; deviceCount++; hit = true; }
+          if (isPlainObject(dc.overrides) && dc.overrides[dsId] !== undefined) { delete dc.overrides[dsId]; hit = true; }
+        });
+        (Array.isArray(p.groups) ? p.groups : []).forEach(function (g) {
+          if (isPlainObject(g) && isPlainObject(g.overrides) && g.overrides[dsId] !== undefined) { delete g.overrides[dsId]; hit = true; }
+        });
+        if (hit) {
+          warnings.push({
+            category: 'validation', severity: 'warning', location: dsId,
+            message: 'The ' + label + ' dataset has been retired. ' + itemCount + ' register item(s) and ' +
+              deviceCount + ' captured ' + label + ' snapshot(s) were dropped from this project; ' +
+              'everything else was kept. Express these changes through Packages or Tactical instead.',
+            fix: 'Nothing to do — save the project to make the removal permanent.'
+          });
+        }
+      });
+      return warnings;
+    }
+
     /**
      * Migrate a project forward to the current schema version (spec §17.A, §18.3, §19.7).
      * Migrations CHAIN (v1→v2→v3) so an old file reaches the current schema in one call.
@@ -1939,12 +1985,15 @@
         return { ok: false, issues: [{ category: 'parse', severity: 'error', message: 'Project file is not valid JSON: ' + e.message, location: 'file', fix: 'Check for a truncated or corrupted file.' }] };
       }
       var migrated = migrate(obj);
+      // Strip retired datasets BEFORE the schema check, or their ids fail the
+      // dataset cross-check and an otherwise-valid older project cannot open.
+      var retiredWarnings = dropRetiredDatasets(migrated);
       var issues = validateSchema(migrated);
       var hasError = issues.some(function (i) { return i.severity === 'error'; });
-      if (hasError) return { ok: false, issues: issues };
+      if (hasError) return { ok: false, issues: retiredWarnings.concat(issues) };
       // Self-heal v3 groups/overrides (prune dangling/non-applicable/invalid + warn).
       var healWarnings = selfHealV3(migrated);
-      return { ok: true, value: migrated, issues: issues.concat(healWarnings) };
+      return { ok: true, value: migrated, issues: retiredWarnings.concat(issues, healWarnings) };
     }
 
     /** Deep clone via JSON (project data is plain JSON). */
@@ -2012,6 +2061,8 @@
     App.projectIo = {
       parseProject: parseProject, serializeProject: serializeProject,
       migrate: migrate, validateSchema: validateSchema, SCHEMA_VERSION: SCHEMA_VERSION,
+      // v2.0: datasets removed from the product; stripped on load with a warning.
+      RETIRED_DATASETS: RETIRED_DATASETS, dropRetiredDatasets: dropRetiredDatasets,
       // review-12: shared vocabularies (UI pickers, CSV import, store validation).
       RELEVANCE_OPTIONS: RELEVANCE_OPTIONS, CONTROL_STATES: CONTROL_STATES,
       RELEVANCE_PARKED: RELEVANCE_PARKED
@@ -2214,8 +2265,9 @@
         var tri = App.diff.triage(parsedKeys, registerKeys);
         perDataset[dsId] = { newCount: tri.newKeys.length, existingCount: tri.existingKeys.length };
         newItemsByDs[dsId] = tri.newKeys.map(function (k) { return { key: k, decision: null, controlRefs: [], status: 'undecided' }; });
-        // Settings default-drift (spec §8.4): compare existing keys' capture values
-        // against other devices' recorded values. Informational only.
+        // Captured-default drift (spec §8.4): for any dataset whose snapshot records
+        // per-key capture values, compare existing keys against other devices'
+        // recorded values. Informational only.
         if (snap && snap.values) {
           tri.existingKeys.forEach(function (k) {
             var newVal = snap.values[k];
@@ -3191,10 +3243,10 @@
     var stableStringify = App.util.stable.stableStringify;
 
     // ---- review-12 #4: OPTIONAL trailing assignment-CSV columns -----------------
-    // Both the packages and the settings decision CSVs accept two further columns
-    // after their required ones: "rationale" (free text → the item's Rationale box)
-    // and "relevance" (→ the Security Relevance column). Either may be omitted, but
-    // they must appear in this order and be named exactly.
+    // The packages decision CSV accepts two further columns after its required ones:
+    // "rationale" (free text → the item's Rationale box) and "relevance" (→ the
+    // Security Relevance column). Either may be omitted, but they must appear in
+    // this order and be named exactly.
     var OPTIONAL_ASSIGN_COLS = ['rationale', 'relevance'];
 
     /**
@@ -3573,214 +3625,6 @@
     };
 
     // ===========================================================================
-    // android.settings
-    // ===========================================================================
-    var SETTINGS_NAMESPACES = ['system', 'secure', 'global'];
-    // Key charset kept restricted so keys stay shell-safe and need no escaping
-    // (only values do — see the two-layer rule). '#' is permitted because Samsung
-    // 'settings list' emits keys like `add_info_...#dashboard`; '#' is inert as a
-    // mid-token char in both PowerShell (single-quoted line) and POSIX sh.
-    var SETTINGS_KEY_RE = /^[A-Za-z0-9._:#-]+$/;
-    var SETTINGS_NS_HEADER_RE = /^(system|secure|global)\s*:\s*$/;
-
-    // review-5 #3: an alternative settings-assignment format — a CSV whose header
-    // row is exactly "setting,description,value". Column 1 is the stored setting key
-    // (namespace/key, e.g. secure/location_mode), column 2 a free-text description,
-    // column 3 the value (applied verbatim, type 'string'). Detected by the header;
-    // any other input falls through to the §9 sectioned capture format.
-    // review-12 #4: the header may also carry the optional "rationale" and "relevance"
-    // columns (in that order) after "value".
-    /** @param {string[]} row @returns {boolean} */
-    function isSettingsCsvHeader(row) {
-      return !!row && settingsCsvHeader(row).ok;
-    }
-    /** @param {string[]} row @returns {{ok:boolean, extras:string[]}} */
-    function settingsCsvHeader(row) {
-      return checkAssignHeader((row || []).map(function (h) { return String(h).trim(); }), ['setting', 'description', 'value']);
-    }
-    /** Parse a "setting,description,value" CSV into bulk-assignment entries.
-     * @param {string[][]} rows  Parsed CSV rows (row 0 is the validated header).
-     * @returns {{assignments:Array,warnings:Issue[],errors:Issue[]}} */
-    function parseSettingsCsvAssignment(rows) {
-      var assignments = [], warnings = [], errors = [], seen = {};
-      var extras = settingsCsvHeader(rows[0] || []).extras; // review-12 #4: rationale/relevance
-      for (var i = 1; i < rows.length; i++) {
-        var r = rows[i], loc = 'line ' + (i + 1);
-        if (r.length === 1 && String(r[0]).trim() === '') continue; // blank line
-        if (r.length < 3) { errors.push({ category: 'parse', severity: 'error', message: 'Expected at least 3 columns (setting,description,value).', location: loc }); continue; }
-        var key = String(r[0]).trim(), desc = String(r[1]), value = String(r[2]);
-        if (!key) { errors.push({ category: 'parse', severity: 'error', message: 'Empty setting key.', location: loc }); continue; }
-        var slash = key.indexOf('/');
-        var ns = slash === -1 ? '' : key.slice(0, slash), keyseg = slash === -1 ? '' : key.slice(slash + 1);
-        if (SETTINGS_NAMESPACES.indexOf(ns) === -1 || !SETTINGS_KEY_RE.test(keyseg)) {
-          errors.push({ category: 'parse', severity: 'error', message: 'Malformed setting key "' + key + '".', location: loc, fix: 'Use "<namespace>/<key>" with namespace system|secure|global.' });
-          continue;
-        }
-        if (seen[key]) { errors.push({ category: 'parse', severity: 'error', message: 'Duplicate setting "' + key + '".', location: loc }); continue; }
-        var opt = readOptionalAssignFields(r, 3, extras);
-        if (opt.error) { errors.push({ category: 'parse', severity: 'error', message: opt.error, location: loc }); continue; }
-        seen[key] = true;
-        var fields = { description: desc };
-        Object.keys(opt.fields).forEach(function (k) { fields[k] = opt.fields[k]; });
-        assignments.push({ key: key, decision: { value: value, type: 'string' }, fields: fields });
-      }
-      if (!assignments.length && !errors.length) errors.push({ category: 'parse', severity: 'error', message: 'No setting rows found.', location: 'file' });
-      return { assignments: assignments, warnings: warnings, errors: errors };
-    }
-
-    var settings = {
-      id: 'android.settings',
-      label: 'Settings',
-      inputKind: 'text',
-      captureHint: 'Concatenate `adb shell settings list system|secure|global`, each section preceded by a "<namespace>:" header line (key=value pairs). OR a "setting,description,value" CSV (imports descriptions too).',
-
-      /**
-       * Parse the sectioned `settings list` capture format (spec §9, adapted to the
-       * real Android capture, 2026-06): a "<namespace>:" header line begins a section,
-       * followed by `key=value` lines. The key is everything before the FIRST '=';
-       * the value is everything after it (verbatim, may contain '=', spaces, ';',
-       * quotes, '$', etc.) and is escaped only at generation time.
-       * @param {string} raw @returns {ParseResult}
-       */
-      parse: function (raw) {
-        // review-10 #3: also accept the "setting,description,value" CSV here (not just
-        // in parseAssignment), so onboarding can import descriptions alongside captured
-        // values. Detected by the header row; any other input falls through to the §9
-        // sectioned capture format below.
-        var csvRows = null;
-        try { csvRows = parseCsv(raw); } catch (e) { csvRows = null; }
-        if (csvRows && csvRows.length && isSettingsCsvHeader(csvRows[0])) {
-          var pa = parseSettingsCsvAssignment(csvRows);
-          var ckeys = [], cvalues = {}, cdesc = {};
-          pa.assignments.forEach(function (a) {
-            ckeys.push(a.key); cvalues[a.key] = a.decision.value;
-            if (a.fields && a.fields.description) cdesc[a.key] = a.fields.description;
-          });
-          ckeys.sort();
-          return { items: ckeys.map(function (k) { return { key: k, defaultValue: cvalues[k] }; }), keys: ckeys, values: cvalues, descriptions: cdesc, warnings: pa.warnings, errors: pa.errors };
-        }
-        var warnings = [], errors = [], values = {}, seen = {}, keys = [];
-        var lines = String(raw).split(/\r?\n/);
-        var ns = null; // current namespace section
-        lines.forEach(function (line, idx) {
-          var loc = 'line ' + (idx + 1);
-          if (line.trim() === '') return;                  // blank separator
-          var hm = line.trim().match(SETTINGS_NS_HEADER_RE);
-          if (hm) { ns = hm[1]; return; }                  // section header
-          var eq = line.indexOf('=');
-          if (eq === -1) {
-            errors.push({ category: 'parse', severity: 'error', message: 'Expected a "key=value" line or a "<namespace>:" header.', location: loc, fix: 'Each setting must be key=value under a system:/secure:/global: section.' });
-            return;
-          }
-          if (ns === null) {
-            errors.push({ category: 'parse', severity: 'error', message: 'Setting "' + line.slice(0, eq) + '" appears before any namespace section.', location: loc, fix: 'Precede settings with a system:, secure:, or global: header.' });
-            return;
-          }
-          var keyseg = line.slice(0, eq);
-          var value = line.slice(eq + 1);                  // verbatim; may contain '='
-          if (!SETTINGS_KEY_RE.test(keyseg)) {
-            errors.push({ category: 'parse', severity: 'error', message: 'Malformed key "' + keyseg + '".', location: loc, fix: 'Keys may contain letters, digits and . _ : # - only.' });
-            return;
-          }
-          var key = ns + '/' + keyseg;
-          if (seen[key]) { errors.push({ category: 'parse', severity: 'error', message: 'Duplicate key "' + key + '".', location: loc }); return; }
-          seen[key] = true; keys.push(key); values[key] = value;  // verbatim captureValue
-        });
-        if (keys.length === 0 && errors.length === 0) {
-          errors.push({ category: 'parse', severity: 'error', message: 'No settings found.', location: 'file', fix: 'Provide "<namespace>:" sections with key=value lines.' });
-        }
-        keys.sort();
-        return { items: keys.map(function (k) { return { key: k, defaultValue: values[k] }; }), keys: keys, values: values, warnings: warnings, errors: errors };
-      },
-
-      // The decision is just the value (review-2): a single string applied verbatim.
-      // The earlier value-type field was dropped — captured Android values are already
-      // in device form and are emitted quoted-verbatim (no per-type normalisation).
-      decisionSchema: [
-        { name: 'value', kind: 'string', required: true }
-      ],
-
-      validateDecision: function (item) {
-        var d = item.decision;
-        if (d === null) return [];
-        if (typeof d.value !== 'string') return [{ category: 'validation', severity: 'error', message: 'value must be a string.', location: item.key }];
-        return [];
-      },
-      isComplete: function (item) {
-        return item.decision !== null && this.validateDecision(item).every(function (i) { return i.severity !== 'error'; });
-      },
-
-      columns: [
-        { key: 'key', label: 'Key', get: function (it) { return it.key; } },
-        { key: 'description', label: 'Description', get: function (it) { return it.description || ''; } },
-        { key: 'decision', label: 'Value', get: function (it) { return it.decision ? it.decision.value : ''; } },
-        { key: 'controlRefs', label: 'Control Refs', get: function (it) { return (it.controlRefs || []).join(', '); } }
-      ],
-
-      generateImplementation: function (items, ctx) {
-        var lines = ['# Settings — implementation', '# Values are quoted through BOTH PowerShell and POSIX shell (injection-safe).', ''];
-        items.slice().sort(byKey).forEach(function (it) {
-          if (!it.decision) return;
-          var slash = it.key.indexOf('/');
-          var ns = it.key.slice(0, slash), keyseg = it.key.slice(slash + 1);
-          var emitted = normalizeSettingValue(it.decision);
-          // Device-side command with value POSIX-quoted, then the whole thing PS-quoted.
-          var deviceCmd = 'settings put ' + ns + ' ' + keyseg + ' ' + shSingleQuote(emitted);
-          lines.push('adb -s $Serial shell ' + psSingleQuote(deviceCmd));
-        });
-        return [{ name: 'settings.impl.ps1', content: lines.join('\n') }];
-      },
-      generateVerification: function (items, ctx) {
-        var lines = ['# Settings — verification (PASS/FAIL; bool/int normalised)', ''];
-        items.slice().sort(byKey).forEach(function (it) {
-          if (!it.decision) return;
-          var slash = it.key.indexOf('/');
-          var ns = it.key.slice(0, slash), keyseg = it.key.slice(slash + 1);
-          var expected = normalizeSettingValue(it.decision);
-          var deviceCmd = 'settings get ' + ns + ' ' + keyseg;
-          lines.push('Verify-Setting ' + psSingleQuote(deviceCmd) + ' ' + psSingleQuote(expected));
-        });
-        return [{ name: 'settings.verify.ps1', content: lines.join('\n') }];
-      },
-      // Single-table dataset (no reportGroups); Description column kept (report-gen #1).
-      reportColumns: [
-        { id: 'description', label: 'Description', optional: true, w: 3, get: function (it) { return it.description || ''; } },
-        { id: 'value', label: 'Value', optional: true, w: 2, get: function (it) { return it.decision ? it.decision.value : ''; } },
-        { id: 'control', label: 'Control', optional: true, w: 2, get: function (it, ctx) { return controlTitles(it.controlRefs, ctx); } },
-        { id: 'rationale', label: 'Rationale', optional: true, w: 2, get: function (it) { return it.rationale || ''; } }
-      ],
-      renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection('Settings', { label: 'Key', w: 2, get: function (it) { return it.key; } }, this.reportColumns, items, opts || {}, ctx, null);
-      },
-      /** Captured value/type per key, to prefill the decision editor (UI only). */
-      capturedDefaults: function (snap) {
-        var out = {};
-        if (snap && snap.values) Object.keys(snap.values).forEach(function (k) { out[k] = { value: snap.values[k], type: 'string' }; });
-        return out;
-      },
-      // ---- bulk assignment (spec §18.2 + review-5 #3): two accepted formats ----
-      assignmentHint: 'Either (a) a CSV with header "setting,description,value" — optionally followed by "rationale" and then "relevance" (HIGH|MEDIUM|CONTEXT|REPORTING|IRRELEVANT or blank) — where column 1 = namespace/key, e.g. secure/location_mode and column 3 = the value; or (b) the capture format: "<namespace>:" header lines (system/secure/global) + key=value lines. Values are applied verbatim (type defaults to string).',
-      parseAssignment: function (raw) {
-        // review-5 #3: also accept a "setting,description,value" CSV. Detect it by
-        // the header row; anything else is parsed as the §9 capture format. parseCsv
-        // never throws here, but guard anyway so a non-CSV input cannot break detection.
-        var csvRows = null;
-        try { csvRows = parseCsv(raw); } catch (e) { csvRows = null; }
-        if (csvRows && csvRows.length && isSettingsCsvHeader(csvRows[0])) {
-          return parseSettingsCsvAssignment(csvRows);
-        }
-        var pr = this.parse(raw);
-        return { assignments: pr.keys.map(function (k) { return { key: k, decision: { value: pr.values[k], type: 'string' } }; }), warnings: pr.warnings, errors: pr.errors };
-      }
-    };
-
-    /** Normalise a settings decision to the literal string sent to the device. */
-    function normalizeSettingValue(d) {
-      if (d.type === 'bool') return (d.value.toLowerCase() === 'true' || d.value === '1') ? '1' : '0';
-      return d.value; // int/float validated numeric upstream; all values quoted at emit
-    }
-
-    // ===========================================================================
     // android.tactical
     //
     // Apply model (confirmed with the team, 2026-06): the tactical config is applied
@@ -3933,11 +3777,10 @@
 
     App.adapters = App.adapters || {};
     App.adapters.android = {
-      packages: packages, settings: settings, tactical: tactical,
+      packages: packages, tactical: tactical,
       psSingleQuote: psSingleQuote, shSingleQuote: shSingleQuote,
       parsePath: parsePath, setAtPath: setAtPath, flattenTactical: flattenTactical,
       rebuildTacticalDoc: rebuildTacticalDoc, stripPolicyPrefix: stripPolicyPrefix,
-      normalizeSettingValue: normalizeSettingValue,
       ensureImsSettings: ensureImsSettings, imsDefaultBlock: imsDefaultBlock
     };
   })(App);
@@ -3989,7 +3832,6 @@
         '# --- Helpers ---',
         'function Test-PackagePresent($pkg) { return $true }  # presence guard placeholder; refine per fleet policy',
         'function Verify-Package($pkg, $action) { Write-Output "CHECK package $pkg expect $action" }',
-        'function Verify-Setting($getCmd, $expected) { Write-Output "CHECK $getCmd expect $expected" }',
         '',
         'Start-Transcript -Path ("ch-" + $Serial + ".log") -Append | Out-Null',
         ''
@@ -4030,13 +3872,10 @@
     }
 
     var captureInstructions =
-      'Capture three files from the target device (the tool never contacts a device):\n' +
+      'Capture two files from the target device (the tool never contacts a device):\n' +
       '  1. Packages (packages.txt): adb -s <serial> shell pm list packages\n' +
       '       (one "package:<name>" per line)\n' +
-      '  2. Settings (settings.txt): adb shell settings list system, secure, global —\n' +
-      '       concatenate the three, each section preceded by a "<namespace>:" header line,\n' +
-      '       e.g.  system:\\n key=value ...  secure:\\n key=value ...  global:\\n key=value ...\n' +
-      '  3. Tactical (policy json): export the device tactical/policy configuration as a JSON object';
+      '  2. Tactical (policy json): export the device tactical/policy configuration as a JSON object';
 
     App.platforms = App.platforms || {};
     App.platforms.androidAdb = {
@@ -4044,7 +3883,7 @@
       label: 'Android (ADB)',
       outputLanguage: 'powershell',
       scriptExtension: '.ps1',   // generator wraps these files with preamble/postamble
-      datasets: [A.packages, A.settings, A.tactical],
+      datasets: [A.packages, A.tactical],
       captureInstructions: captureInstructions,
       scriptPreamble: scriptPreamble,
       scriptPostamble: scriptPostamble,
@@ -4074,53 +3913,6 @@
       s.test('line with a space errors (malformed token)', function () {
         var r = A.packages.parse('com.foo bar');
         T.assert(r.errors.some(function (e) { return /valid package token/.test(e.message); }));
-      });
-    });
-
-    T.suite('android.settings parse (sectioned key=value)', function (s) {
-      s.test('parses "<namespace>:" sections, key = ns/key, value verbatim', function () {
-        var raw = 'system:\nfont_scale=1.0\nsecure:\nlocation_mode=0\nglobal:\nadb_enabled=1';
-        var r = A.settings.parse(raw);
-        T.assertDeepEqual(r.keys, ['global/adb_enabled', 'secure/location_mode', 'system/font_scale']);
-        T.assertEqual(r.values['secure/location_mode'], '0');
-        T.assertEqual(r.errors.length, 0);
-      });
-      s.test('key may contain # (Samsung add_info_* keys)', function () {
-        var r = A.settings.parse('system:\nadd_info_com_x#dashboard=1');
-        T.assertEqual(r.errors.length, 0);
-        T.assertEqual(r.values['system/add_info_com_x#dashboard'], '1');
-      });
-      s.test('first "=" splits; value may contain "=" and spaces', function () {
-        var r = A.settings.parse('global:\nbar=a=b=c\nsystem:\nname=Galaxy Tab Active5 5G');
-        T.assertEqual(r.values['global/bar'], 'a=b=c');
-        T.assertEqual(r.values['system/name'], 'Galaxy Tab Active5 5G');
-      });
-      s.test('adversarial value stored verbatim', function () {
-        var v = "a'b\"c$(whoami)` d;e";
-        var r = A.settings.parse('secure:\nfoo=' + v);
-        T.assertEqual(r.values['secure/foo'], v);
-        T.assertEqual(r.errors.length, 0);
-      });
-      s.test('setting before any namespace section errors', function () {
-        var r = A.settings.parse('foo=1');
-        T.assert(r.errors.some(function (e) { return /before any namespace/.test(e.message); }));
-      });
-      s.test('malformed key (space) errors', function () {
-        var r = A.settings.parse('secure:\nbad key=v');
-        T.assert(r.errors.some(function (e) { return /Malformed key/.test(e.message); }));
-      });
-      s.test('line that is neither header nor key=value errors', function () {
-        var r = A.settings.parse('secure:\nnotakeyvalue');
-        T.assert(r.errors.some(function (e) { return /key=value/.test(e.message); }));
-      });
-      s.test('duplicate key within a namespace errors', function () {
-        var r = A.settings.parse('secure:\nk=0\nk=1');
-        T.assert(r.errors.some(function (e) { return /Duplicate key/.test(e.message); }));
-      });
-      s.test('blank lines between sections tolerated', function () {
-        var r = A.settings.parse('system:\na=1\n\nsecure:\nb=2\n');
-        T.assertEqual(r.errors.length, 0);
-        T.assertEqual(r.keys.length, 2);
       });
     });
 
@@ -4180,11 +3972,6 @@
         T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'disable' }, controlRefs: [] }), true);
         T.assertEqual(A.packages.isComplete({ key: 'x', decision: { action: 'nope' }, controlRefs: [] }), false);
       });
-      s.test('settings validateDecision: any string value valid; non-string invalid (no type field)', function () {
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: "a'b\"c$(x); long value" } }).length, 0);
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: null }).length, 0);
-        T.assertEqual(A.settings.validateDecision({ key: 's/k', decision: { value: 5 } }).length, 1);
-      });
       s.test('tactical isComplete with falsey value', function () {
         T.assertEqual(A.tactical.isComplete({ key: 't', decision: { value: false, type: 'bool' }, controlRefs: [] }), true);
         T.assertEqual(A.tactical.isComplete({ key: 't', decision: null, controlRefs: [] }), false);
@@ -4204,31 +3991,31 @@
       }
       s.test('psSingleQuote/shSingleQuote round-trip the adversarial value', function () {
         var v = "a'b\"c$(whoami)` d;e";
-        var deviceCmd = 'settings put secure foo ' + A.shSingleQuote(v);
+        var prefix = 'cmd package set-x ';
+        var deviceCmd = prefix + A.shSingleQuote(v);
         var psArg = A.psSingleQuote(deviceCmd);
         // Unwrap PowerShell layer, then POSIX layer, recover the value.
         var afterPs = psUnquote(psArg);
         T.assertEqual(afterPs, deviceCmd, 'PS layer did not round-trip');
-        var quotedVal = afterPs.slice('settings put secure foo '.length);
+        var quotedVal = afterPs.slice(prefix.length);
         T.assertEqual(shUnquote(quotedVal), v, 'POSIX layer did not round-trip');
       });
-      s.test('generated settings line embeds the doubly-quoted value', function () {
-        var v = "x'y";
-        var line = A.settings.generateImplementation(
-          [{ key: 'secure/foo', decision: { value: v, type: 'string' }, controlRefs: [], status: 'decided' }], {})[0].content;
-        // The PowerShell arg must begin and end with single quotes (one PS token).
-        T.assert(/adb -s \$Serial shell '.*'$/m.test(line.split('\n').pop()), 'value not a single PS-quoted arg');
+      s.test('a generated package line embeds the value as ONE PS-quoted token', function () {
+        var line = A.packages.generateImplementation(
+          [{ key: "com.evil'pkg", decision: { action: 'disable' }, controlRefs: [], status: 'decided' }], {})[0].content;
+        T.assert(/pm disable-user --user 0 '.*'$/m.test(line.split('\n').filter(function (l) { return /disable-user/.test(l); })[0]),
+          'package name not a single PS-quoted arg');
       });
     });
 
     T.suite('platform registration (android-adb)', function (s) {
-      s.test('profile exposes three datasets', function () {
+      s.test('profile exposes its two datasets (Settings retired in v2.0)', function () {
         var p = App.platforms.androidAdb;
         T.assertEqual(p.id, 'android-adb');
-        T.assertDeepEqual(p.datasets.map(function (d) { return d.id; }), ['android.packages', 'android.settings', 'android.tactical']);
+        T.assertDeepEqual(p.datasets.map(function (d) { return d.id; }), ['android.packages', 'android.tactical']);
       });
       s.test('tactical generateImplementation emits ONLY the rebuilt JSON (Knox upload; no script)', function () {
-        var tac = App.platforms.androidAdb.datasets[2];
+        var tac = App.platforms.androidAdb.datasets[1];
         var files = tac.generateImplementation(
           [{ key: 'enabled', decision: { value: false, type: 'bool' }, controlRefs: [], status: 'decided' }],
           { device: { snapshots: { 'android.tactical': { template: { enabled: true, mode: 'x' } } } } });
@@ -4558,7 +4345,7 @@
     // 1.08 line-height) which inflates rows, so we pin margin:0/line-height and trim
     // padding on p/td/th (#3); Word reapplies theme fonts unless declared per element,
     // so Arial (bold on headings) is set explicitly everywhere (#5); and long unbroken
-    // values blew the settings table to ~2.5x page width, so tables are width:100% +
+    // values blew a value table to ~2.5x page width, so tables are width:100% +
     // table-layout:fixed with per-table colgroup widths and word-break on every cell (#6).
     var REPORT_CSS =
       '@page{margin:1in;}' +
@@ -5258,11 +5045,11 @@
     }
 
     var MIN_COL_WIDTH = 60; // px (review-2 #4)
-    /** Sensible default column widths (px) by column key; resized widths override. */
+    /** Sensible default column widths (px) by column key; resized widths override.
+     *  `dsId` is accepted (and passed by the caller) so a dataset can be given its
+     *  own default without touching the call site — none needs one today. */
     function colDefaultWidth(key, dsId) {
-      // review-15: descriptions are long prose, so Description starts 3× wider; the
-      // Settings keys (namespace/key) are the longest of the three, so they start 1.5×.
-      if (key === 'key' && dsId === 'android.settings') return 360;
+      // review-15: descriptions are long prose, so Description starts 3× wider.
       switch (key) {
         case 'key': return 240;
         case 'description': return 660;
@@ -5498,7 +5285,7 @@
   <script>
   /* =============================================================================
    * MODULE: App.ui.views.onboard
-   * PURPOSE: The Onboard tab (spec §11.4): three data-driven file slots (one per
+   * PURPOSE: The Onboard tab (spec §11.4): one data-driven file slot per
    *          active-platform dataset), name/model/firmware fields, a gated Onboard
    *          button, capture help, and a triage summary. Re-onboard aware (§8.7).
    * PURITY:  UI/DOM
@@ -5626,7 +5413,7 @@
         if (pr.values) snap.values = pr.values;
         if (pr.template !== undefined) snap.template = pr.template;
         snapshots[d.id] = snap;
-        // review-10 #3: carry any imported descriptions (e.g. from a settings CSV).
+        // review-10 #3: carry any descriptions the capture parser imported.
         if (pr.descriptions && Object.keys(pr.descriptions).length) descriptions[d.id] = pr.descriptions;
       });
 
@@ -5871,7 +5658,7 @@
    * MODULE: App.ui.views.devices
    * PURPOSE: The Devices tab (spec §11.3, DOD-9). Lists device configs grouped by
    *          baseId (latest = active; older = superseded read-only history), and a
-   *          read-only device-configuration view with THREE panels (one per dataset)
+   *          read-only device-configuration view with one panel per dataset
    *          listing exactly the device's applicable DECIDED items (key/decision/ISM).
    * PURITY:  UI/DOM (render returns strings; no engine mutation)
    * DEPENDS: App.registry, App.store, App.ui.model, App.completeness, App.util.html
@@ -6178,9 +5965,9 @@
             (r.hasOv ? ' <button type="button" class="ov-revert" data-ov-revert data-ds="' + esc(d.id) + '" data-key="' + esc(r.it.key) + '" title="Revert to the inherited value">Revert</button>' : '') + '</div>';
           return '<tr class="' + rowCls + '"><td>' + esc(r.disp) + '</td>' + decCell + '<td>' + editor + '</td></tr>';
         }).join('');
-        // review-8 #3: fixed-layout, drag-resizable columns keyed PER dataset (so long
-        // settings values no longer squish the Override column, and each of the three
-        // panels can be sized independently).
+        // review-8 #3: fixed-layout, drag-resizable columns keyed PER dataset (so a long
+        // value no longer squishes the Override column, and each panel can be sized
+        // independently).
         var panelCols = isLatest
           ? [{ key: 'key', label: 'Key', w: 220 }, { key: 'effective', label: 'Effective', w: 170 }, { key: 'override', label: 'Override', w: 220 }]
           : [{ key: 'key', label: 'Key', w: 260 }, { key: 'effective', label: 'Effective', w: 220 }];
@@ -6242,7 +6029,7 @@
             : 'All ' + controls.length + ' assigned control(s) are marked satisfied on this device.') + '</p>'
         : '';
       return '<div class="dev-controls"><h3>Controls applying to this device</h3>' +
-        '<p class="muted" style="font-size:12px">Click a control to see exactly which packages, settings and tactical items satisfy it on this device. Each control carries its own <strong>Satisfied / Unsatisfied</strong> state per device — newly added controls start unsatisfied.</p>' +
+        '<p class="muted" style="font-size:12px">Click a control to see exactly which packages and tactical items satisfy it on this device. Each control carries its own <strong>Satisfied / Unsatisfied</strong> state per device — newly added controls start unsatisfied.</p>' +
         summary + inner + '</div>';
     }
 
@@ -6267,7 +6054,7 @@
     }
 
     /**
-     * Modal: for one control + device, three read-only lists of the items applicable
+     * Modal: for one control + device, a read-only list per dataset of the items applicable
      * to the device that reference the control (review-5 #1). Closed via the × button
      * or a backdrop click.
      */
@@ -6314,7 +6101,7 @@
       var legend = '<div class="diverge-legend"><span class="swatch group"></span> Group override <span class="swatch device"></span> Device override</div>';
       // "Deviations first" pin toggle (OVR-5), UI-state only.
       var pin = '<label class="dev-pin"><input type="checkbox" data-dev-deviations-first' + (_dev.deviationsFirst ? ' checked' : '') + '> Deviations first</label>';
-      // review-7 #1: collapse/expand all three panels at once.
+      // review-7 #1: collapse/expand every panel at once.
       var dsList = datasets(project);
       var allCollapsed = dsList.length > 0 && dsList.every(function (d) { return _dev.collapsed[d.id]; });
       var collapseAll = '<button class="dev-collapse-all" data-dev-collapse-all>' + (allCollapsed ? 'Expand all' : 'Collapse all') + '</button>';
@@ -6328,7 +6115,7 @@
         '</div>' +
         banner +
         '<div class="dev-detail-tools">' +
-          '<input class="dev-search" type="search" data-dev-search placeholder="Filter this device\'s packages, settings & tactical…" value="' + esc(_dev.detailSearch || '') + '" aria-label="Filter device items">' +
+          '<input class="dev-search" type="search" data-dev-search placeholder="Filter this device\'s packages & tactical…" value="' + esc(_dev.detailSearch || '') + '" aria-label="Filter device items">' +
           (isLatest ? pin : '') +
           collapseAll +
         '</div>' +
@@ -6362,7 +6149,7 @@
       return '<div class="assign-section">' +
         '<h3>Set decisions from files</h3>' +
         '<p class="muted" style="font-size:12px">Applies decisions for this device\'s applicable keys. The file must contain <strong>exactly</strong> those keys (no more, no less) or it is refused with the differences listed. Note: decisions are shared across all devices that have a given key (unified-decision model).</p>' +
-        '<p class="muted" style="font-size:12px">Packages and Settings CSVs may carry two <strong>optional</strong> extra columns after the required ones: <code>rationale</code> (fills each item\'s Rationale box) and <code>relevance</code> (fills the Security Relevance column — <code>HIGH</code>, <code>MEDIUM</code>, <code>CONTEXT</code>, <code>REPORTING</code>, <code>IRRELEVANT</code>, or blank). Items imported as REPORTING or IRRELEVANT are hidden from the data tables until their toggle is switched on.</p>' +
+        '<p class="muted" style="font-size:12px">The Packages CSV may carry two <strong>optional</strong> extra columns after the required ones: <code>rationale</code> (fills each item\'s Rationale box) and <code>relevance</code> (fills the Security Relevance column — <code>HIGH</code>, <code>MEDIUM</code>, <code>CONTEXT</code>, <code>REPORTING</code>, <code>IRRELEVANT</code>, or blank). Items imported as REPORTING or IRRELEVANT are hidden from the data tables until their toggle is switched on.</p>' +
         blocks +
         '</div>';
     }
@@ -6506,7 +6293,7 @@
         }
         document.addEventListener('mousemove', onMove); document.addEventListener('mouseup', onUp);
       });
-      // review-7 #1: collapse/expand all three panels. Full re-render so the button
+      // review-7 #1: collapse/expand every panel. Full re-render so the button
       // label (Collapse all / Expand all) flips with the state.
       App.util.dom.on(ctx.root, 'click', '[data-dev-collapse-all]', function () {
         var project = App.store.getProject();
@@ -7007,8 +6794,6 @@
         h(3, 'Triage') +
         p('After each onboard the Activity drawer reports, per dataset, how many keys were new and how many already existed. ' +
           'That tells you at a glance how much new decision work a capture created.') +
-        note('Settings can also be supplied as a <code>setting,description,value</code> CSV instead of the raw capture. ' +
-          'That form imports your descriptions at the same time as the values.') +
         note('<strong>Knox tactical — <code>imsSettings</code>.</strong> A Knox export only carries <code>imsSettings</code> once it has been touched, ' +
           'so the block is <em>optional</em> in the JSON you upload. If it is missing, the tool adds the default ' +
           '(<code>imsSettings.simSlot0.enabled</code> and <code>imsSettings.simSlot1.enabled</code>, both <code>false</code>) and notes it in the Activity drawer, ' +
@@ -7026,7 +6811,7 @@
         deftable(['Column', 'Meaning'], [
           ['<strong>Key</strong> (Package / Key / Path)', 'The item\'s identity. This is what the generated output acts on.'],
           ['<strong>Description</strong>', 'Your plain-language note about what the item is. Shown in the report.'],
-          ['<strong>Action / Value</strong>', 'The decision itself, edited in place. On Packages, choosing <strong>—</strong> clears the decision. On Settings and Tactical the box is free text, so an <em>empty</em> box is a real decision — "set this key to blank" — and the <strong>clear</strong> button beside the box is what returns the item to undecided.'],
+          ['<strong>Action / Value</strong>', 'The decision itself, edited in place. On Packages, choosing <strong>—</strong> clears the decision. On Tactical the box is free text, so an <em>empty</em> box is a real decision — "set this key to blank" — and the <strong>clear</strong> button beside the box is what returns the item to undecided.'],
           ['<strong>Control Refs</strong>', 'Which controls this item helps satisfy. Edited in the row expander or with Apply Control Mode.'],
           ['<strong>Security Relevance</strong>', 'Optional tag: ' + esc(relevanceList()) + '. May be left blank.'],
           ['<strong>Applies to</strong>', 'Which devices currently have this item in their snapshot.'],
@@ -7038,7 +6823,7 @@
           'Edit the decision directly in its cell. Changes save into the in-memory project immediately (the unsaved dot appears in the top bar).',
           'To blank a value — for example to empty a comma-separated list like <code>bluetooth,wifi</code> — clear the box and click away. The item stays <span class="badge decided">decided</span> and the generated command sets the key to an empty string. Use <strong>clear</strong> instead if you meant "I have not decided this yet".',
           '<strong>Click the Status badge to flip the item.</strong> Clicking <span class="badge decided">decided</span> returns it to undecided (the same as <strong>clear</strong>). ' +
-            'Clicking <span class="badge undecided">undecided</span> accepts whatever the value box is already showing — on Settings and Tactical that is the <em>captured</em> value, so one click means "the value on the device is my decision". ' +
+            'Clicking <span class="badge undecided">undecided</span> accepts whatever the value box is already showing — on Tactical that is the <em>captured</em> value, so one click means "the value on the device is my decision". ' +
             'On Packages, where nothing is selected yet, it records <code>keep</code>, the no-change action. Either way the flip is undone by clicking the badge again.',
           'Click the <strong>▸</strong> at the start of a row to expand it. The expander holds the <strong>Description</strong>, the <strong>Control Refs</strong> checklist, the <strong>Rationale</strong> (with a one-click "not required for device use-case" preset) and the <strong>Rollback</strong> note.',
           'If a decision is invalid, the cell is tinted and the reason is listed in the expander. The value is still stored — invalid simply means "not complete yet".'
@@ -7097,7 +6882,6 @@
           'no more, no fewer — or it is refused and the differences are listed. Nothing is applied partially: an import either fully applies or changes nothing.') +
         deftable(['Dataset', 'Accepted file'], [
           ['<strong>Packages</strong>', '<code>package,action,description</code> CSV, optionally followed by <code>rationale</code> and then <code>relevance</code>.'],
-          ['<strong>Settings</strong>', '<code>setting,description,value</code> CSV (optionally <code>rationale</code>, <code>relevance</code>), or the raw capture format.'],
           ['<strong>Tactical</strong>', 'The tactical JSON document, in the same shape as the capture.']
         ]) +
         ul([
@@ -7150,7 +6934,7 @@
         ]) +
         h(3, 'Running the output') +
         ul([
-          'Packages and Settings emit PowerShell scripts that drive <code>adb</code> from a Windows host. Each script starts with a how-to-run header and the exact command to use.',
+          'Packages emits a PowerShell script that drives <code>adb</code> from a Windows host. It starts with a how-to-run header and the exact command to use.',
           'Tactical emits <code>tactical.json</code> in the captured format — upload it straight to Knox tactical. There is no script step.',
           '<strong>HighCom network note:</strong> HighCom machines block opening a folder containing <code>.ps1</code> files. Tick <strong>Output scripts as .txt</strong>, move them to a non-HighCom machine, then rename them back to <code>.ps1</code> before running.'
         ]) +
@@ -7189,9 +6973,9 @@
       return h(2, 'Reference') +
         h(3, 'Glossary') +
         deftable(['Term', 'Meaning'], [
-          ['<strong>Item</strong>', 'One configuration entry in the register: a package, a setting, or a tactical path.'],
-          ['<strong>Key</strong>', 'An item\'s identity, e.g. a package name or <code>secure/location_mode</code>.'],
-          ['<strong>Decision</strong>', 'What the item should be — an action for packages, a value for settings and tactical.'],
+          ['<strong>Item</strong>', 'One configuration entry in the register: a package or a tactical path.'],
+          ['<strong>Key</strong>', 'An item\'s identity, e.g. a package name or <code>imsSettings.simSlot0.enabled</code>.'],
+          ['<strong>Decision</strong>', 'What the item should be — an action for packages, a value for tactical.'],
           ['<strong>Snapshot</strong>', 'What one capture contained for one dataset: the key list plus a hash of the file.'],
           ['<strong>Applicable</strong>', 'An item is applicable to a device when its key is in that device\'s snapshot.'],
           ['<strong>Decided / undecided</strong>', 'An item is decided when its decision is present and valid.'],
@@ -7872,7 +7656,7 @@
      */
     function decisionFromRaw(adapter, raw) {
       // An empty ENUM primary => undecided (that is what its "—" option means).
-      // review-16 #1: a TEXT primary (settings value, tactical leaf) no longer does this.
+      // review-16 #1: a TEXT primary (e.g. a tactical leaf) no longer does this.
       // Emptying the box is a real decision — "set this key to blank", e.g. clearing a
       // comma-separated list — and used to bounce straight back to the captured value
       // because the commit was read as "undecided". The cell's "clear" button is now the
@@ -7914,7 +7698,7 @@
      * review-17 #3: flip one item's decided/undecided state from its Status badge.
      *  - decided   -> undecided: clear the decision (same as the cell's "clear" button).
      *  - undecided -> decided:   adopt what the row's value editor already shows. For
-     *    Settings/Tactical that is the CAPTURED value (the box is prefilled with it),
+     *    a text primary (Tactical) that is the CAPTURED value (the box is prefilled with it),
      *    so one click means "the captured value is my decision". For an enum primary
      *    with no selection (Packages) there is nothing to adopt, so the FIRST schema
      *    option is used — for packages that is `keep`, the no-change action.
@@ -8126,13 +7910,11 @@
           { id: 'tab', baseId: 'tab', version: 1, supersedesId: null, name: 'Tab', model: 'M1', firmware: 'F1', onboardedUtc: ISO,
             snapshots: {
               'android.packages': { capturedUtc: ISO, sourceFilename: 'p', sha256: sha('p1'), keys: ['com.a', 'com.b'] },
-              'android.settings': { capturedUtc: ISO, sourceFilename: 's', sha256: sha('s1'), keys: ['secure/x'], values: { 'secure/x': '0' } },
               'android.tactical': { capturedUtc: ISO, sourceFilename: 't', sha256: sha('t1'), keys: ['enabled'], template: { enabled: true } }
             } },
           { id: 's23', baseId: 's23', version: 1, supersedesId: null, name: 'S23', model: 'M2', firmware: 'F2', onboardedUtc: ISO,
             snapshots: {
               'android.packages': { capturedUtc: ISO, sourceFilename: 'p', sha256: sha('p2'), keys: ['com.a', 'com.c'] },
-              'android.settings': { capturedUtc: ISO, sourceFilename: 's', sha256: sha('s2'), keys: ['secure/x'], values: { 'secure/x': '1' } },
               'android.tactical': { capturedUtc: ISO, sourceFilename: 't', sha256: sha('t2'), keys: ['enabled'], template: { enabled: true } }
             } }
         ],
@@ -8142,7 +7924,6 @@
             { key: 'com.b', description: 'beta', decision: null, controlRefs: [], status: 'undecided' },
             { key: 'com.c', description: 'gamma', decision: { action: 'remove' }, controlRefs: [], status: 'decided' }
           ],
-          'android.settings': [{ key: 'secure/x', decision: null, controlRefs: [], status: 'undecided' }],
           'android.tactical': [{ key: 'enabled', decision: { value: true, type: 'bool' }, controlRefs: [], status: 'decided' }]
         }
       };
@@ -8235,8 +8016,8 @@
       if (pr.template !== undefined) s.template = pr.template;
       return s;
     }
-    function snaps(pkgRaw, setRaw, tacRaw) {
-      return { 'android.packages': snap('android.packages', pkgRaw), 'android.settings': snap('android.settings', setRaw), 'android.tactical': snap('android.tactical', tacRaw) };
+    function snaps(pkgRaw, tacRaw) {
+      return { 'android.packages': snap('android.packages', pkgRaw), 'android.tactical': snap('android.tactical', tacRaw) };
     }
     function freshProject() { App.store.init(App.store.empty('android-adb')); }
 
@@ -8269,7 +8050,7 @@
       });
       s.test('fresh onboard creates v1 and appends all keys undecided', function () {
         freshProject();
-        var res = App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
+        var res = App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
         T.assertEqual(res.ok, true);
         T.assertEqual(res.result.noop, false);
         T.assertEqual(res.result.version, 1);
@@ -8281,39 +8062,47 @@
       });
       s.test('onboard device #2 inherits common keys, flags only new', function () {
         freshProject();
-        App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
-        var res = App.store.onboardDevice({ name: 'S23', model: 'M2', firmware: 'F2', snapshots: snaps('com.a\ncom.c', 'secure:\nx=1', '{"enabled":true}') });
+        App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
+        var res = App.store.onboardDevice({ name: 'S23', model: 'M2', firmware: 'F2', snapshots: snaps('com.a\ncom.c', '{"enabled":true}') });
         T.assertEqual(res.result.perDataset['android.packages'].newCount, 1);    // com.c
         T.assertEqual(res.result.perDataset['android.packages'].existingCount, 1); // com.a
         var p = App.store.getProject();
         T.assertDeepEqual(p.items['android.packages'].map(function (i) { return i.key; }).sort(), ['com.a', 'com.b', 'com.c']);
       });
-      s.test('settings default-drift surfaces an info issue (§8.4)', function () {
+      s.test('captured-default drift surfaces an info issue (§8.4)', function () {
+        // §8.4 is adapter-driven: it fires for ANY dataset whose snapshot records
+        // per-key capture values. No shipped adapter emits `values` today (Settings,
+        // which did, was retired in v2.0), so the snapshots are built by hand here to
+        // keep the mechanism itself covered for the next dataset that needs it.
         freshProject();
-        App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a', 'secure:\nx=0', '{"enabled":true}') });
-        var res = App.store.onboardDevice({ name: 'S23', model: 'M2', firmware: 'F2', snapshots: snaps('com.a', 'secure:\nx=1', '{"enabled":true}') });
+        function valued(v) {
+          var raw = 'k=' + v;
+          return { capturedUtc: ISO, sourceFilename: 'x.txt', sha256: App.util.hash.sha256Hex(raw), keys: ['com.a'], values: { 'com.a': v } };
+        }
+        App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: { 'android.packages': valued('0') } });
+        var res = App.store.onboardDevice({ name: 'S23', model: 'M2', firmware: 'F2', snapshots: { 'android.packages': valued('1') } });
         T.assert(res.result.drift.length >= 1, 'expected drift info');
-        T.assert(/secure\/x default differs/.test(res.result.drift[0].message));
+        T.assert(/com\.a default differs/.test(res.result.drift[0].message), 'got: ' + res.result.drift[0].message);
       });
     });
 
     T.suite('store re-onboard versioning (§8.7)', function (s) {
       s.test('identical snapshots -> NO-OP (no new config, no mutation)', function () {
         freshProject();
-        var sn = snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}');
+        var sn = snaps('com.a\ncom.b', '{"enabled":true}');
         App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: sn });
         var before = App.projectIo.serializeProject(App.store.getProject());
-        var res = App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
+        var res = App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
         T.assertEqual(res.result.noop, true);
         T.assertEqual(App.store.getProject().deviceConfigs.length, 1);
         T.assertEqual(App.projectIo.serializeProject(App.store.getProject()), before, 'no-op mutated state');
       });
       s.test('differing snapshots -> new v2 supersedes v1; decisions untouched; append-only', function () {
         freshProject();
-        App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
+        App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
         // Record a decision on com.a (simulate Phase-5 editing via the transactional commit).
         App.store._commit(function (p) { p.items['android.packages'].filter(function (i) { return i.key === 'com.a'; })[0].decision = { action: 'disable' }; });
-        var res = App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.c', 'secure:\nx=0', '{"enabled":true}') });
+        var res = App.store.onboardDevice({ name: 'Tab A', model: 'M1', firmware: 'F1', snapshots: snaps('com.a\ncom.c', '{"enabled":true}') });
         T.assertEqual(res.result.noop, false);
         T.assertEqual(res.result.version, 2);
         T.assertEqual(res.result.deviceId, 'tab-a-m1-v2');
@@ -8329,8 +8118,8 @@
       });
       s.test('reonboardDevice shares the same code path', function () {
         freshProject();
-        App.store.onboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a', 'secure:\nx=0', '{"enabled":true}') });
-        var res = App.store.reonboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
+        App.store.onboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a', '{"enabled":true}') });
+        var res = App.store.reonboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
         T.assertEqual(res.result.version, 2);
       });
     });
@@ -8338,17 +8127,17 @@
     T.suite('store.applicableItems / undecidedCount', function (s) {
       s.test('applicableItems returns only the device\'s keys', function () {
         freshProject();
-        App.store.onboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
-        App.store.onboardDevice({ name: 'S23', model: 'M2', snapshots: snaps('com.a\ncom.c', 'secure:\nx=0', '{"enabled":true}') });
+        App.store.onboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
+        App.store.onboardDevice({ name: 'S23', model: 'M2', snapshots: snaps('com.a\ncom.c', '{"enabled":true}') });
         var ap = App.store.applicableItems('s23-m2', 'android.packages').map(function (i) { return i.key; }).sort();
         T.assertDeepEqual(ap, ['com.a', 'com.c']);
       });
       s.test('undecidedCount per device counts only applicable undecided', function () {
         freshProject();
-        App.store.onboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a\ncom.b', 'secure:\nx=0', '{"enabled":true}') });
-        // 2 packages + 1 setting + 3 tactical (the captured leaf plus the two injected
-        // imsSettings slots, review-17 #4) applicable, all undecided = 6
-        T.assertEqual(App.store.undecidedCount('tab-a-m1'), 6);
+        App.store.onboardDevice({ name: 'Tab A', model: 'M1', snapshots: snaps('com.a\ncom.b', '{"enabled":true}') });
+        // 2 packages + 3 tactical (the captured leaf plus the two injected imsSettings
+        // slots, review-17 #4) applicable, all undecided = 5
+        T.assertEqual(App.store.undecidedCount('tab-a-m1'), 5);
       });
     });
 
@@ -8373,7 +8162,6 @@
       App.store.init(App.store.empty('android-adb'));
       App.store.onboardDevice({ name: 'Dev', model: 'M1', firmware: 'F', snapshots: {
         'android.packages': snap('android.packages', 'com.a\ncom.b'),
-        'android.settings': snap('android.settings', 'secure:\nx=0'),
         'android.tactical': snap('android.tactical', '{"enabled":true}')
       } });
       return 'dev-m1';
@@ -8381,7 +8169,6 @@
     function decideAll() {
       App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
       App.store.setDecision('android.packages', 'com.b', { action: 'disable' });
-      App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
       App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
       // review-17 #4: every tactical onboard also carries the two imsSettings slots.
       App.store.setDecision('android.tactical', 'imsSettings.simSlot0.enabled', { value: false, type: 'bool' });
@@ -8405,8 +8192,8 @@
         var id = deviceProject();
         var r0 = App.completeness.deviceReadiness(App.store.getProject(), id);
         T.assertEqual(r0.ready, false);
-        T.assert(r0.totalUndecided === 6, 'expected 6 undecided, got ' + r0.totalUndecided);
-        T.assert(r0.reasons.length === 3, 'expected 3 dataset reasons');
+        T.assert(r0.totalUndecided === 5, 'expected 5 undecided, got ' + r0.totalUndecided);
+        T.assert(r0.reasons.length === 2, 'expected 2 dataset reasons');
         decideAll();
         var r1 = App.completeness.deviceReadiness(App.store.getProject(), id);
         T.assertEqual(r1.ready, true);
@@ -8463,13 +8250,6 @@
         T.assert(/data-kind="enum"/.test(html));
         T.assert(/>keep</.test(html) && />disable</.test(html) && />remove</.test(html));
       });
-      s.test('settings renders a full-width value box, NO type select, prefilled from capture', function () {
-        deviceProject();
-        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', { sortKey: 'key' }, {});
-        T.assert(/data-kind="string"/.test(html) && /class="val-edit"/.test(html), 'no full-width value box');
-        T.assert(!/data-kind="enum-synth"/.test(html), 'settings must not have a value-type select');
-        T.assert(/>0<\/textarea>/.test(html), 'captured value not prefilled');
-      });
       s.test('tactical renders value-typed input + type select', function () {
         deviceProject();
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', { sortKey: 'key' }, {});
@@ -8480,9 +8260,15 @@
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { expanded: { 'com.a': true } }, {});
         T.assert(/detail-form/.test(html) && /data-field-edit="description"/.test(html) && /data-field-edit="rollback"/.test(html));
       });
+      s.test('tactical prefills the value box from the capture (full-width, wrapping)', function () {
+        deviceProject();
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', { sortKey: 'key' }, {});
+        T.assert(/class="val-edit"/.test(html), 'no full-width value box');
+        T.assert(/>true<\/textarea>/.test(html), 'captured value not prefilled');
+      });
       s.test('invalid-decision cell is flagged when issues passed', function () {
         deviceProject();
-        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, { issues: { 'android.settings|secure/x': [{ severity: 'error', message: 'bad' }] } });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, { issues: { 'android.tactical|enabled': [{ severity: 'error', message: 'bad' }] } });
         T.assert(/dcell invalid/.test(html));
       });
     });
@@ -8523,11 +8309,9 @@
       App.store.init(App.store.empty('android-adb'));
       App.store.onboardDevice({ name: 'Tab', model: 'M1', firmware: 'F1', snapshots: {
         'android.packages': snap('android.packages', 'com.a\ncom.b'),
-        'android.settings': snap('android.settings', 'secure:\nx=0'),
         'android.tactical': snap('android.tactical', '{"enabled":true}') } });
       App.store.onboardDevice({ name: 'S23', model: 'M2', firmware: 'F2', snapshots: {
         'android.packages': snap('android.packages', 'com.a\ncom.c'),
-        'android.settings': snap('android.settings', 'secure:\ny=0'),
         'android.tactical': snap('android.tactical', '{"enabled":true}') } });
       // Decide com.a (applicable to both) and com.c (applicable to S23 only). Leave com.b undecided.
       App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
@@ -8549,7 +8333,6 @@
         // Re-onboard Tab with a differing snapshot -> v2 supersedes v1.
         App.store.onboardDevice({ name: 'Tab', model: 'M1', firmware: 'F2', snapshots: {
           'android.packages': snap('android.packages', 'com.a\ncom.b\ncom.d'),
-          'android.settings': snap('android.settings', 'secure:\nx=0'),
           'android.tactical': snap('android.tactical', '{"enabled":true}') } });
         var html = App.ui.views.devices.renderList(App.store.getProject());
         T.assert(/badge superseded/.test(html), 'no superseded badge');
@@ -8561,8 +8344,8 @@
       s.test('panels list APPLICABLE items with effective decisions + an override editor (DOD-9 amended §19.5)', function () {
         var p = setup();
         var html = App.ui.views.devices.renderDetail(p, 'tab-m1');
-        // 3 dataset panels
-        T.assertEqual((html.match(/class="panel"/g) || []).length, 3);
+        // one panel per dataset
+        T.assertEqual((html.match(/class="panel"/g) || []).length, 2);
         // Tab packages: both com.a (decided) and com.b (undecided) are APPLICABLE -> shown;
         // com.c is not applicable -> not shown.
         T.assert(html.indexOf('com.a') !== -1, 'applicable com.a should appear');
@@ -8580,7 +8363,6 @@
         setup();
         App.store.onboardDevice({ name: 'Tab', model: 'M1', firmware: 'F2', snapshots: {
           'android.packages': snap('android.packages', 'com.a\ncom.b\ncom.d'),
-          'android.settings': snap('android.settings', 'secure:\nx=0'),
           'android.tactical': snap('android.tactical', '{"enabled":true}') } });
         var html = App.ui.views.devices.renderDetail(App.store.getProject(), 'tab-m1'); // v1, now superseded
         T.assert(/superseded-banner/.test(html));
@@ -8628,7 +8410,7 @@
         T.assert(/data-control-modal-close/.test(html), 'no close (×) button');
         T.assert(html.indexOf('com.a') !== -1, 'referencing applicable item should appear');
         T.assert(html.indexOf('com.b') === -1, 'a non-referencing applicable item must NOT appear');
-        T.assertEqual((html.match(/class="panel"/g) || []).length, 3); // one list per dataset
+        T.assertEqual((html.match(/class="panel"/g) || []).length, 2); // one list per dataset
       });
     });
 
@@ -8653,12 +8435,10 @@
       App.store.init(App.store.empty('android-adb'));
       App.store.onboardDevice({ name: 'Dev', model: 'M1', firmware: 'F1', snapshots: {
         'android.packages': snap('android.packages', 'com.a\ncom.b'),
-        'android.settings': snap('android.settings', 'secure:\nx=0'),
         'android.tactical': snap('android.tactical', '{"enabled":true,"count":3}') } });
       App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
       App.store.setDecision('android.packages', 'com.b', { action: 'disable' });
-      App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
-      App.store.setItemFields('android.settings', 'secure/x', { controlRefs: ['ISM-1234'] });
+      App.store.setItemFields('android.packages', 'com.a', { controlRefs: ['ISM-1234'] });
       App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
       App.store.setDecision('android.tactical', 'count', { value: 5, type: 'int' });
       return App.store.getProject();
@@ -8694,7 +8474,7 @@
         T.assert(r.blob && r.blob.type === 'application/zip');
         T.assert(/^dev-m1-implementation-\d{8}T\d{6}Z\.zip$/.test(r.name), 'bad zip name: ' + r.name);
         var names = r.files.map(function (f) { return f.name; });
-        ['packages.impl.ps1', 'settings.impl.ps1', 'tactical.json', 'manifest.json'].forEach(function (n) {
+        ['packages.impl.ps1', 'tactical.json', 'manifest.json'].forEach(function (n) {
           T.assert(names.indexOf(n) !== -1, 'missing ' + n);
         });
         // Tactical is a Knox JSON upload — there must be NO tactical script.
@@ -8718,8 +8498,8 @@
         var man = JSON.parse(fileNamed(r.files, 'manifest.json').content);
         T.assertEqual(man.command, 'implementation');
         T.assert(/^[0-9a-f]{64}$/.test(man.projectSha256));
-        // 3 outputs: packages.impl.ps1, settings.impl.ps1, tactical.json (manifest excludes itself).
-        T.assert(man.outputs.length === 3 && man.outputs.every(function (o) { return /^[0-9a-f]{64}$/.test(o.sha256); }));
+        // 2 outputs: packages.impl.ps1, tactical.json (manifest excludes itself).
+        T.assert(man.outputs.length === 2 && man.outputs.every(function (o) { return /^[0-9a-f]{64}$/.test(o.sha256); }));
         T.assert(man.outputs.some(function (o) { return o.name === 'tactical.json'; }));
         T.assertEqual(man.decisions['android.packages'].length, 2);
         T.assertEqual(man.device.id, 'dev-m1');
@@ -8731,7 +8511,7 @@
         var r = App.generate.buildVerification(readyProject(), 'dev-m1');
         var names = r.files.map(function (f) { return f.name; });
         T.assert(names.indexOf('packages.verify.ps1') !== -1 && names.indexOf('manifest.json') !== -1);
-        T.assert(/Set-StrictMode/.test(fileNamed(r.files, 'settings.verify.ps1').content));
+        T.assert(/Set-StrictMode/.test(fileNamed(r.files, 'packages.verify.ps1').content));
       });
       s.test('report emits a Word-HTML report + manifest; includes Control coverage', function () {
         var r = App.generate.buildReport(readyProject(), 'dev-m1');
@@ -8747,7 +8527,6 @@
       function withDesc() {
         var p = readyProject();
         App.store.setItemFields('android.packages', 'com.a', { description: 'Alpha bloatware' });
-        App.store.setItemFields('android.settings', 'secure/x', { description: 'Location toggle' });
         App.store.setItemFields('android.tactical', 'enabled', { description: 'Master enable' });
         return App.store.getProject();
       }
@@ -8757,12 +8536,11 @@
         App.util.clock.resetClock();
         return h;
       }
-      s.test('#1/#2 packages/settings/tactical sections have a Description column with the text', function () {
+      s.test('#1/#2 packages/tactical sections have a Description column with the text', function () {
         var html = reportHtml(withDesc());
         T.assert(/<th>Package<\/th><th>Description<\/th><th>Action<\/th>/.test(html), 'packages Description column missing');
-        T.assert(/<th>Key<\/th><th>Description<\/th><th>Value<\/th>/.test(html), 'settings Description column missing');
         T.assert(/<th>Path<\/th><th>Description<\/th><th>Value<\/th>/.test(html), 'tactical Description column missing');
-        T.assert(html.indexOf('Alpha bloatware') !== -1 && html.indexOf('Location toggle') !== -1 && html.indexOf('Master enable') !== -1, 'description text not in the report');
+        T.assert(html.indexOf('Alpha bloatware') !== -1 && html.indexOf('Master enable') !== -1, 'description text not in the report');
       });
       s.test('#3/#4/#5 Word CSS: @page 1in, body margin 0, Arial (bold headings), pinned line-height, trimmed padding', function () {
         var html = reportHtml(readyProject());
@@ -8776,8 +8554,8 @@
       s.test('#6 tables are fixed-layout width:100% with colgroups (fit page + wrap)', function () {
         var html = reportHtml(readyProject());
         T.assert(/table\{[^}]*width:100%[^}]*table-layout:fixed/.test(html), 'tables not width:100% + table-layout:fixed');
-        T.assert((html.match(/<colgroup>/g) || []).length >= 5, 'expected colgroups on the meta + section tables');
-        T.assert(/<h2>Settings<\/h2><table><colgroup>/.test(html), 'settings table lacks a colgroup');
+        T.assert((html.match(/<colgroup>/g) || []).length >= 4, 'expected colgroups on the meta + section tables');
+        T.assert(/<h2>Tactical<\/h2><table><colgroup>/.test(html), 'tactical table lacks a colgroup');
       });
     });
 
@@ -8799,16 +8577,16 @@
       s.test('GEN-3: dropping the Rationale column removes its <th>', function () {
         var p = readyProject();
         T.assert(/<th>Rationale<\/th>/.test(report(p, {})), 'rationale present by default');
-        var dropped = report(p, { columns: { 'android.packages': { rationale: false }, 'android.settings': { rationale: false }, 'android.tactical': { rationale: false } } });
+        var dropped = report(p, { columns: { 'android.packages': { rationale: false }, 'android.tactical': { rationale: false } } });
         T.assert(!/<th>Rationale<\/th>/.test(dropped), 'rationale column should be dropped');
       });
-      s.test('GEN-1/GEN-4: excluding meta/settings/deviations removes sections; sections-included reflects it', function () {
-        var h = report(readyProject(), { sections: { meta: false, deviations: false }, datasetSections: { 'android.settings': { _all: false } } });
+      s.test('GEN-1/GEN-4: excluding meta/tactical/deviations removes sections; sections-included reflects it', function () {
+        var h = report(readyProject(), { sections: { meta: false, deviations: false }, datasetSections: { 'android.tactical': { _all: false } } });
         T.assert(!/<h2>Device Config Information<\/h2>/.test(h), 'meta section should be omitted');
-        T.assert(!/<h2>Settings<\/h2>/.test(h), 'settings section should be omitted');
+        T.assert(!/<h2>Tactical<\/h2>/.test(h), 'tactical section should be omitted');
         T.assert(!/<h2>Deviations from default<\/h2>/.test(h), 'deviations section should be omitted');
         T.assert(/Sections included/.test(h), 'sections-included table missing');
-        T.assert(/<td>Settings<\/td><td>Omitted<\/td>/.test(h) && /<td>Device Config Information<\/td><td>Omitted<\/td>/.test(h), 'omitted rows wrong');
+        T.assert(/<td>Tactical<\/td><td>Omitted<\/td>/.test(h) && /<td>Device Config Information<\/td><td>Omitted<\/td>/.test(h), 'omitted rows wrong');
         T.assert(/<td>Control coverage<\/td><td>Included<\/td>/.test(h), 'still-included row wrong');
       });
       s.test('GEN-6: classification banner top & bottom when enabled', function () {
@@ -8837,9 +8615,9 @@
       });
       s.test('GEN-8: implementation dataset include + action subset', function () {
         var p = readyProject(); // com.a keep, com.b disable
-        var noSettings = App.generate.buildImplementation(p, 'dev-m1', { datasets: { 'android.settings': false } });
-        var n1 = noSettings.files.map(function (f) { return f.name; });
-        T.assert(n1.indexOf('settings.impl.ps1') === -1 && n1.indexOf('packages.impl.ps1') !== -1, 'dataset include filter failed');
+        var noPkgs = App.generate.buildImplementation(p, 'dev-m1', { datasets: { 'android.packages': false } });
+        var n1 = noPkgs.files.map(function (f) { return f.name; });
+        T.assert(n1.indexOf('packages.impl.ps1') === -1 && n1.indexOf('tactical.json') !== -1, 'dataset include filter failed');
         var disableOnly = App.generate.buildImplementation(p, 'dev-m1', { actions: { 'android.packages': { keep: false, remove: false } } });
         var pkg = fileNamed(disableOnly.files, 'packages.impl.ps1').content;
         T.assert(/disable-user/.test(pkg) && pkg.indexOf('# keep com.a') === -1, 'action subset (disable-only) failed');
@@ -8928,39 +8706,25 @@
       });
     });
 
-    T.suite('review-10 (settings CSV onboard + .ps1 warning + control width)', function (s) {
-      function settingsAdapter() { ensureAndroid(); return App.registry.getDataset('android-adb', 'android.settings'); }
-
-      s.test('#3 settings.parse accepts a "setting,description,value" CSV (values + descriptions)', function () {
-        var pr = settingsAdapter().parse('setting,description,value\nsecure/location_mode,GPS off,0\nglobal/foo,"desc, comma",hi there');
-        T.assertEqual(pr.errors.length, 0);
-        T.assertDeepEqual(pr.keys, ['global/foo', 'secure/location_mode']);
-        T.assertEqual(pr.values['secure/location_mode'], '0');
-        T.assertEqual(pr.values['global/foo'], 'hi there');
-        T.assertEqual(pr.descriptions['secure/location_mode'], 'GPS off');
-        T.assertEqual(pr.descriptions['global/foo'], 'desc, comma');
-      });
-
-      s.test('#3 the §9 sectioned capture still parses and carries no descriptions', function () {
-        var pr = settingsAdapter().parse('secure:\nx=0\ny=1');
-        T.assertEqual(pr.errors.length, 0);
-        T.assertDeepEqual(pr.keys, ['secure/x', 'secure/y']);
-        T.assert(!pr.descriptions || Object.keys(pr.descriptions).length === 0, 'sectioned capture must not invent descriptions');
-      });
-
-      s.test('#3 onboarding a settings CSV imports descriptions onto register items (no decision)', function () {
-        var a = settingsAdapter();
+    T.suite('review-10 (onboarded descriptions + .ps1 warning + control width)', function (s) {
+      s.test('#3 onboarding may carry descriptions onto register items (no decision)', function () {
+        // review-10 #3 originally rode in on the Settings "setting,description,value"
+        // CSV. Settings was retired in v2.0, but the store-side path it introduced —
+        // onboardDevice({descriptions}) — is generic, so it is covered directly here.
+        ensureAndroid();
         App.store.init(App.store.empty('android-adb'));
-        var raw = 'setting,description,value\nsecure/location_mode,GPS off,0\nglobal/foo,keep bar,1';
-        var pr = a.parse(raw);
-        var snap = { capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: 'android.settings', sha256: App.util.hash.sha256Hex(raw), keys: pr.keys, values: pr.values };
-        var res = App.store.onboardDevice({ name: 'CsvDev', model: 'M1', snapshots: { 'android.settings': snap }, descriptions: { 'android.settings': pr.descriptions } });
+        var raw = 'com.a\ncom.b';
+        var pr = App.registry.getDataset('android-adb', 'android.packages').parse(raw);
+        var snap = { capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: 'android.packages', sha256: App.util.hash.sha256Hex(raw), keys: pr.keys };
+        var res = App.store.onboardDevice({ name: 'CsvDev', model: 'M1',
+          snapshots: { 'android.packages': snap },
+          descriptions: { 'android.packages': { 'com.a': 'Alpha bloatware', 'com.b': 'Beta bloatware' } } });
         T.assertEqual(res.ok, true);
-        var items = App.store.getProject().items['android.settings'];
-        var loc = items.filter(function (i) { return i.key === 'secure/location_mode'; })[0];
-        T.assertEqual(loc.description, 'GPS off');
-        T.assertEqual(loc.decision, null, 'onboarding must not set a decision, only the description');
-        T.assertEqual(items.filter(function (i) { return i.key === 'global/foo'; })[0].description, 'keep bar');
+        var items = App.store.getProject().items['android.packages'];
+        var a = items.filter(function (i) { return i.key === 'com.a'; })[0];
+        T.assertEqual(a.description, 'Alpha bloatware');
+        T.assertEqual(a.decision, null, 'onboarding must not set a decision, only the description');
+        T.assertEqual(items.filter(function (i) { return i.key === 'com.b'; })[0].description, 'Beta bloatware');
       });
 
       s.test('#1 Generate tab shows the HighCom .ps1-handling warning', function () {
@@ -8988,11 +8752,9 @@
       ensureA(); App.store.init(App.store.empty('android-adb'));
       App.store.onboardDevice({ name: 'R3', model: 'M1', firmware: 'F', snapshots: {
         'android.packages': snap('android.packages', 'com.a\ncom.b'),
-        'android.settings': snap('android.settings', 'secure:\nx=0'),
         'android.tactical': snap('android.tactical', '{"enabled":true}') } });
       App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
       App.store.setDecision('android.packages', 'com.b', { action: 'disable' });
-      App.store.setDecision('android.settings', 'secure/x', { value: '0' });
       App.store.setDecision('android.tactical', 'enabled', { value: true });
       return App.store.getProject();
     }
@@ -9004,7 +8766,7 @@
         T.assert(def.indexOf('packages.impl.ps1') !== -1, 'default should be .ps1');
         var r = App.generate.buildImplementation(p, 'r3-m1', { scriptsAsTxt: true });
         var names = r.files.map(function (f) { return f.name; });
-        T.assert(names.indexOf('packages.impl.txt') !== -1 && names.indexOf('settings.impl.txt') !== -1, 'scripts not renamed to .txt');
+        T.assert(names.indexOf('packages.impl.txt') !== -1, 'scripts not renamed to .txt');
         T.assert(names.indexOf('packages.impl.ps1') === -1, '.ps1 should be gone');
         T.assert(names.indexOf('tactical.json') !== -1, 'data file should be unchanged');
         var pk = r.files.filter(function (f) { return f.name === 'packages.impl.txt'; })[0];
@@ -9197,8 +8959,8 @@
         T.assertEqual(App.projectIo.serializeProject(App.projectIo.parseProject(s1).value), s1);
       });
       s.test('DOD-10: malformed inputs never throw; return located issues', function () {
-        var a = App.registry.getDataset('android-adb', 'android.settings');
-        T.assert(a.parse('garbage with no equals').errors.length >= 1);
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        T.assert(a.parse('not a valid package token!').errors.length >= 1);
         T.assert(App.adapters.android.tactical.parse('{bad').errors.length === 1);
         T.assertEqual(App.projectIo.parseProject('{').ok, false);
       });
@@ -9226,9 +8988,8 @@
         function snap(d, r) { var a = App.registry.getDataset('android-adb', d), pr = a.parse(r); var o = { capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: d, sha256: App.util.hash.sha256Hex(r), keys: pr.keys }; if (pr.values) o.values = pr.values; if (pr.template !== undefined) o.template = pr.template; return o; }
         App.util.clock.setClock(function () { return new Date('2026-02-02T02:02:02.000Z'); });
         App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: { 'android.packages': snap('android.packages', 'com.a'), 'android.settings': snap('android.settings', 'secure:\nx=0'), 'android.tactical': snap('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: { 'android.packages': snap('android.packages', 'com.a'), 'android.tactical': snap('android.tactical', '{"enabled":true}') } });
         App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
-        App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
         App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
         var rep = App.generate.buildReport(App.store.getProject(), 'dev-m1');
         // generate/report read no DOM/theme; output is a pure function of the project.
@@ -9256,32 +9017,10 @@
         T.assert(a.parseAssignment('pkg,action,description\ncom.a,keep,x').errors.length >= 1);
         T.assert(a.parseAssignment('package,action,description\ncom.a,nuke,x').errors.some(function (e) { return /Invalid action/.test(e.message); }));
       });
-      s.test('settings/tactical parseAssignment map to decisions', function () {
+      s.test('tactical parseAssignment maps leaves to decisions', function () {
         ensureA();
-        var st = App.registry.getDataset('android-adb', 'android.settings').parseAssignment('secure:\nx=5');
-        T.assertDeepEqual(st.assignments[0], { key: 'secure/x', decision: { value: '5', type: 'string' } });
         var tc = App.registry.getDataset('android-adb', 'android.tactical').parseAssignment('{"enabled":false}');
         T.assertDeepEqual(tc.assignments[0], { key: 'enabled', decision: { value: false } });
-      });
-      s.test('review-5 #3: settings ALSO accept a "setting,description,value" CSV', function () {
-        ensureA();
-        var a = App.registry.getDataset('android-adb', 'android.settings');
-        var r = a.parseAssignment('setting,description,value\nsecure/location_mode,GPS off,0\nglobal/foo,"desc, with comma",hello world');
-        T.assertEqual(r.errors.length, 0);
-        T.assertEqual(r.assignments.length, 2);
-        T.assertDeepEqual(r.assignments[0], { key: 'secure/location_mode', decision: { value: '0', type: 'string' }, fields: { description: 'GPS off' } });
-        T.assertEqual(r.assignments[1].fields.description, 'desc, with comma');
-        T.assertEqual(r.assignments[1].decision.value, 'hello world');
-      });
-      s.test('review-5 #3: settings CSV rejects a malformed key; the §9 capture format still works', function () {
-        ensureA();
-        var a = App.registry.getDataset('android-adb', 'android.settings');
-        var bad = a.parseAssignment('setting,description,value\nbadkey-no-namespace,d,1');
-        T.assert(bad.errors.some(function (e) { return /Malformed setting key/.test(e.message); }), 'malformed key not rejected');
-        // A non-CSV capture file is still parsed by the sectioned parser (no false CSV detection).
-        var cap = a.parseAssignment('secure:\nx=5');
-        T.assertEqual(cap.errors.length, 0);
-        T.assertDeepEqual(cap.assignments[0], { key: 'secure/x', decision: { value: '5', type: 'string' } });
       });
     });
 
@@ -9291,7 +9030,6 @@
         App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var a = App.registry.getDataset('android-adb', 'android.packages');
         var res = App.store.applyDeviceAssignment('asg-m1', 'android.packages', a.parseAssignment('package,action,description\ncom.a,disable,why-a\ncom.b,keep,why-b'));
@@ -9307,7 +9045,6 @@
         App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var before = App.projectIo.serializeProject(App.store.getProject());
         var a = App.registry.getDataset('android-adb', 'android.packages');
@@ -9321,29 +9058,11 @@
         App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var a = App.registry.getDataset('android-adb', 'android.packages');
         var res = App.store.applyDeviceAssignment('asg-m1', 'android.packages', a.parseAssignment('package,action,description\ncom.a,keep,x\ncom.z,keep,y'));
         T.assertEqual(res.ok, false);
         T.assert(res.issues.some(function (i) { return /not applicable/.test(i.message) && /com\.z/.test(i.message); }));
-      });
-      s.test('review-5 #3: a settings "setting,description,value" CSV applies end-to-end', function () {
-        ensureA();
-        App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Asg', model: 'M1', snapshots: {
-          'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0\ny=0'),
-          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
-        var a = App.registry.getDataset('android-adb', 'android.settings');
-        var res = App.store.applyDeviceAssignment('asg-m1', 'android.settings',
-          a.parseAssignment('setting,description,value\nsecure/x,first,11\nsecure/y,second,22'));
-        T.assertEqual(res.ok, true);
-        var items = App.store.getProject().items['android.settings'];
-        var x = items.filter(function (i) { return i.key === 'secure/x'; })[0];
-        T.assertDeepEqual(x.decision, { value: '11', type: 'string' });
-        T.assertEqual(x.description, 'first');
-        T.assertEqual(x.status, 'decided');
       });
     });
 
@@ -9352,7 +9071,7 @@
       s.test('add/update/remove + controlRef cleanup', function () {
         ensureA();
         App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var add = App.store.addControl({ title: 'Disable BT', type: 'ISM', description: 'd' });
         T.assertEqual(add.ok, true);
         T.assert(/^[a-z0-9-]+$/.test(add.id));
@@ -9379,7 +9098,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         return 'dev-m1';
       }
@@ -9433,7 +9151,6 @@
         // Re-onboard with a differing snapshot that drops com.a (keeps com.b, adds com.d).
         var res = App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.b\ncom.d'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         T.assertEqual(res.ok, true);
         var v2 = App.store.getLatestConfigs(App.store.getProject()).filter(function (c) { return c.baseId === 'dev-m1'; })[0];
@@ -9449,11 +9166,9 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         App.store.setDecision('android.packages', 'com.b', { action: 'keep' });
-        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
-        App.store.setDecision('android.tactical', 'enabled', { value: true });
+          App.store.setDecision('android.tactical', 'enabled', { value: true });
         // review-17 #4: the injected imsSettings slots must be decided too, otherwise
         // com.a is not the ONLY thing holding readiness back.
         App.store.setDecision('android.tactical', 'imsSettings.simSlot0.enabled', { value: false });
@@ -9496,7 +9211,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
         var g = App.store.addGroup({ name: 'Rugged', deviceBaseIds: ['dev-m1'] });
@@ -9548,11 +9262,9 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Alpha', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         App.store.onboardDevice({ name: 'Bravo', model: 'M2', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.c'),
-          'android.settings': snapB('android.settings', 'secure:\ny=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
       }
       s.test('renderList shows group sections (+ Ungrouped), Add group, a member dropdown and a deviation count', function () {
@@ -9607,14 +9319,12 @@
       function decideAll() {
         App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
         App.store.setDecision('android.packages', 'com.b', { action: 'keep' });
-        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
-        App.store.setDecision('android.tactical', 'enabled', { value: true });
+          App.store.setDecision('android.tactical', 'enabled', { value: true });
       }
       function ready() {
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         decideAll();
       }
@@ -9658,16 +9368,15 @@
         T.assertEqual(App.ui.app.toAest('2026-06-30T00:00:00.000Z'), '2026-06-30 10:00:00 AEST');
         T.assertEqual(App.ui.app.toAest('2026-06-30T15:30:00.000Z'), '2026-07-01 01:30:00 AEST'); // rolls the date
       });
-      s.test('settings value box is a full-width wrapping textarea (no type select)', function () {
+      s.test('a text value box is a full-width wrapping textarea', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=http://a/very/long?value=1&that=should&wrap=yes'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
-        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, {});
-        T.assert(/<textarea[^>]*data-kind="string"[^>]*class="val-edit"/.test(html) || /class="val-edit"[^>]*data-kind="string"/.test(html) || (/data-kind="string"/.test(html) && /class="val-edit"/.test(html)), 'value box not a val-edit textarea');
-        T.assert(!/data-kind="enum-synth"/.test(html));
+        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, {});
+        T.assert(/class="val-edit"/.test(html), 'value box not a val-edit textarea');
       });
       s.test('table columns are resizable: handles + width styles + stored width override', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'V', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { colWidths: { key: 333 } }, {});
         T.assert(/data-col-resize="key"/.test(html), 'no resize handle');
         T.assert(/data-col="key"[^>]*style="width:333px"/.test(html), 'stored column width not applied');
@@ -9680,7 +9389,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
         App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
@@ -9693,7 +9401,7 @@
         var html = D.renderDetail(w.project, 'dev-m1');
         T.assert(/data-dev-collapse-all/.test(html), 'no collapse-all button');
         T.assert(/>Collapse all</.test(html), 'should read "Collapse all" when panels are expanded');
-        D._dev.collapsed = { 'android.packages': true, 'android.settings': true, 'android.tactical': true };
+        D._dev.collapsed = { 'android.packages': true, 'android.tactical': true };
         T.assert(/>Expand all</.test(D.renderDetail(w.project, 'dev-m1')), 'should read "Expand all" when all collapsed');
         D._dev.collapsed = {};
       });
@@ -9733,7 +9441,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Dev', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         return App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
       }
@@ -9753,28 +9460,28 @@
         T.assert(!/data-apply-to="android.packages"[^>]*disabled/.test(withC), 'Apply-to should be enabled with a control');
         T.assert(/<option value="remove">remove<\/option>/.test(withC) && /<option value="disable">disable<\/option>/.test(withC) && /<option value="keep">keep<\/option>/.test(withC), 'action options missing');
       });
-      s.test('#2 settings/tactical have NO "Apply to" (they have no enum decision field)', function () {
+      s.test('#2 tactical has NO "Apply to" (it has no enum decision field)', function () {
         var id = withCtl();
-        var st = App.ui.tables.renderToolbar('android.settings', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
+        var st = App.ui.tables.renderToolbar('android.tactical', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
         var tc = App.ui.tables.renderToolbar('android.tactical', { applyMode: true, applyControlId: id }, 2, 2, App.store.getProject().controls);
-        T.assert(st.indexOf('data-apply-to="') === -1, 'settings must not have an Apply-to');
+        T.assert(st.indexOf('data-apply-to="') === -1, 'tactical must not have an Apply-to');
         T.assert(tc.indexOf('data-apply-to="') === -1, 'tactical must not have an Apply-to');
       });
-      s.test('#3 device panels are per-dataset resizable AND settings has an editable override', function () {
+      s.test('#3 device panels are per-dataset resizable AND tactical has an editable override', function () {
         withCtl();
         var D = App.ui.views.devices; D._dev.collapsed = {}; D._dev.panelColWidths = {};
         var html = D.renderPanels(App.store.getProject(), 'dev-m1', '');
         T.assert(/class="dev-panel-table"/.test(html), 'panels should be fixed/resizable tables');
-        T.assert(/data-dev-col-resize="android.settings\|override"/.test(html), 'no settings Override resize handle');
+        T.assert(/data-dev-col-resize="android.tactical\|override"/.test(html), 'no tactical Override resize handle');
         T.assert(/data-dev-col-resize="android.packages\|key"/.test(html), 'no packages key resize handle');
-        // settings override editor is present + editable (string textarea) — review-8 #3.
-        T.assert(/data-ov-ds="android.settings"[^>]*data-ov-kind="string"/.test(html), 'settings should expose an editable override control');
+        // tactical override editor is present + editable — review-8 #3.
+        T.assert(/data-ov-ds="android.tactical"/.test(html), 'tactical should expose an editable override control');
         // widths are stored INDEPENDENTLY per dataset.
-        D._dev.panelColWidths = { 'android.settings': { key: 321 } };
+        D._dev.panelColWidths = { 'android.tactical': { key: 321 } };
         var html2 = D.renderPanels(App.store.getProject(), 'dev-m1', '');
-        T.assert(/data-dev-col scope="col" style="width:321px">Key<span class="col-resize" data-dev-col-resize="android.settings\|key"/.test(html2), 'stored settings key width not applied');
-        // packages key keeps its default (independent of settings)
-        T.assert(/data-dev-col scope="col" style="width:220px">Key<span class="col-resize" data-dev-col-resize="android.packages\|key"/.test(html2), 'packages column width should be independent of settings');
+        T.assert(/data-dev-col scope="col" style="width:321px">Key<span class="col-resize" data-dev-col-resize="android.tactical\|key"/.test(html2), 'stored tactical key width not applied');
+        // packages key keeps its default (independent of tactical)
+        T.assert(/data-dev-col scope="col" style="width:220px">Key<span class="col-resize" data-dev-col-resize="android.packages\|key"/.test(html2), 'packages column width should be independent of tactical');
         D._dev.panelColWidths = {};
       });
     });
@@ -9782,7 +9489,7 @@
     T.suite('T9.8/T9.9 control refs in tables & report', function (s) {
       function withControl() {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM' }).id;
         App.store.setDecision('android.packages', 'com.a', { action: 'disable' });
         App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
@@ -9802,8 +9509,7 @@
       });
       s.test('report Control coverage groups by control title/type', function () {
         var w = withControl();
-        // settings/tactical still undecided -> decide them so device is ready for a fuller report
-        App.store.setDecision('android.settings', 'secure/x', { value: '0', type: 'int' });
+        // tactical still undecided -> decide it so the device is ready for a fuller report
         App.store.setDecision('android.tactical', 'enabled', { value: true, type: 'bool' });
         var r = App.generate.buildReport(App.store.getProject(), 'ctl-m1');
         var html = r.files.filter(function (f) { return f.name === 'report.html'; })[0].content;
@@ -9815,7 +9521,7 @@
     T.suite('review-4 #2/#3/#4 UI: incomplete default + control layout/description', function (s) {
       function projWithControl() {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         App.store.addControl({ title: 'No Bluetooth', type: 'ISM', description: 'a long description that should wrap onto multiple lines' });
         return App.store.getProject();
       }
@@ -9838,7 +9544,7 @@
       });
       s.test('#4 Control Manager is a SEARCHABLE TABLE with a per-row dropdown', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var id = App.store.addControl({ title: 'No Bluetooth', type: 'ISM', description: 'a long description that should wrap onto multiple lines' }).id;
         var project = App.store.getProject();
         var CV = App.ui.views.controls;
@@ -9867,7 +9573,7 @@
       });
       s.test('#4 controls table search filters by title/type/description', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
-        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.settings': snapB('android.settings', 'secure:\nx=0'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.onboardDevice({ name: 'Ctl', model: 'M1', snapshots: { 'android.packages': snapB('android.packages', 'com.a'), 'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         App.store.addControl({ title: 'No Bluetooth', type: 'ISM' });
         App.store.addControl({ title: 'Disable GPS', type: 'AHG' });
         var project = App.store.getProject();
@@ -9890,7 +9596,6 @@
       ensureA(); App.store.init(App.store.empty('android-adb'));
       App.store.onboardDevice({ name: 'R12', model: 'M1', firmware: 'F', snapshots: {
         'android.packages': snapB('android.packages', 'com.a\ncom.b'),
-        'android.settings': snapB('android.settings', 'secure:\nx=0'),
         'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
       return 'r12-m1'; // deviceId (= baseId here, v1)
     }
@@ -10050,7 +9755,7 @@
       s.test('every dataset table gets the column with an editable badge-select', function () {
         r12Project();
         var p = App.store.getProject();
-        ['android.packages', 'android.settings', 'android.tactical'].forEach(function (dsId) {
+        ['android.packages', 'android.tactical'].forEach(function (dsId) {
           var html = App.ui.tables.renderTableHtml(p, dsId, {}, {});
           T.assert(/data-col="relevance"[^>]*>Security Relevance/.test(html), 'no Security Relevance header in ' + dsId);
           T.assert(/<select class="rel-select "[^>]*data-relevance/.test(html), 'no relevance select in ' + dsId);
@@ -10088,19 +9793,18 @@
       });
       s.test('an invalid relevance in a project file fails schema validation + survives round-trip', function () {
         r12Project();
-        App.store.setItemFields('android.settings', 'secure/x', { relevance: 'HIGH' });
+        App.store.setItemFields('android.packages', 'com.a', { relevance: 'HIGH' });
         var text = App.projectIo.serializeProject(App.store.getProject());
         var res = App.projectIo.parseProject(text);
         T.assertEqual(res.ok, true);
-        T.assertEqual(res.value.items['android.settings'][0].relevance, 'HIGH');
-        var bad = App.store.getProject(); bad.items['android.settings'][0].relevance = 'SEVERE';
+        T.assertEqual(res.value.items['android.packages'][0].relevance, 'HIGH');
+        var bad = App.store.getProject(); bad.items['android.packages'][0].relevance = 'SEVERE';
         T.assert(App.projectIo.validateSchema(bad).some(function (i) { return /relevance/.test(i.message) && i.severity === 'error'; }), 'bad relevance accepted');
       });
     });
 
     T.suite('review-12 #4 rationale + relevance columns in the decisions import', function (s) {
       var pkgA = function () { ensureA(); return App.registry.getDataset('android-adb', 'android.packages'); };
-      var setA = function () { ensureA(); return App.registry.getDataset('android-adb', 'android.settings'); };
 
       s.test('packages CSV accepts 3, 4 or 5 columns', function () {
         var a = pkgA();
@@ -10120,15 +9824,6 @@
         T.assert(a.parseAssignment('package,action,description,rationale,notes\ncom.a,keep,d,w,x').errors.some(function (e) { return /Header row/.test(e.message); }), 'unknown 5th column accepted');
         T.assert(a.parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,w,SEVERE').errors.some(function (e) { return /Invalid relevance/.test(e.message); }), 'invalid relevance accepted');
       });
-      s.test('settings CSV accepts the same optional columns (and still onboards descriptions)', function () {
-        var a = setA();
-        var r = a.parseAssignment('setting,description,value,rationale,relevance\nsecure/x,desc,1,why-x,medium');
-        T.assertEqual(r.errors.length, 0);
-        T.assertDeepEqual(r.assignments[0].fields, { description: 'desc', rationale: 'why-x', relevance: 'MEDIUM' });
-        var pr = a.parse('setting,description,value,rationale,relevance\nsecure/x,desc,1,why-x,medium');
-        T.assertDeepEqual(pr.keys, ['secure/x'], 'the CSV must still parse as a capture at onboard');
-        T.assertEqual(pr.descriptions['secure/x'], 'desc');
-      });
       s.test('applyDeviceAssignment fills the Rationale box and the Security Relevance column', function () {
         r12Project();
         var a = pkgA();
@@ -10142,16 +9837,6 @@
         T.assertEqual(items[1].rationale, 'why-b');
         T.assert(!('relevance' in items[1]), 'a blank relevance cell must clear, not set');
         T.assert(res.issues.some(function (i) { return /rationale\(s\)/.test(i.message) && /relevance value\(s\)/.test(i.message); }), 'the log should report what extra columns were applied');
-      });
-      s.test('settings decisions import applies rationale + relevance too', function () {
-        r12Project();
-        var res = App.store.applyDeviceAssignment('r12-m1', 'android.settings',
-          setA().parseAssignment('setting,description,value,rationale,relevance\nsecure/x,d,7,why-x,CONTEXT'));
-        T.assertEqual(res.ok, true, JSON.stringify(res.issues));
-        var it = App.store.getProject().items['android.settings'][0];
-        T.assertEqual(it.decision.value, '7');
-        T.assertEqual(it.rationale, 'why-x');
-        T.assertEqual(it.relevance, 'CONTEXT');
       });
       s.test('a bad relevance never half-applies (atomic refusal)', function () {
         r12Project();
@@ -10246,7 +9931,7 @@
         r12Project(); H.reset();
         var id = App.store.addControl({ title: 'Scoped', type: 'ISM' }).id;
         applyRun('android.packages', id, ['com.a']);
-        T.assertEqual(H.info('android.settings').canUndo, false, 'another dataset must be unaffected');
+        T.assertEqual(H.info('android.tactical').canUndo, false, 'another dataset must be unaffected');
         var none = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], { canUndo: false, canRedo: false });
         T.assert(/data-redo="android.packages"[^>]*disabled/.test(none), 'Redo must start disabled');
         var both = App.ui.tables.renderToolbar('android.packages', {}, 2, 2, [], { canUndo: true, label: 'x', canRedo: true, redoLabel: 'application of control "Scoped" to 1 item' });
@@ -10262,7 +9947,6 @@
         ['Alpha', 'Bravo'].forEach(function (n, i) {
           App.store.onboardDevice({ name: n, model: 'M' + (i + 1), firmware: 'F', snapshots: {
             'android.packages': snapB('android.packages', 'com.a'),
-            'android.settings': snapB('android.settings', 'secure:\nx=0'),
             'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         });
         App.ui.views.controls._cm.deviceCols = null; // default: every device gets a column
@@ -10334,7 +10018,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R14', model: 'M1', firmware: 'F', snapshots: {
           'android.packages': snapB('android.packages', 'com.a\ncom.b\ncom.c\ncom.d'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         App.store.setItemFields('android.packages', 'com.a', { relevance: 'HIGH' });
         App.store.setItemFields('android.packages', 'com.b', { relevance: 'REPORTING' });
@@ -10404,30 +10087,25 @@
         T.assertEqual(r.assignments[0].fields.relevance, 'REPORTING');
         T.assertEqual(r.assignments[1].fields.relevance, 'IRRELEVANT');
         T.assert(a.parseAssignment('package,action,description,rationale,relevance\ncom.a,keep,d,w,REPORT').errors.some(function (e) { return /Invalid relevance/.test(e.message); }), 'a near-miss must still be refused');
-        var st = App.registry.getDataset('android-adb', 'android.settings')
-          .parseAssignment('setting,description,value,rationale,relevance\nsecure/x,d,1,w,IRRELEVANT');
-        T.assertEqual(st.errors.length, 0);
-        T.assertEqual(st.assignments[0].fields.relevance, 'IRRELEVANT');
       });
-      s.test('settings decisions import applies the parked values end to end', function () {
+      s.test('a decisions import applies the parked values end to end', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R14b', model: 'M1', firmware: 'F', snapshots: {
-          'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0\ny=1'),
+          'android.packages': snapB('android.packages', 'com.a\ncom.b'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
-        var keys = App.store.getProject().deviceConfigs[0].snapshots['android.settings'].keys;
-        var csv = 'setting,description,value,rationale,relevance\n' + keys.map(function (k, i) {
-          return k + ',d' + i + ',' + i + ',why' + i + ',' + (i ? 'IRRELEVANT' : 'REPORTING');
+        var keys = App.store.getProject().deviceConfigs[0].snapshots['android.packages'].keys;
+        var csv = 'package,action,description,rationale,relevance\n' + keys.map(function (k, i) {
+          return k + ',keep,d' + i + ',why' + i + ',' + (i ? 'IRRELEVANT' : 'REPORTING');
         }).join('\n');
-        var res = App.store.applyDeviceAssignment('r14b-m1', 'android.settings',
-          App.registry.getDataset('android-adb', 'android.settings').parseAssignment(csv));
+        var res = App.store.applyDeviceAssignment('r14b-m1', 'android.packages',
+          App.registry.getDataset('android-adb', 'android.packages').parseAssignment(csv));
         T.assertEqual(res.ok, true, JSON.stringify(res.issues));
-        var items = App.store.getProject().items['android.settings'];
+        var items = App.store.getProject().items['android.packages'];
         T.assertDeepEqual(items.map(function (i) { return i.relevance; }), ['REPORTING', 'IRRELEVANT']);
         // ...and they are parked out of the default table view.
-        var a = App.registry.getDataset('android-adb', 'android.settings');
-        T.assertEqual(App.ui.model.filterSortRows(App.store.getProject(), 'android.settings', a, {}).length, 0, 'imported parked items must be hidden by default');
-        T.assertEqual(App.ui.model.filterSortRows(App.store.getProject(), 'android.settings', a, { onlyRelevance: ['IRRELEVANT'] }).length, 1);
+        var a = App.registry.getDataset('android-adb', 'android.packages');
+        T.assertEqual(App.ui.model.filterSortRows(App.store.getProject(), 'android.packages', a, {}).length, 0, 'imported parked items must be hidden by default');
+        T.assertEqual(App.ui.model.filterSortRows(App.store.getProject(), 'android.packages', a, { onlyRelevance: ['IRRELEVANT'] }).length, 1);
       });
     });
 
@@ -10439,7 +10117,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R15', model: 'M1', firmware: 'F', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var html = App.ui.tables.renderTableHtml(App.store.getProject(), dsId, {}, {});
         var out = {};
@@ -10448,21 +10125,20 @@
         });
         return out;
       }
-      s.test('Description starts 3x wider (220 -> 660) in all three tables', function () {
-        ['android.packages', 'android.settings', 'android.tactical'].forEach(function (dsId) {
+      s.test('Description starts 3x wider (220 -> 660) in every table', function () {
+        ['android.packages', 'android.tactical'].forEach(function (dsId) {
           T.assertEqual(widths(dsId).description, 660, 'wrong Description width for ' + dsId);
         });
       });
-      s.test('the Settings key column starts 1.5x wider (240 -> 360); others unchanged', function () {
-        T.assertEqual(widths('android.settings').key, 360);
+      s.test('every dataset key column keeps the shared 240 default', function () {
         T.assertEqual(widths('android.packages').key, 240);
         T.assertEqual(widths('android.tactical').key, 240);
       });
       s.test('a stored (dragged) width still wins over the new defaults', function () {
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R15b', model: 'M1', firmware: 'F', snapshots: {
-          'android.settings': snapB('android.settings', 'secure:\nx=0') } });
-        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', { colWidths: { key: 120, description: 130 } }, {});
+          'android.packages': snapB('android.packages', 'com.a') } });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', { colWidths: { key: 120, description: 130 } }, {});
         T.assert(/data-col="key"[^>]*style="width:120px"/.test(html) && /data-col="description"[^>]*style="width:130px"/.test(html), 'stored widths must override the defaults');
       });
     });
@@ -10525,30 +10201,25 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R16', model: 'M1', firmware: 'F', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nlist=bluetooth,wifi'),
           'android.tactical': snapB('android.tactical', '{"note":"hi"}') } });
         return App.store.getProject();
       }
       var DFR = App.ui.app._decisionFromRaw;
       function adapter(dsId) { ensureA(); return App.registry.getDataset('android-adb', dsId); }
 
-      s.test('an emptied settings box commits a blank value, not undecided', function () {
-        r16();
-        var d = DFR(adapter('android.settings'), { value: { v: '', kind: 'string' } });
-        T.assertDeepEqual(d, { value: '' }, 'an empty settings box must be a blank value');
-        var res = App.store.setDecision('android.settings', 'secure/list', d);
-        T.assert(res.ok, 'a blank settings value must be valid');
-        var it = App.store.getProject().items['android.settings'][0];
-        T.assertEqual(it.decision.value, '');
-        T.assertEqual(it.status, 'decided', 'a blank value is still a decision');
-      });
-      s.test('an emptied tactical box commits a blank value too', function () {
+      function noteItem() {
+        return App.store.getProject().items['android.tactical'].filter(function (i) { return i.key === 'note'; })[0];
+      }
+
+      s.test('an emptied tactical box commits a blank value, not undecided', function () {
         r16();
         var d = DFR(adapter('android.tactical'), { value: { v: '', kind: 'value-typed', vtype: 'string' } });
-        T.assertDeepEqual(d, { value: '' });
-        T.assert(App.store.setDecision('android.tactical', 'note', d).ok);
-        var note = App.store.getProject().items['android.tactical'].filter(function (i) { return i.key === 'note'; })[0];
-        T.assertEqual(note.decision.value, '');
+        T.assertDeepEqual(d, { value: '' }, 'an empty text box must be a blank value');
+        var res = App.store.setDecision('android.tactical', 'note', d);
+        T.assert(res.ok, 'a blank text value must be valid');
+        var it = noteItem();
+        T.assertEqual(it.decision.value, '');
+        T.assertEqual(it.status, 'decided', 'a blank value is still a decision');
       });
       s.test('an empty package action still means undecided (enum keeps its "—")', function () {
         r16();
@@ -10557,26 +10228,30 @@
       });
       s.test('the blank value survives a save/load round-trip', function () {
         r16();
-        App.store.setDecision('android.settings', 'secure/list', { value: '' });
+        App.store.setDecision('android.tactical', 'note', { value: '' });
         var text = App.projectIo.serializeProject(App.store.getProject());
         var back = App.projectIo.parseProject(text);
         T.assert(back.ok, 'round-trip must parse');
-        T.assertEqual(back.value.items['android.settings'][0].decision.value, '');
+        var note = back.value.items['android.tactical'].filter(function (i) { return i.key === 'note'; })[0];
+        T.assertEqual(note.decision.value, '');
       });
-      s.test('a blank value generates an explicit empty-string put, not a skipped line', function () {
+      s.test('a blank value is emitted explicitly, not skipped', function () {
         r16();
-        App.store.setDecision('android.settings', 'secure/list', { value: '' });
-        var items = App.store.getProject().items['android.settings'];
-        var out = adapter('android.settings').generateImplementation(items, {});
-        T.assert(/settings put secure list ''/.test(out[0].content), 'expected an empty-string put, got:\n' + out[0].content);
+        App.store.setDecision('android.tactical', 'note', { value: '' });
+        var items = App.store.getProject().items['android.tactical'];
+        var ctx = { device: { snapshots: App.store.getProject().deviceConfigs[0].snapshots } };
+        var out = adapter('android.tactical').generateImplementation(items, ctx);
+        var doc = JSON.parse(out[0].content);
+        T.assert('note' in doc, 'the blanked key must still be emitted');
+        T.assertEqual(doc.note, '', 'expected an explicit empty string, got: ' + JSON.stringify(doc.note));
       });
       s.test('decided text cells offer a clear button; undecided and enum cells do not', function () {
         r16();
-        var undec = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, {});
+        var undec = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, {});
         T.assert(undec.indexOf('data-decision-clear') === -1, 'nothing to clear while undecided');
-        App.store.setDecision('android.settings', 'secure/list', { value: '' });
-        var dec = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, {});
-        T.assert(/data-decision-clear data-ds="android\.settings" data-key="secure\/list"/.test(dec), 'a decided settings cell needs a clear button');
+        App.store.setDecision('android.tactical', 'note', { value: '' });
+        var dec = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, {});
+        T.assert(/data-decision-clear data-ds="android\.tactical" data-key="note"/.test(dec), 'a decided text cell needs a clear button');
         App.store.setDecision('android.packages', 'com.a', { action: 'keep' });
         var pkg = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', {}, {});
         T.assert(pkg.indexOf('data-decision-clear') === -1, 'enum cells clear via their "—" option');
@@ -10590,14 +10265,13 @@
         App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Tabs', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var html = App.ui.app._renderShell();
         var order = [];
         var re = /data-tab="([^"]+)"/g, m;
         while ((m = re.exec(html)) !== null) order.push(m[1]);
         T.assertDeepEqual(order,
-          ['onboard', 'android.packages', 'android.settings', 'android.tactical', 'devices', 'controls', 'generate', 'help']);
+          ['onboard', 'android.packages', 'android.tactical', 'devices', 'controls', 'generate', 'help']);
       });
       s.test('with no project only Onboard and Help are offered, Onboard first', function () {
         ensureA(); App.registry.setActivePlatform('android-adb');
@@ -10615,10 +10289,9 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R17', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
-          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
-        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
-        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, {});
+          'android.tactical': snapB('android.tactical', '{"note":"hi"}') } });
+        App.store.setDecision('android.tactical', 'note', { value: 'x' });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, {});
         T.assert(/<div class="dec-row"><textarea [^>]*class="val-edit"[^>]*>[^<]*<\/textarea><button [^>]*class="dec-clear"/.test(html),
           'the value box and the clear button must share one .dec-row');
       });
@@ -10629,7 +10302,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'R17', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         return App.store.getProject();
       }
@@ -10654,32 +10326,35 @@
         var row = { tagName: 'TR', parentNode: null, querySelector: function (sel) { return sel === 'td.dcell' ? cell : null; } };
         return { tagName: 'SPAN', parentNode: row, getAttribute: function (n) { return n === 'data-ds' ? dsId : n === 'data-key' ? key : null; } };
       }
+      function tacItem(key) {
+        return App.store.getProject().items['android.tactical'].filter(function (i) { return i.key === key; })[0];
+      }
       s.test('both badge states are rendered as activatable toggles carrying ds+key', function () {
         var p = r17();
-        var undec = App.ui.tables.renderTableHtml(p, 'android.settings', {}, {});
-        T.assert(/<span class="badge undecided flip" role="button" tabindex="0" data-status-toggle data-ds="android\.settings" data-key="secure\/x"/.test(undec),
+        var undec = App.ui.tables.renderTableHtml(p, 'android.tactical', {}, {});
+        T.assert(/<span class="badge undecided flip" role="button" tabindex="0" data-status-toggle data-ds="android\.tactical" data-key="enabled"/.test(undec),
           'the undecided badge must be a toggle');
-        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
-        var dec = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.settings', {}, {});
-        T.assert(/<span class="badge decided flip" role="button" tabindex="0" data-status-toggle data-ds="android\.settings" data-key="secure\/x"/.test(dec),
+        App.store.setDecision('android.tactical', 'enabled', { value: true });
+        var dec = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.tactical', {}, {});
+        T.assert(/<span class="badge decided flip" role="button" tabindex="0" data-status-toggle data-ds="android\.tactical" data-key="enabled"/.test(dec),
           'the decided badge must be a toggle');
       });
       s.test('a decided item flips back to undecided (decision cleared)', function () {
         r17();
-        App.store.setDecision('android.settings', 'secure/x', { value: '0' });
-        App.ui.app._toggleStatus(fakeBadge('android.settings', 'secure/x'));
-        var it = App.store.getProject().items['android.settings'][0];
+        App.store.setDecision('android.tactical', 'enabled', { value: true });
+        App.ui.app._toggleStatus(fakeBadge('android.tactical', 'enabled'));
+        var it = tacItem('enabled');
         T.assertEqual(it.status, 'undecided');
         T.assertEqual(it.decision, null);
       });
       s.test('an undecided item adopts the value its editor shows', function () {
         r17();
-        App.ui.app._toggleStatus(fakeBadge('android.settings', 'secure/x', [
-          { field: 'value', kind: 'string', value: '0' }
+        App.ui.app._toggleStatus(fakeBadge('android.tactical', 'enabled', [
+          { field: 'value', kind: 'value-typed', vtype: 'bool', value: true }
         ]));
-        var it = App.store.getProject().items['android.settings'][0];
+        var it = tacItem('enabled');
         T.assertEqual(it.status, 'decided');
-        T.assertEqual(it.decision.value, '0');
+        T.assertEqual(it.decision.value, true);
       });
       s.test('an undecided PACKAGE with no selection adopts the first action (keep)', function () {
         r17();
@@ -10737,7 +10412,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Ims', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var keys = App.store.getProject().items['android.tactical'].map(function (i) { return i.key; }).sort();
         T.assertDeepEqual(keys, ['enabled', 'imsSettings.simSlot0.enabled', 'imsSettings.simSlot1.enabled']);
@@ -10755,7 +10429,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'Old', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var p = App.store.getProject();
         var snap = p.deviceConfigs[0].snapshots['android.tactical'];
@@ -10788,7 +10461,6 @@
         ensureA(); App.store.init(App.store.empty('android-adb'));
         App.store.onboardDevice({ name: 'New', model: 'M1', snapshots: {
           'android.packages': snapB('android.packages', 'com.a'),
-          'android.settings': snapB('android.settings', 'secure:\nx=0'),
           'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
         var text = App.projectIo.serializeProject(App.store.getProject());
         var res = App.projectIo.parseProject(text);
@@ -10801,6 +10473,118 @@
         var art = tac().rebuildArtifact(r.template, []);
         T.assert(art.content.indexOf('"imsSettings"') !== -1, 'imsSettings missing from tactical.json');
         T.assert(art.content.indexOf('"simSlotId": 1') !== -1, 'the second SIM slot is missing');
+      });
+    });
+
+    // v2.0: Settings was retired. Projects saved by v1.x still carry android.settings
+    // items/snapshots/overrides; those ids are no longer datasets of the platform, so
+    // without the retirement path validateSchema would reject every existing project.
+    T.suite('v2.0 Settings retirement (legacy projects still load)', function (s) {
+      var RETIRED = 'android.settings';
+
+      /** A v1.x-shaped project text: valid apart from carrying the retired dataset. */
+      function legacyText(extra) {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Legacy', model: 'M1', firmware: 'F', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        App.store.setDecision('android.packages', 'com.a', { action: 'disable' });
+        var p = JSON.parse(App.projectIo.serializeProject(App.store.getProject()));
+        // Splice the retired dataset back in, exactly as v1.x would have written it.
+        p.items[RETIRED] = [
+          { key: 'secure/x', decision: { value: '0' }, controlRefs: [], status: 'decided' },
+          { key: 'secure/y', decision: null, controlRefs: [], status: 'undecided' }
+        ];
+        p.deviceConfigs[0].snapshots[RETIRED] = {
+          capturedUtc: '2026-01-01T00:00:00.000Z', sourceFilename: 'settings.txt',
+          sha256: App.util.hash.sha256Hex('secure:\nx=0'), keys: ['secure/x', 'secure/y'],
+          values: { 'secure/x': '0', 'secure/y': '1' }
+        };
+        p.deviceConfigs[0].overrides = p.deviceConfigs[0].overrides || {};
+        p.deviceConfigs[0].overrides[RETIRED] = { 'secure/x': { value: '9' } };
+        if (extra) extra(p);
+        return JSON.stringify(p);
+      }
+
+      s.test('the dataset is gone from the registry and from the active platform', function () {
+        ensureA();
+        T.assertEqual(App.registry.getDataset('android-adb', RETIRED), null, 'the adapter must be unregistered');
+        T.assert(App.registry.datasetIds('android-adb').indexOf(RETIRED) === -1, 'still listed as a platform dataset');
+        T.assert(!App.adapters.android.settings, 'the adapter object must not be exported');
+      });
+
+      s.test('a legacy project still LOADS, and says loudly what it dropped', function () {
+        var res = App.projectIo.parseProject(legacyText());
+        T.assertEqual(res.ok, true, 'a v1.x project must still open: ' + JSON.stringify(res.issues));
+        T.assert(!(RETIRED in res.value.items), 'retired items must be gone');
+        T.assert(!(RETIRED in res.value.deviceConfigs[0].snapshots), 'retired snapshot must be gone');
+        T.assert(!res.value.deviceConfigs[0].overrides || !(RETIRED in res.value.deviceConfigs[0].overrides), 'retired override must be gone');
+        var w = res.issues.filter(function (i) { return i.location === RETIRED && i.severity === 'warning'; });
+        T.assertEqual(w.length, 1, 'exactly one warning expected, got ' + JSON.stringify(res.issues));
+        T.assert(/retired/i.test(w[0].message) && /2 register item/.test(w[0].message) && /1 captured/.test(w[0].message),
+          'the warning must say what was dropped, got: ' + w[0].message);
+      });
+
+      s.test('everything else in the legacy project survives untouched', function () {
+        var res = App.projectIo.parseProject(legacyText());
+        T.assertEqual(res.value.deviceConfigs.length, 1);
+        T.assertDeepEqual(res.value.items['android.packages'][0].decision, { action: 'disable' });
+        T.assert(res.value.items['android.tactical'].length >= 1, 'tactical register lost');
+        T.assertEqual(res.value.deviceConfigs[0].snapshots['android.packages'].keys.length, 1);
+      });
+
+      s.test('a group override on the retired dataset is dropped too', function () {
+        var text = legacyText(function (p) {
+          p.groups = [{ id: 'g1', name: 'G1', deviceBaseIds: ['legacy-m1'], overrides: { 'android.settings': { 'secure/x': { value: '3' } } } }];
+        });
+        var res = App.projectIo.parseProject(text);
+        T.assertEqual(res.ok, true, JSON.stringify(res.issues));
+        T.assert(!res.value.groups[0].overrides || !(RETIRED in res.value.groups[0].overrides), 'group override must be dropped');
+      });
+
+      s.test('a project with no retired data is a byte-for-byte no-op (no spurious warning)', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Clean', model: 'M1', firmware: 'F', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var text = App.projectIo.serializeProject(App.store.getProject());
+        var res = App.projectIo.parseProject(text);
+        T.assertEqual(res.ok, true);
+        T.assertEqual(res.issues.filter(function (i) { return i.location === RETIRED; }).length, 0, 'no warning without retired data');
+        T.assertEqual(App.projectIo.serializeProject(res.value), text, 'a clean project must round-trip unchanged');
+      });
+
+      s.test('re-saving after the load makes the removal permanent', function () {
+        var res = App.projectIo.parseProject(legacyText());
+        var text2 = App.projectIo.serializeProject(res.value);
+        T.assert(text2.indexOf(RETIRED) === -1, 'the retired id must not survive a re-save');
+        var again = App.projectIo.parseProject(text2);
+        T.assertEqual(again.ok, true);
+        T.assertEqual(again.issues.filter(function (i) { return i.location === RETIRED; }).length, 0, 'the second load must be silent');
+      });
+
+      s.test('an UNKNOWN (not merely retired) dataset id is still a hard error', function () {
+        var text = legacyText(function (p) {
+          p.items['android.bogus'] = [{ key: 'k', decision: null, controlRefs: [], status: 'undecided' }];
+        });
+        var res = App.projectIo.parseProject(text);
+        T.assertEqual(res.ok, false, 'a typo/unknown dataset must not be silently dropped');
+        T.assert(res.issues.some(function (i) { return /android\.bogus/.test(i.message) && i.severity === 'error'; }));
+      });
+
+      s.test('generation and capture guidance no longer mention Settings', function () {
+        var pf = App.registry.getPlatform('android-adb');
+        T.assert(!/settings/i.test(pf.captureInstructions), 'capture instructions still mention settings');
+        T.assert(!/Verify-Setting/.test(pf.scriptPreamble({ device: { name: 'd', model: 'm', firmware: 'f' }, toolVersion: 'v', generatedUtc: '2026-01-01T00:00:00.000Z' })),
+          'the preamble still declares the settings verify helper');
+        // Every Help section, not just the default one.
+        var H = App.ui.views.help;
+        H.SECTIONS.forEach(function (sec) {
+          H._help.section = sec.id;
+          var html = H.render(null).replace(/imsSettings/g, '');
+          T.assert(!/\bSettings\b/.test(html), 'the Help manual still mentions Settings in section "' + sec.id + '"');
+        });
+        H._help.section = H.SECTIONS[0].id;
       });
     });
 

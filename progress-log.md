@@ -28,10 +28,14 @@ Process per task (build phase): **build → review → devise tests → log defe
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
-COMPLETE** + reviews 1–16 + report-gen. **282/282 embedded self-tests pass.** Validated end-to-end against the real reference captures (incl.
-v1→v2→v3 migration and per-config/group overrides). Remaining: two manual checks only — open
-`ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated `report.html` in Microsoft
-Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
+COMPLETE** + **v2.0 PHASE 12 COMPLETE** + reviews 1–17 + report-gen. **290/290 embedded self-tests
+pass.** Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
+checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
+`report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
+
+**Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
+`android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
 
 ### 2026-06-30 — Phase 9 (v1.1): dark mode · set-from-files · Control Manager — ✅ COMPLETE
 
@@ -742,6 +746,100 @@ rejected now matches; completion is idempotent). **300/300 self-tests pass.**
 
 **Defects:** 2 found (RV17-4 user-reported missing setting; RV17-4b user-reported — older snapshots
 made the completed import unmatchable), both FIXED.
+
+---
+
+### 2026-07-28 — Phase 12 (v2.0): retirement of the Settings dataset — ✅ COMPLETE
+
+**Decision (user, product).** The Settings register is retired. Every hardening change the fleet needs
+is expressible through **Packages** and **Tactical**, so `android.settings` — several hundred to a few
+thousand mostly-cosmetic keys per device, every one of which had to be individually decided before a
+device could reach *ready* — was pure decision burden for effectively no security benefit. Android now
+has **two** datasets.
+
+Built per the new build spec §21 / task breakdown Phase 12.
+
+**T12.1 — the adapter and its wiring are gone.** Deleted the `settings` adapter in full (the sectioned
+`<namespace>:` + `key=value` parser, the `setting,description,value` assignment CSV and its helpers,
+`decisionSchema`, columns, report section, `settings put`/`settings get` generators,
+`capturedDefaults`, `normalizeSettingValue`) and dropped it from the module's exports and from the
+`android-adb` profile's `datasets`. Rewrote `captureInstructions` to two captures and removed the
+now-callerless `Verify-Setting` helper from the PowerShell preamble. Removed the Settings-only 360px
+key-column default, so every dataset shares the 240px default; `colDefaultWidth(key, dsId)` keeps its
+`dsId` parameter for the next dataset that wants one.
+
+Deliberately **kept**: `psSingleQuote`/`shSingleQuote` and the Appendix-B two-layer escaping contract
+(the POSIX layer now has no caller, but it is the mandated primitive for the next dataset that emits a
+device-side value, and it stays exported and self-tested); and the §8.4 captured-default drift check,
+which is adapter-driven and inert when no adapter emits `values`. Both carry a comment saying why.
+
+**T12.2 — v1.x projects still open (the part that actually mattered).** Existing project files carry
+`items['android.settings']`, an `android.settings` snapshot on every device config, and possibly
+device/group overrides. Those ids are no longer datasets of the platform, so the Appendix-A
+cross-check would have called them *unknown dataset* — **every existing project would have failed to
+load**. Relaxing that error was not acceptable either: it would silently swallow a genuine typo.
+
+Resolved with an explicit, named allow-list in `projectIo`:
+
+    var RETIRED_DATASETS = { 'android.settings': 'Settings' };
+
+`dropRetiredDatasets(p)` strips each retired id from `items`, every `DeviceConfig.snapshots`, every
+`DeviceConfig.overrides` and every `DeviceGroup.overrides`, and returns **one** located `warning`
+naming how many register items and how many captured snapshots went. It runs in `parseProject`
+*between* `migrate` and `validateSchema` — earlier and the ids fail the cross-check, later and
+validation has already rejected the file. An unknown-but-not-retired id is still a hard error.
+
+**T12.3 — copy.** Help manual (Onboarding, Data tables, Devices & groups, Generating output,
+Reference/glossary), the Devices tab (control-satisfaction blurb, device search placeholder, the
+decisions-import note — now "the Packages CSV"), the Generate tab, and every module/inline comment
+that assumed three datasets, three panels or three file slots.
+
+**T12.4 — re-targeted the inherited suites.** Settings was the only shipped dataset with a **free-text
+primary**, so a number of suites used it to exercise generic behaviour. Those were re-pointed at
+**tactical** (also a text primary) rather than deleted: RV16-1 blank-value commits, RV17-2 the clear
+button's flex row, RV17-3 the badge flip adopting the shown value, the full-width wrapping value box,
+per-dataset panel overrides and column widths, the Security Relevance column, and the relevance-import
+round trip. Only genuinely format-specific tests were removed (the sectioned parser suite, the
+`setting,description,value` CSV). The §8.4 drift test was rebuilt on a hand-built snapshot carrying
+`values`, so the mechanism keeps its coverage now that no shipped adapter feeds it. Fixture counts
+that move when a dataset leaves were corrected (undecided totals 6→5, dataset reasons 3→2, device
+panels 3→2, emitted-file lists, report colgroup counts).
+
+**Documents.** `android-ch-config-tool-build-spec-v1.0.md` and
+`android-ch-config-tool-task-breakdown-v1.0.md` moved to `Archive/`; **v2.0** editions written. They
+are consolidations, not rewrites — section numbers, requirement ids (DOD-n, ASG-n, CTL-n, OVR-n,
+GEN-n, RV*-n, RG-n) and appendix letters are unchanged, because the code cites them at its call sites.
+The v1.1/v1.2/v1.3 addenda are now stated as the current requirement rather than as deltas; new §18.8
+(Security Relevance, parked items, per-device control satisfaction, Delete Mode + undo) and §18.9
+(reviews 15–17) capture what had only ever lived in this log; §21 is the retirement itself
+(RET-1…RET-6, RET-A…RET-E). Withdrawn tasks (T2.4, T-RV5.3) are kept as **tombstones** rather than
+deleted, so a task id from an older log still resolves. `README.md` and `validation-testing-plan.md`
+updated — the validation plan keeps a full `settings list` capture on both devices as **evidence**
+(it is how the collateral-change sweep and the arm comparison detect *unintended* change), explicitly
+not as a tool input.
+
+**Tests:** +8 self-tests in a new `v2.0 Settings retirement` suite (the dataset is absent from the
+registry, the platform and the adapter exports; a v1.x project carrying the Settings register,
+snapshot, device override and group override still loads, drops exactly those, and logs exactly one
+located warning naming the counts; everything else in that project survives; a clean project is a
+byte-for-byte no-op with no warning; re-saving makes the removal permanent and the second load is
+silent; an unknown-but-not-retired dataset id is still a hard error; and a coverage check that walks
+**every** Help section plus `captureInstructions` and the script preamble asserting none names
+Settings). **290/290 self-tests pass** (74 suites), no load-time errors.
+
+**Real-data check.** The reference captures still work end to end: `packages.txt` → 438 keys and
+`policy-config-01042026_101449.json` → 134 leaves, both with **0 errors**; the device reaches *ready*;
+Implementation emits `packages.impl.ps1` + `tactical.json` + `manifest.json` (no settings file, and no
+`settings put` anywhere in the output); Verification emits `packages.verify.ps1`; the rebuilt tactical
+document still matches the capture (26 top-level keys → 27, the extra being the injected
+`imsSettings`); and the project round-trips **byte-identically**.
+
+> One deliberate non-finding: the generated report still contains the string "Disable Settings". That
+> is a genuine Knox `policyList` **policy name** in the real device data, not a reference to the
+> retired dataset. The Help/chrome coverage test masks `imsSettings` and asserts on app chrome only,
+> never on device data.
+
+**Defects:** none.
 
 ---
 

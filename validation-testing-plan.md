@@ -4,7 +4,14 @@
 **Subject:** End-to-end application of a Cyber-Hardening (CH) configuration to a physical Android
 device, produced by `ch-config-tool.html`, validated against an independent, fully manual hardening
 of an identical device.
-**Applies to:** CH Config Tool v1.3 (schemaVersion 3), platform profile `android-adb`.
+**Applies to:** CH Config Tool **v2.0** (schemaVersion 3), platform profile `android-adb`.
+
+> **v2.0 change — the Settings dataset is retired.** The tool no longer decides, writes or verifies
+> `settings list` keys; Android has two decided datasets, **Packages** and **Tactical** (build spec
+> §21). This plan is updated accordingly, with one deliberate exception: a **full `settings list`
+> capture is still taken on both devices, before and after, as evidence**. It is no longer an input
+> to the tool — it is how §11–§13 detect *unintended* side effects and compare the two arms on ground
+> the tool never touches. Read "settings capture" below as evidence, never as a decided dataset.
 **Status:** Draft for execution — no result columns are pre-filled.
 
 ---
@@ -59,8 +66,9 @@ This plan closes that gap. It establishes, by manual execution against real hard
 | Area | Included |
 |---|---|
 | Packages dataset (`android.packages`) | keep / disable / remove, on-device outcome, read-back |
-| Settings dataset (`android.settings`) | `system` / `secure` / `global` writes, read-back, type normalisation |
 | Tactical dataset (`android.tactical`) | `tactical.json` rebuild + Knox upload + console confirmation |
+| Settings **as evidence** (not a dataset) | full `system`/`secure`/`global` capture before & after, used only for the collateral-change sweep (§9.5) and the comparative delta (§11–§13) |
+| Retired-dataset upgrade path | a project saved by v1.x opens in v2.0, drops only its Settings register, and says so (spec §21.3 RET-A) |
 | Generated PowerShell | preamble guards, idempotency, error handling, transcript |
 | Manifests | SHA-256 integrity, decision-snapshot fidelity, determinism in the field |
 | Reports | `report.html` / `control-report.html` fidelity, Word rendering, control & ISM coverage |
@@ -203,7 +211,9 @@ One person may hold at most one of Operator A / Operator B / Analyst C.
 1. **Both devices are lab assets.** No production data, no live SIM with a chargeable plan, no
    corporate account enrolment beyond what the test requires.
 2. **Full baseline first.** No script runs until Phase 0 captures are taken *and hashed* (§7.4). The
-   baseline capture is the only rollback reference for settings.
+   baseline `settings list` capture is the only record of pre-change settings state — the tool no
+   longer writes settings, but the OS may still change them as a side effect of a decided package or
+   tactical change, and that capture is the only way to see it.
 3. **Removal is destructive.** `pm uninstall --user 0` for a system package cannot be undone without
    a factory reset. Before the first implementation run, confirm the factory-reset path is available
    and the device is not needed for anything else.
@@ -252,43 +262,46 @@ Perform identically on DEVICE-A and DEVICE-B. Label everything `baseline-A-*` / 
    single target-device guard; multiple attached devices must be avoided.
 4. Record `ro.build.fingerprint`, `ro.build.version.release`, security patch level, model.
 
-### 7.2 The three captures
+### 7.2 The captures
 
 The tool never runs `adb`; captures are produced externally in the normalised formats of spec §9.
+**Two** files are tool inputs; the third is evidence only.
 
 ```powershell
 $S = "<serial>"
 
+# --- TOOL INPUTS (Onboard tab) -------------------------------------------------
 # 1. Packages — one package per line ("package:<name>" prefix tolerated)
 adb -s $S shell pm list packages | Out-File -Encoding utf8 baseline-A-packages.txt
 
-# 2. Settings — TSV: namespace<TAB>key<TAB>value, across all three namespaces
-#    (produce the tab-separated normalised form your capture tooling emits; the parser
-#     rejects malformed keys and unknown namespaces, so validate on ingest)
-foreach ($ns in @('system','secure','global')) {
-  adb -s $S shell settings list $ns | ForEach-Object {
-    $i = $_.IndexOf('='); if ($i -gt 0) { "$ns`t$($_.Substring(0,$i))`t$($_.Substring($i+1))" }
-  }
-} | Out-File -Encoding utf8 baseline-A-settings.txt
-
-# 3. Tactical — export the Knox tactical configuration as JSON from the console
+# 2. Tactical — export the Knox tactical configuration as JSON from the console
 #    → baseline-A-tactical.json
+#    NOTE: an untouched export may omit the `imsSettings` block. That is expected and
+#    supported: the tool completes it with both SIM slots disabled and WARNS in the
+#    Activity drawer. Record whether the warning appeared (VT-02b).
+
+# --- EVIDENCE ONLY (never uploaded to the tool) --------------------------------
+# 3. Settings — full dump, all three namespaces, verbatim `key=value`.
+#    Used for the collateral-change sweep (§9.5) and the arm comparison (§11-§13).
+foreach ($ns in @('system','secure','global')) {
+  "${ns}:"
+  adb -s $S shell settings list $ns
+} | Out-File -Encoding utf8 baseline-A-settings-evidence.txt
 ```
 
-> **Note.** The `settings list` output uses `key=value`; the parser expects tab-separated
-> `namespace<TAB>key<TAB>value` with the value verbatim (values may legitimately contain `=`, spaces,
-> quotes and `$`). The split above takes only the **first** `=` as the delimiter, preserving the rest
-> of the value. Confirm on ingest that the tool reports zero parse errors — a parse error here means
-> the capture, not the tool, is wrong (VT-02).
+> **Note.** The settings dump is captured verbatim (`key=value`, one section header per namespace) —
+> no normalisation is needed because nothing parses it but the §11.2 diff script. Values may
+> legitimately contain `=`, spaces, quotes and `$`; split on the **first** `=` only when diffing.
 
 ### 7.3 Capture-conformance check (VT-01, VT-02)
 
-Load all three baseline files into the tool's Onboard tab **for DEVICE-A only** and confirm:
+Load the **two** tool-input baseline files into the tool's Onboard tab **for DEVICE-A only** and
+confirm:
 
 - each slot reports `✓ N items`;
 - the item counts are plausible against the raw files (`(Get-Content file).Count`);
 - warnings (duplicates, empty tactical object) are reviewed and explained;
-- the Onboard button enables only when all three parse and a device name is supplied.
+- the Onboard button enables only when **both** tool-input slots parse and a device name is supplied.
 
 Do **not** onboard DEVICE-B's captures into the same project (it would create a second device
 configuration and contaminate the comparison). Keep them as flat files for Phase 4/5 use.
@@ -318,7 +331,7 @@ starter list). This allow-list is applied identically to both arms.
 
 ### 8.1 Onboard (VT-04..VT-06)
 
-1. In the tool: Onboard tab → supply DEVICE-A's three baseline files, name, model, firmware.
+1. In the tool: Onboard tab → supply DEVICE-A's two baseline tool-input files, name, model, firmware.
 2. Click **Onboard**. Record the triage summary verbatim: new/existing counts per dataset, warnings,
    drift information, and the version created (or "unchanged no-op" on a re-onboard).
 3. Confirm the tool switches focus to the first dataset filtered to "Incomplete only".
@@ -346,8 +359,8 @@ On the Generate tab, with DEVICE-A selected, produce **all four** bundles at ful
 
 | Command | Zip | Contents |
 |---|---|---|
-| Implementation | `<device>-implementation-<stamp>.zip` | `packages.impl.ps1`, `settings.impl.ps1`, `tactical.json`, `manifest.json` |
-| Verification | `<device>-verification-<stamp>.zip` | `packages.verify.ps1`, `settings.verify.ps1`, tactical EVIDENCED output, `manifest.json` (+ `verification-results.csv` if enabled) |
+| Implementation | `<device>-implementation-<stamp>.zip` | `packages.impl.ps1`, `tactical.json`, `manifest.json` |
+| Verification | `<device>-verification-<stamp>.zip` | `packages.verify.ps1`, tactical EVIDENCED output, `manifest.json` (+ `verification-results.csv` if enabled) |
 | Reporting | `<device>-reporting-<stamp>.zip` | `report.html`, `manifest.json` |
 | Control report | `<device>-control-<stamp>.zip` | `control-report.html`, `manifest.json` |
 
@@ -359,35 +372,34 @@ Checks before executing anything:
 - **VT-10 Manifest integrity.** Extract each zip; recompute SHA-256 of every file and compare against
   `manifest.json`. All must match. `manifest.json` excludes itself.
 - **VT-11 Snapshot fidelity.** The decision snapshot in each manifest matches the saved project's
-  decisions for that device — spot-check 20 items across all three datasets, including at least one
+  decisions for that device — spot-check 20 items across both datasets, including at least one
   overridden item (v1.2 per-config override) and one inherited item.
 - **VT-12 Field determinism.** Regenerate the same command twice without changing anything. The two
   zips must differ **only** in the manifest's `generatedUtc` (and the filename stamp). Byte-compare
-  the extracted files: `packages.impl.ps1`, `settings.impl.ps1`, `tactical.json`, `report.html` must
-  be byte-identical across the two runs. This confirms DOD-7 holds on the real workstation, not just
+  the extracted files: `packages.impl.ps1`, `tactical.json`, `report.html` must be byte-identical
+  across the two runs. This confirms DOD-7 holds on the real workstation, not just
   in the harness.
 - **VT-13 Script header sanity.** Each `.ps1` shows tool version, project, device, firmware, the
   AEST generation timestamp, `Set-StrictMode`, the adb-presence check, the single-target-device
   guard, and transcript start/stop.
-- **VT-14 Injection safety in the wild.** Grep the generated `settings.impl.ps1` for any item whose
-  captured/decided value contains `'`, `"`, `$`, backtick, `;`, or spaces. Confirm each is emitted
-  through the two-layer quoting rule (PowerShell single-quoted wrapper around a POSIX single-quoted
-  device-side string). If the register has no such value, **inject one deliberately** (a scratch
-  settings item with value `` a'b"c$(whoami)` d;e ``), regenerate, inspect, and — if the hardening
-  standard permits — apply it and read it back to confirm the literal survived both parsers intact.
+- **VT-14 Injection safety in the wild.** Grep `packages.impl.ps1` for any package token containing
+  a character outside `[A-Za-z0-9._]`; confirm every emitted token is wrapped as a single
+  PowerShell-quoted literal. (v2.0 note: the dataset that pushed *free-text values* through
+  `adb shell` was Settings, now retired — so the POSIX layer of the two-layer rule has no live caller.
+  Tactical is applied by JSON upload, not by shell, and its injection surface is therefore the Knox
+  console's own parser, covered by VT-19..VT-21.) Confirm no generated script contains a
+  `settings put` or `settings get` command — spec §21.4 RET-C.
 
 ### 8.4 Pre-execution review (VT-15)
 
-Read `packages.impl.ps1` and `settings.impl.ps1` line by line against the register. Confirm:
+Read `packages.impl.ps1` line by line against the register. Confirm:
 
 - every `keep` decision emits a comment only (no command);
 - every `disable` emits `pm disable-user --user 0 <pkg>` guarded by a presence check;
 - every `remove` emits `pm uninstall --user 0 <pkg>` guarded by a presence check;
-- every settings item emits `settings put <ns> <key> <quoted value>`, with `bool` normalised to
-  `0`/`1` and `int`/`float` numerically validated;
-- the tactical push step is the stable, greppable `# TODO(tactical-apply):` scaffold — this is a
-  **known and accepted v1 limitation** (spec Appendix B), not a defect. The tactical artefact is
-  applied by manual upload (§8.6).
+- the bundle contains **no** settings script and no `settings put` line anywhere;
+- there is **no** tactical script at all: the tactical artefact is `tactical.json`, applied by manual
+  upload to Knox (§8.6). This is the confirmed apply model (spec Appendix B), not a gap.
 
 Any mismatch between script and register at this point is a **generator defect** — log it in
 `defect-register.md` and stop. Do not "fix it on the device".
@@ -397,14 +409,13 @@ Any mismatch between script and register at this point is a **generator defect**
 1. Start with a fresh PowerShell session on Host A; `Set-Location` to the extracted bundle.
 2. Run `packages.impl.ps1`. Capture the full transcript (the script starts one; also keep the console
    output).
-3. Run `settings.impl.ps1`. Capture the transcript.
-4. Record: exit codes, every warning/error line, and any item the script reported as skipped
+3. Record: exit codes, every warning/error line, and any item the script reported as skipped
    (e.g. package not present).
-5. **Idempotency (VT-17).** Run both scripts a **second** time. Expect: no errors, no state change,
-   and skip/no-op messaging where already applied. Any second-run error is a finding.
-6. **Reboot (VT-18).** Reboot the device, wait for full boot, then re-run verification later in
-   Phase 2. Settings that do not survive a reboot are a materially important finding — several
-   Android settings are re-asserted by system components at boot.
+4. **Idempotency (VT-17).** Run the script a **second** time. Expect: no errors, no state change, and
+   skip/no-op messaging where already applied. Any second-run error is a finding.
+5. **Reboot (VT-18).** Reboot the device, wait for full boot, then re-run verification later in
+   Phase 2. A disabled package that returns after a reboot, or a tactical policy the platform
+   re-asserts at boot, is a materially important persistence finding.
 
 ### 8.6 Apply tactical (VT-19..VT-21)
 
@@ -425,8 +436,7 @@ Any mismatch between script and register at this point is a **generator defect**
 
 ### 9.1 Run generated verification (VT-22..VT-24)
 
-1. Run `packages.verify.ps1` and `settings.verify.ps1` from the Verification bundle. Capture
-   transcripts.
+1. Run `packages.verify.ps1` from the Verification bundle. Capture the transcript.
 2. Collect the per-item verdicts: PASS / FAIL / MISSING / EVIDENCED.
 3. If `verification-results.csv` was emitted, complete the `actual` and `result` columns from the
    read-back (the scaffold ships with `expected` pre-filled and `actual`/`result` blank).
@@ -447,16 +457,16 @@ partially readable back. Confirm:
 
 ### 9.3 Reboot-persistence re-verification (VT-26)
 
-Re-run both verification scripts **after** the Phase 1 reboot. Compare verdict-for-verdict against
-the pre-reboot run. Any PASS→FAIL transition is a persistence finding and must be recorded per item,
-with the item's namespace and key.
+Re-run verification **after** the Phase 1 reboot. Compare verdict-for-verdict against the pre-reboot
+run. Any PASS→FAIL transition is a persistence finding and must be recorded per item.
 
 ### 9.4 Independent manual spot-check (VT-27)
 
 Do not trust the verification scripts to grade themselves. Analyst C independently checks a random
 sample — **minimum 20 items or 10% of decided items, whichever is greater**, stratified to include
-at least: 3 removed packages, 3 disabled packages, 3 kept packages, 5 settings across all three
-namespaces, 3 tactical paths, and every item the register marks security-relevant.
+at least: 3 removed packages, 3 disabled packages, 3 kept packages, 5 tactical paths (including at
+least one `policyList` policy and one `imsSettings` SIM slot), and every item the register marks
+HIGH or MEDIUM security-relevant.
 
 For each sampled item, check by an **independent route** where one exists:
 
@@ -465,7 +475,6 @@ For each sampled item, check by an **independent route** where one exists:
 | Package removed | `pm list packages` absent; also `pm list packages -u` (uninstalled-but-retained) and confirm in Settings → Apps |
 | Package disabled | `pm list packages -d` present; app icon gone from launcher; app cannot be launched via intent |
 | Package kept | present and launchable |
-| Setting | `settings get <ns> <key>` **and** the corresponding UI toggle in Settings, where one exists |
 | Tactical | Knox console value, plus observable device behaviour where the policy has a visible effect |
 
 **Any disagreement between the generated verification verdict and the manual spot-check is a
@@ -482,6 +491,11 @@ must map to one of:
 - a volatile/noise key on the allow-list (Appendix C).
 
 Anything else is an **unexplained delta** and blocks S-4 until adjudicated.
+
+> **This sweep carries more weight in v2.0.** With Settings retired, changed settings keys are *by
+> definition* no longer intentional — the tool cannot write one. Every settings-key delta is therefore
+> either an OS side-effect, noise, or something the tool did that nobody intended. Adjudicate the full
+> settings delta, not a sample.
 
 ---
 
@@ -530,7 +544,7 @@ Reboot DEVICE-B and let Operator B re-check anything they choose. Record whether
 
 ### 11.1 Capture (VT-31)
 
-Take the three captures from **both** devices, using the **identical** commands and tooling as
+Take all three captures (two tool inputs + the settings evidence dump) from **both** devices, using the **identical** commands and tooling as
 Phase 0 (§7.2). Label `post-A-*` and `post-B-*`. Hash immediately.
 
 Both post-captures must be taken after both devices have been rebooted and left idle for the same
@@ -541,7 +555,8 @@ settling period (recommended: 10 minutes, screen on, unlocked) to reduce timer/c
 Before diffing, apply these rules identically to all four capture sets:
 
 1. **Packages** — strip any `package:` prefix and trailing `=path`/installer fields; dedupe; sort.
-2. **Settings** — key is `namespace/key`; values kept verbatim; sort by key.
+2. **Settings (evidence)** — key is `namespace/key` (split on the first `=`); values kept verbatim;
+   sort by key. Diffed, never decided.
 3. **Tactical** — flatten to leaf paths; canonicalise via deterministic serialisation (stable key
    order); preserve JSON types.
 4. **Noise** — drop keys on `baseline-noise-allowlist.csv` (Appendix C).
@@ -894,7 +909,7 @@ State these in the final report; they bound what the result proves.
 | T-2 | **Operator B's skill level** determines the manual arm's score | Choose a genuinely competent operator; record their background | The result is "vs *this* engineer", not "vs all engineers" |
 | T-3 | **Blinding leakage** (shared workspace, overheard conversation) | Physical/temporal separation, written acknowledgement | Cannot be fully proven absent |
 | T-4 | **EVIDENCED items are unproven** by definition | Knox console read-back as corroboration; M8 reports the share | Tactical state is the weakest-evidenced class |
-| T-5 | **`settings get` read-back is not proof of effect** — a written value may be ignored by the subsystem | Behavioural spot-checks (UI + functional) on security-relevant items | Some settings remain write-verified only |
+| T-5 | **Read-back is not proof of effect** — a value the platform reports may be ignored by the subsystem | Behavioural spot-checks (UI + functional) on security-relevant items | Some settings remain write-verified only |
 | T-6 | **Capture normalisation may hide a real change** if the noise allow-list is too broad | Allow-list is derived from the A-vs-B baseline diff, reviewed and version-controlled | Over-broad entries could mask a delta |
 | T-7 | **Firmware/OS background activity** mutates settings independently of both arms | Identical settling period, same network posture, same time window | Residual timing noise |
 | T-8 | **Order effects** — Arm A ran first and learnings could leak into procedure | Fixed procedure written before execution (this document) | Minor |
@@ -951,7 +966,7 @@ adb -s $S shell pm list packages -d
 adb -s $S shell pm list packages -e
 adb -s $S shell pm list packages -u
 
-# Settings (per namespace)
+# Settings — EVIDENCE ONLY in v2.0 (not a tool input; see §7.2)
 adb -s $S shell settings list system
 adb -s $S shell settings list secure
 adb -s $S shell settings list global
@@ -970,7 +985,7 @@ manufacture false deltas).
 
 | Column | Source | Notes |
 |---|---|---|
-| `dataset` | capture | `packages` / `settings` / `tactical` |
+| `dataset` | capture | `packages` / `tactical` / `settings-evidence` |
 | `key` | capture | package name, `namespace/key`, or tactical leaf path |
 | `baseline_value` | baseline capture | for packages: present/absent/disabled |
 | `armA_value`, `armB_value` | post captures | |
