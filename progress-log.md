@@ -29,7 +29,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**336/336 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+**353/353 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
 checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
 `report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
@@ -847,6 +847,69 @@ enable_sa, disable."*, and survives save/load with its option descriptions intac
 
 **Defects:** 2 found during build (numeric leaves inferring as text; override editors inferring from
 the empty override value instead of the capture), both FIXED before commit.
+
+---
+
+### 2026-07-28 — STAB-1/2 + TAG-1/2/3: layout stability, column-wide assign, control tags — ✅ COMPLETE
+
+**STAB-1 — "checking a box moves my scroll slightly" (user-reported).** The cause was not the
+scroll. `scrollTop` never moved; the **row grew**. Ticking a device adds its name to the
+neighbouring *Applies to* cell, that cell wraps onto another line, the row gets taller, and every
+row below slides down — so the next box you meant to click has moved. Measured in a browser:
+a reference row went 754 → 762 → 797px over two ticks while `scrollTop` stayed at exactly 900.
+
+Fixed by clamping the cells that grow on a tick — *Control Refs* and *Applies to* in the data
+tables, *Applies to* and *Tags* in the Control Manager — to a **fixed** height with the full text
+on the `title`. Two things had to be got right, both found by measuring rather than reasoning:
+a height *range* is not enough (a 2-line clamp still grows on the 0→1 line transition), and the
+clamp span must be emitted **even when empty** so an empty cell is exactly as tall as a full one.
+
+> Also fixed en route: the first attempt at this CSS left a stray `*/`, which silently killed the
+> rule — the class was on the element and no style applied. Caught by reading the *computed*
+> style in a browser rather than trusting the source.
+
+**STAB-2 — scroll anchoring.** Restoring `scrollTop` is not enough on its own, because content
+*above* the viewport can legitimately change height. The renderer now also records the focused
+element's viewport offset (via a selector rebuilt from its own `data-*` attributes) and corrects
+`scrollTop` by however much it moved. Whatever else reflows, the thing under the cursor stays
+under the cursor. Browser-measured: **0px drift on four consecutive ticks**, where it was 8–43px.
+
+**TAG-3 — a device column heading assigns the whole shown column.** Each per-device heading in
+the Control Manager is now a button: it assigns that device to **every control currently shown**,
+so onboarding a device and giving it a searched-for set of controls is one click. Verified:
+search `bluetooth` → click *S23* → exactly the two Bluetooth controls got it, the other three
+untouched; the heading then marks itself green and the same click removes it from all of them.
+The review-12 #1 contract holds on the bulk path — assigning seeds `unsatisfied`, un-assigning
+drops it.
+
+**TAG-1/TAG-2 — custom tags on controls.** A control's `type` is one classification; `tags` is a
+free, multi-valued one, for whatever cuts across the catalogue — the administrative controls you
+track but never action through this tool being the case that prompted it. Additive:
+`Control.tags` plus a top-level `controlTags` catalogue, no `schemaVersion` bump; an empty list
+is dropped so "no tags" has one canonical form.
+
+Applied through a **sticky tools rail on the Control Manager**, deliberately the same affordance
+as the data tabs' Apply Control Mode: an Apply Tag Mode toggle, a create-tag box, a filterable
+picker showing each tag's usage count, a per-row ✓ Tag column, and **Tag all N shown** with the
+same toggle-to-untag semantics as BULK-1. The Control Manager search now matches tags too, so you
+can narrow to a tag and then bulk-act on it. Rail verified pinned at a constant 119px offset.
+
+Two details worth recording:
+- The create-tag box sits **above** the picker. With a long tag list the rail scrolls, and the
+  one control you cannot reach by scrolling is the one that creates your first tag.
+- The CM search re-renders only the table host, so the rail's bulk button kept a stale count —
+  it read *"Tag all 5 shown"* while one row was shown. It acted correctly (it recomputes), but a
+  button that promises a number it will not act on is a bug. The rail is now re-rendered with the
+  table. **Found in browser testing; the suite could not see it.**
+
+**Tests:** +17 across three new suites (STAB-1 clamped cells incl. the empty case and a check
+that the CSS pins a *fixed* height; TAG-3 heading-is-a-button, shown-set-only, toggle, marks
+itself, deviceStates contract; TAG-1/2 create/apply/multi/dedupe/canonical-empty/round-trip/
+schema-rejection/delete, search-matches-tags, rail composition, bulk label flips).
+**353/353 pass** (83 suites), headless and in Chrome, no console errors.
+
+**Defects:** 3 found (STAB-1 user-reported; the stray `*/` that voided the fix; the stale rail
+count), all FIXED.
 
 ---
 

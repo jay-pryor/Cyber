@@ -2095,6 +2095,52 @@ Additive and optional; `held` is only ever `true` when present (canonical form o
   is the reason the state exists. It appears in the data tables and the device panels.
 - **HELD-6 (MUST)** Holding an item that has no value is refused — there is nothing to review.
 
+## 22.5 Layout stability, column-wide assignment, control tags (v2.1.2)
+
+### STAB-1 (MUST) — a tick must not change a row's height
+Cells whose text GROWS as a side effect of ticking a box — the data tables' **Control Refs**
+and **Applies to**, the Control Manager's **Applies to** and **Tags** — MUST render inside a
+**fixed-height** clamp with the full value on the element's `title`.
+
+The failure this prevents is subtle and was user-reported: ticking a checkbox adds a name to a
+neighbouring cell, that cell wraps onto another line, the **row** grows, and every row below it
+slides down — so the next box you meant to click has moved. `scrollTop` never changes, which is
+why it presents as "it moves *slightly*" rather than as a scroll jump.
+
+A height **range** (e.g. a 2-line clamp) is NOT sufficient: going from zero lines to one still
+grows the row. The height is fixed at one line, and the clamp span is emitted **even when
+empty**, so an empty cell is exactly as tall as a full one.
+
+### STAB-2 (MUST) — anchor the scroll to what the user is touching
+Restoring `scrollTop` across a re-render is not enough on its own, because content *above* the
+viewport can legitimately change height. The renderer MUST also record the viewport offset of
+the focused element (built from its own `data-*` attributes into a re-queryable selector) and,
+after rendering, shift `scrollTop` by however much that element moved. The element under the
+cursor then stays under the cursor whatever else reflows. Best-effort: anchoring must never
+throw or block a render.
+
+### TAG-3 (MUST) — a device column heading assigns the whole shown column
+In the Control Manager, each per-device column's **heading is a button**: it assigns that device
+to **every control currently shown** (search included), so onboarding a device and giving it a
+searched-for set of controls is one click. When every shown control already has the device the
+heading marks itself and the same click removes it from all of them. It keeps the review-12 #1
+contract: assigning seeds `deviceStates[baseId] = 'unsatisfied'`, un-assigning drops it.
+
+### TAG-1/TAG-2 (MUST) — custom tags on controls
+A `Control` MAY carry **`tags: string[]`** — a free, multi-valued classification, distinct from
+its single `type` (e.g. marking administrative controls that are tracked but never actioned
+through the tool). A project MAY carry a top-level **`controlTags: string[]`** catalogue; the
+picker offers the catalogue ∪ the tags in use, so a tag never silently vanishes. Additive: no
+`schemaVersion` bump. An empty `tags` list is dropped so "no tags" has one canonical form, and
+both arrays serialise sorted.
+
+Tags are applied through a **sticky tools rail on the Control Manager**, mirroring the data
+tabs' Apply Control Mode (SP-1…SP-3): an **Apply Tag Mode** toggle, a create-tag box, a
+filterable picker showing each tag's usage count, a per-row **✓ Tag** tick column, and a
+**Tag all N shown** button with the same toggle-to-untag semantics as BULK-1. The Control
+Manager's search MUST match tags as well as title/type/description. Deleting a tag strips it
+from every control and changes nothing else.
+
 ## 22.3 Acceptance (additive to §1.1)
 
 - **VF-A** With no configuration, every leaf of the reference Knox capture resolves to a
@@ -2117,6 +2163,11 @@ Additive and optional; `held` is only ever `true` when present (canonical form o
 - **BULK-B** In a real browser, for the data tables **and** the Control Manager's per-device
   columns, a click on cell *whitespace* toggles the tick, and a click on the box itself
   toggles it exactly once.
+- **STAB-A** In a real browser, with the list scrolled, ticking a checkbox leaves the ticked
+  cell at the **same viewport offset** — verified repeatedly, not once.
+- **TAG-A** A device column heading assigns only the shown controls, toggles back off, and
+  seeds/drops `deviceStates`. A tag can be created, applied to the shown set, searched for,
+  round-tripped, and deleted without touching anything else about its controls.
 - **HELD-A** Flipping a decided item retains its `decision` byte-for-byte, marks it held,
   drops the device out of ready, and excludes it from the generated script; flipping back
   restores the same value. Editing releases the hold; `clear` still clears.

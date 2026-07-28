@@ -1505,3 +1505,35 @@ overrides, generate or the report shell.
   rejects `held:false`; flipping back restores the value; editing releases; clear still clears.
 - **Out-of-band:** drive a browser for BULK-B (cell-whitespace click, no double-toggle) and
   to confirm the end-to-end search→apply flow.
+
+### T13.10 · Layout stability, column-wide assignment, control tags (STAB-1/2, TAG-1/2/3)
+- **Depends on:** T13.9
+- **Spec:** §22.5, §22.3 (STAB-A, TAG-A)
+- **Objective:** Three review items; the first is a bug whose cause is not where it looks.
+- **Build:**
+  - **STAB-1.** The reported symptom is "checking a box moves my scroll slightly". `scrollTop`
+    is in fact untouched — the ROW GROWS. Ticking adds a name to a neighbouring cell, it wraps,
+    the row gets taller, everything below slides. Clamp those cells (`Control Refs`,
+    `Applies to`, `Tags`) to a **fixed** height with the value on `title`. A 1–2 line *range* is
+    not enough: 0→1 line still grows. Emit the clamp span even when empty. **Verify in a
+    browser by measuring the ticked cell's viewport offset before and after** — this cannot be
+    seen from rendered HTML.
+  - **STAB-2.** Add scroll anchoring to `restoreScroll`: record the focused element's viewport
+    offset via a selector built from its `data-*` attributes, and correct `scrollTop` by however
+    much it moved. Catches any future height change, wherever it comes from.
+  - **TAG-3.** Make each per-device column heading a button over `shownControls(project)` —
+    the same "shown means shown" guarantee as BULK-1, shared by the heading's state and its
+    action. Add `store.setControlsDevice(ids, baseId, on)`, keeping the review-12 #1
+    `deviceStates` contract.
+  - **TAG-1/2.** Add `Control.tags` + top-level `controlTags`, `store.setControlTag`,
+    `addControlTag`/`removeControlTag`/`knownControlTags`, a Tags column, and a **Control
+    Manager tools rail** mirroring SP-1…SP-3. Make the CM search match tags. Put the create-tag
+    box ABOVE the picker — with a long tag list the rail scrolls, and the one control you cannot
+    reach by scrolling is the one that creates the first tag.
+- **Watch:** the CM search re-renders only the table host. The rail's bulk button names the
+  shown count, so it MUST be re-rendered with it or the button will promise a number it does not
+  act on (found in browser testing, not by the suite).
+- **Self-tests:** clamped cells incl. the empty case and the fixed-height CSS; the heading is a
+  button, acts on the shown set only, toggles, and marks itself; tags create/apply/multi/dedupe/
+  canonical-empty/round-trip/schema/delete; search matches tags; the rail renders picker, tick
+  column, bulk button and create box; the bulk label flips to untag.

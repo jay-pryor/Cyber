@@ -187,9 +187,39 @@
                 min-height: 34px; padding: 4px 0; cursor: pointer; }
   .cell-check:hover { background: var(--c-surface-alt); }
   .cell-check input { width: 16px; height: 16px; cursor: pointer; }
+  /* STAB-1: cells whose text GROWS when you tick a box (Control Refs, Applies to) are
+     clamped to a fixed number of lines. Without this, ticking a checkbox adds a name to a
+     neighbouring cell, the cell wraps onto another line, the ROW gets taller, and every row
+     below it slides down under the cursor — so the next box you meant to click has moved.
+     The scroll position is untouched; it is the content that shifts. Clamping keeps row
+     heights constant, and the full text stays available via the cell's title tooltip.
+     A RANGE is not enough — allowing 1-2 lines still grows the row on the first tick, so
+     the height is FIXED at one line and long text ellipsises: the row is the same height
+     whether the cell holds nothing, one name, or six. */
+  .cell-clamp { display: block; height: 1.45em; line-height: 1.45; overflow: hidden;
+                white-space: nowrap; text-overflow: ellipsis; }
+
   /* BULK-1: the apply-to-all-shown button + its caption. */
   .side-rail .apply-all { width: 100%; }
   .apply-all-note { font-size: 11px; line-height: 1.35; }
+  /* TAG-1/2/3: control tags, the clickable device column heading, the tag tick column. */
+  .badge.tag { background: var(--c-info-bg); color: var(--c-info); border-color: var(--c-info); font-size: 10px; }
+  table.ctl-table .ctl-tags-cell { font-size: 12px; }
+  table.ctl-table th.cm-dev-col { padding: 2px 4px; }
+  .cm-dev-head { width: 100%; font: inherit; font-size: 12px; font-weight: 600; padding: 3px 4px;
+                 background: none; border: 1px dashed transparent; border-radius: 4px; cursor: pointer;
+                 color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cm-dev-head:hover { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-surface-alt); }
+  .cm-dev-head.all-on { color: var(--c-ok); }
+  table.ctl-table th.cm-tag-col, table.ctl-table td.cm-tag-cell { text-align: center; width: 74px; }
+  table.ctl-table td.cm-tag-cell { padding: 0; }
+  table.ctl-table td.cm-tag-cell input { width: 16px; }
+  /* The CM rail carries more sections than the data tabs', so its card list is shorter. */
+  .ctl-cards.cm-tag-cards { max-height: 32vh; }
+  .cm-newtag { display: flex; gap: 6px; }
+  .cm-newtag input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+                     border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .side-rail .ctl-card-type { border-radius: 8px; }
 
   /* ---- SP-1/SP-2/SP-3: the sticky tools rail ------------------------------------
      The table and the rail sit side by side; the rail is `position:sticky` so it
@@ -1610,7 +1640,7 @@
     'use strict';
 
     var SCHEMA_VERSION = 3; // v3 (spec §19): adds top-level `groups` + per-config `overrides` (value-only)
-    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'groups', 'items', 'controls', 'controlTypes', 'valueFormats'];
+    var TOP_KEYS = ['schemaVersion', 'platformProfileId', 'meta', 'deviceConfigs', 'groups', 'items', 'controls', 'controlTypes', 'controlTags', 'valueFormats'];
     var SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     var ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
     var SHA_RE = /^[0-9a-f]{64}$/;
@@ -1679,6 +1709,12 @@
       if (p.controlTypes !== undefined && !isStringArray(p.controlTypes)) {
         issues.push(issue('error', 'controlTypes must be an array of strings.', 'controlTypes'));
       }
+      // TAG-1: optional catalogue of user-defined control tags. A control's `tags` is a
+      // free multi-valued dimension, distinct from its single `type` — e.g. marking the
+      // administrative controls you track but never action through this tool.
+      if (p.controlTags !== undefined && !isStringArray(p.controlTags)) {
+        issues.push(issue('error', 'controlTags must be an array of strings.', 'controlTags'));
+      }
 
       // controls (spec §18.3 CTL-1). Build the id set for controlRefs integrity.
       var controlIds = {};
@@ -1692,6 +1728,7 @@
           if (typeof c.title !== 'string' || !c.title) issues.push(issue('error', 'Control.title must be a non-empty string.', loc + '.title'));
           if (typeof c.type !== 'string' || !c.type) issues.push(issue('error', 'Control.type must be a non-empty string.', loc + '.type'));
           if (c.description !== undefined && typeof c.description !== 'string') issues.push(issue('error', 'Control.description must be a string.', loc + '.description'));
+          if (c.tags !== undefined && !isStringArray(c.tags)) issues.push(issue('error', 'Control.tags must be an array of strings.', loc + '.tags')); // TAG-1
           if (c.assignedDeviceIds !== undefined && !isStringArray(c.assignedDeviceIds)) issues.push(issue('error', 'Control.assignedDeviceIds must be an array of strings.', loc + '.assignedDeviceIds'));
           // review-12 #1: {deviceBaseId: 'satisfied'|'unsatisfied'} — device-specific
           // satisfaction of this control. Absent/unknown baseId ⇒ 'unsatisfied'.
@@ -2210,10 +2247,14 @@
       }
       // Canonical control ordering: by id; sort assignedDeviceIds.
       if (Array.isArray(p.controls)) {
-        p.controls.forEach(function (c) { if (Array.isArray(c.assignedDeviceIds)) c.assignedDeviceIds.sort(); });
+        p.controls.forEach(function (c) {
+          if (Array.isArray(c.assignedDeviceIds)) c.assignedDeviceIds.sort();
+          if (Array.isArray(c.tags)) c.tags.sort();                                  // TAG-1
+        });
         p.controls.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
       }
       if (Array.isArray(p.controlTypes)) p.controlTypes.sort();
+      if (Array.isArray(p.controlTags)) p.controlTags.sort();                       // TAG-1
       // Canonical value-format ordering (VF-3): by id. Option ORDER is meaningful (it is
       // the order of the picker), so options are never sorted.
       if (Array.isArray(p.valueFormats)) p.valueFormats.sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; });
@@ -2773,6 +2814,7 @@
       if (!title) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Control title is required.', location: 'title' }] };
       var id = uniqueControlId(_project, title);
       var ctl = { id: id, title: title, type: (input.type || 'Custom'), description: (input.description || ''), assignedDeviceIds: (input.assignedDeviceIds || []).slice() };
+      if (Array.isArray(input.tags) && input.tags.length) ctl.tags = normTags(input.tags);   // TAG-1
       // review-12 #1: a control added to a device starts UNSATISFIED on that device.
       ctl.deviceStates = {}; ctl.assignedDeviceIds.forEach(function (b) { ctl.deviceStates[b] = 'unsatisfied'; });
       commit(function (p) { if (!Array.isArray(p.controls)) p.controls = []; p.controls.push(ctl); });
@@ -2787,6 +2829,8 @@
         if ('title' in patch) c.title = patch.title;
         if ('type' in patch) c.type = patch.type;
         if ('description' in patch) c.description = patch.description;
+        // TAG-1: an empty list is dropped, so "no tags" has one canonical form.
+        if ('tags' in patch) { var t = normTags(patch.tags); if (t.length) c.tags = t; else delete c.tags; }
         if ('assignedDeviceIds' in patch) {
           c.assignedDeviceIds = (patch.assignedDeviceIds || []).slice();
           // review-12 #1: keep deviceStates in step with assignment — a newly-assigned
@@ -2959,6 +3003,120 @@
         });
       });
       return { ok: true, issues: [], applied: applied };
+    }
+
+    // ---- Control TAGS (TAG-1) -----------------------------------------------------
+    // A control's `type` is a single classification; `tags` is a free, multi-valued one —
+    // "administrative", "physical", "out-of-scope" — so a control can be filed under
+    // several at once. The catalogue mirrors controlTypes: a stored list unioned with
+    // whatever is actually in use, so a tag never silently disappears from the picker.
+
+    /** Trim, drop blanks, de-duplicate, sort. @param {string[]} list @returns {string[]} */
+    function normTags(list) {
+      var seen = {}, out = [];
+      (list || []).forEach(function (t) {
+        var v = String(t == null ? '' : t).trim();
+        if (!v || seen[v]) return;
+        seen[v] = true; out.push(v);
+      });
+      return out.sort();
+    }
+
+    /** Every tag offered by the picker: the project's catalogue ∪ the tags in use. */
+    function knownControlTags() {
+      var seen = {}, out = [];
+      if (_project) {
+        (_project.controlTags || []).forEach(function (t) { if (t && !seen[t]) { seen[t] = true; out.push(t); } });
+        (_project.controls || []).forEach(function (c) {
+          (c.tags || []).forEach(function (t) { if (t && !seen[t]) { seen[t] = true; out.push(t); } });
+        });
+      }
+      return out.sort();
+    }
+
+    /** Register a tag so it can be picked before any control uses it. */
+    function addControlTag(name) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var t = String(name || '').trim();
+      if (!t) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Tag name is required.', location: 'tag' }] };
+      if (knownControlTags().indexOf(t) !== -1) return { ok: true, issues: [{ category: 'state', severity: 'info', message: 'Tag "' + t + '" already exists.' }] };
+      commit(function (p) { if (!Array.isArray(p.controlTags)) p.controlTags = []; p.controlTags.push(t); });
+      return { ok: true, issues: [] };
+    }
+
+    /** Remove a tag from the catalogue AND from every control carrying it. */
+    function removeControlTag(name) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] };
+      var t = String(name || '').trim(), affected = 0;
+      commit(function (p) {
+        p.controlTags = (p.controlTags || []).filter(function (x) { return x !== t; });
+        if (!p.controlTags.length) delete p.controlTags;
+        (p.controls || []).forEach(function (c) {
+          if (Array.isArray(c.tags) && c.tags.indexOf(t) !== -1) {
+            c.tags = c.tags.filter(function (x) { return x !== t; });
+            if (!c.tags.length) delete c.tags;
+            affected++;
+          }
+        });
+      });
+      return { ok: true, issues: [{ category: 'state', severity: 'success', message: 'Removed tag "' + t + '" from ' + affected + ' control(s).' }] };
+    }
+
+    /**
+     * TAG-2: add or remove one tag across many controls in a single transaction — the
+     * bulk path behind "tag everything currently shown".
+     * @param {string[]} controlIds @param {string} tag @param {boolean} on
+     * @returns {{ok:boolean, issues:Issue[], changed:number}}
+     */
+    function setControlTag(controlIds, tag, on) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }], changed: 0 };
+      var t = String(tag || '').trim();
+      if (!t) return { ok: false, issues: [{ category: 'validation', severity: 'error', message: 'Tag name is required.', location: 'tag' }], changed: 0 };
+      var want = {}; (controlIds || []).forEach(function (id) { want[id] = true; });
+      var changed = 0;
+      commit(function (p) {
+        if (on && !Array.isArray(p.controlTags)) p.controlTags = [];
+        if (on && p.controlTags.indexOf(t) === -1) p.controlTags.push(t);
+        (p.controls || []).forEach(function (c) {
+          if (!want[c.id]) return;
+          var tags = (c.tags || []).slice(), has = tags.indexOf(t) !== -1;
+          if (on && !has) { tags.push(t); changed++; }
+          else if (!on && has) { tags = tags.filter(function (x) { return x !== t; }); changed++; }
+          else return;
+          tags = normTags(tags);
+          if (tags.length) c.tags = tags; else delete c.tags;
+        });
+      });
+      return { ok: true, issues: [], changed: changed };
+    }
+
+    /**
+     * TAG-3: assign or un-assign ONE device across many controls in a single
+     * transaction — the column-header toggle in the Control Manager.
+     * @param {string[]} controlIds @param {string} baseId @param {boolean} on
+     * @returns {{ok:boolean, issues:Issue[], changed:number}}
+     */
+    function setControlsDevice(controlIds, baseId, on) {
+      if (!_project) return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }], changed: 0 };
+      var want = {}; (controlIds || []).forEach(function (id) { want[id] = true; });
+      var changed = 0;
+      commit(function (p) {
+        (p.controls || []).forEach(function (c) {
+          if (!want[c.id]) return;
+          var ids = (c.assignedDeviceIds || []).slice(), has = ids.indexOf(baseId) !== -1;
+          if (on && !has) ids.push(baseId);
+          else if (!on && has) ids = ids.filter(function (b) { return b !== baseId; });
+          else return;
+          changed++;
+          c.assignedDeviceIds = ids.sort();
+          // review-12 #1: keep deviceStates in step — a newly-assigned device starts
+          // 'unsatisfied'; an un-assigned device's state is dropped.
+          c.deviceStates = c.deviceStates || {};
+          if (on) { if (!c.deviceStates[baseId]) c.deviceStates[baseId] = 'unsatisfied'; }
+          else delete c.deviceStates[baseId];
+        });
+      });
+      return { ok: true, issues: [], changed: changed };
     }
 
     // ---- Control TYPES (review-3 #5a): seeded list + user-added + types in use ----
@@ -3164,6 +3322,10 @@
       removeItems: removeItems, datasetSnapshot: datasetSnapshot, restoreDatasetSnapshot: restoreDatasetSnapshot,
       setHeld: setHeld,
       addControl: addControl, updateControl: updateControl, removeControl: removeControl,
+      // TAG-1/2/3: control tags + the two Control Manager bulk paths.
+      knownControlTags: knownControlTags, addControlTag: addControlTag,
+      removeControlTag: removeControlTag, setControlTag: setControlTag,
+      setControlsDevice: setControlsDevice,
       // VF-5/VF-6: the reusable value-format catalogue + bulk item assignment.
       addValueFormat: addValueFormat, updateValueFormat: updateValueFormat,
       removeValueFormat: removeValueFormat, setItemFormats: setItemFormats,
@@ -5793,6 +5955,20 @@
       }
     }
 
+    /**
+     * STAB-1: render cell text clamped to a fixed height, with the full value on the
+     * element's title. Used for the cells that GROW when a checkbox is ticked, so a tick
+     * never changes a row's height and never shifts the rows below it.
+     * @param {string} text @returns {string} HTML
+     */
+    function clampCell(text) {
+      var t = String(text == null ? '' : text);
+      // The span is emitted even when EMPTY: its min-height makes an empty cell exactly as
+      // tall as a one-line cell, so the very first tick — which turns '' into one name —
+      // does not change the row height either.
+      return '<span class="cell-clamp"' + (t ? ' title="' + esc(t) + '"' : '') + '>' + esc(t) + '</span>';
+    }
+
     function ctrl(dsId, key, field, kind, extra) {
       return 'data-decision data-ds="' + esc(dsId) + '" data-key="' + esc(key) + '" data-field="' + esc(field) + '" data-kind="' + kind + '"' + (extra || '');
     }
@@ -6078,12 +6254,13 @@
           if (c.key === 'controlRefs') {
             // Resolve control ids to titles for display (spec §18.3 CTL-5).
             var titles = (r.item.controlRefs || []).map(function (id) { return controlsById[id] ? controlsById[id].title : id; });
-            return '<td>' + esc(titles.join(', ')) + '</td>';
+            // STAB-1: clamped — this is the cell that grows the instant you tick Apply.
+            return '<td>' + clampCell(titles.join(', ')) + '</td>';
           }
           return '<td>' + esc(r.cells[c.key] == null ? '' : r.cells[c.key]) + '</td>';
         }).join('');
         tds += relevanceCell(dsId, r.item);
-        tds += '<td>' + esc(r.appliesTo.join(', ')) + '</td>';
+        tds += '<td>' + clampCell(r.appliesTo.join(', ')) + '</td>';   // STAB-1
         // review-17 #3: the status badge is a toggle — clicking it flips the item
         // between decided (adopting what the value editor shows) and undecided.
         var statusAttrs = ' role="button" tabindex="0" data-status-toggle data-ds="' + esc(dsId) + '" data-key="' + esc(r.item.key) + '"';
@@ -7273,14 +7450,43 @@
     // review-13 #4: `deviceCols` is the set of device baseIds shown as checkbox columns
     // in the table. null = "not chosen yet" ⇒ every onboarded device gets a column, so
     // the feature is visible without hunting for it.
-    var _cm = { search: '', expanded: {}, colWidths: {}, deviceCols: null };
+    var _cm = { search: '', expanded: {}, colWidths: {}, deviceCols: null,
+                // TAG-2: the Control Manager's own tools rail, mirroring the data tabs'.
+                tagMode: false, tagName: '', tagSearch: '', railCollapsed: false, newTag: '' };
     var _cmSearchTimer = null;
     var CM_COLS = [
       { key: 'title', label: 'Title', w: 200 },
       { key: 'type', label: 'Type', w: 120 },
+      { key: 'tags', label: 'Tags', w: 160 },
       { key: 'applies', label: 'Applies to', w: 200 },
-      { key: 'description', label: 'Description', w: 340 }
+      { key: 'description', label: 'Description', w: 320 }
     ];
+
+    /**
+     * The controls the table is CURRENTLY SHOWING, in display order. Shared by the table,
+     * the device-column header toggle and the tag bulk button, so "shown" means the same
+     * thing to all three — the same guarantee BULK-1 makes on the data tabs.
+     * @param {Project} project @returns {Control[]}
+     */
+    function shownControls(project) {
+      var controls = (project.controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
+      var q = (_cm.search || '').toLowerCase().trim();
+      if (!q) return controls;
+      return controls.filter(function (c) {
+        return ((c.title || '') + ' ' + (c.type || '') + ' ' + (c.description || '') + ' ' + ((c.tags || []).join(' ')))
+          .toLowerCase().indexOf(q) !== -1;
+      });
+    }
+
+    /** TAG-3 / TAG-2: are ALL the shown controls already carrying this device / tag? */
+    function allShownHaveDevice(project, baseId) {
+      var list = shownControls(project);
+      return list.length > 0 && list.every(function (c) { return (c.assignedDeviceIds || []).indexOf(baseId) !== -1; });
+    }
+    function allShownHaveTag(project, tag) {
+      var list = shownControls(project);
+      return list.length > 0 && list.every(function (c) { return (c.tags || []).indexOf(tag) !== -1; });
+    }
 
     function typeOptions(cur) {
       var opts = App.store.knownControlTypes(); // seed + user-added + types in use
@@ -7334,6 +7540,73 @@
         '</div>';
     }
 
+    /**
+     * TAG-2: the Control Manager's sticky tools rail — the same affordance as the data
+     * tabs' Apply Control Mode, for tags. Pick a tag, tick rows (or hit "Tag all N
+     * shown"), and because the rail is `position:sticky` the picker is still there when
+     * you are 60 controls down the list.
+     */
+    function renderTagRail(project) {
+      if (!(project.controls || []).length) return '';
+      if (_cm.railCollapsed) {
+        return '<aside class="side-rail collapsed" data-side-rail>' +
+          '<button type="button" class="rail-toggle" data-cm-rail-toggle title="Show the tools panel" aria-expanded="false">‹ Tools</button>' +
+          '</aside>';
+      }
+      var tags = App.store.knownControlTags();
+      var filter = String(_cm.tagSearch || '').toLowerCase();
+      var shownTags = filter ? tags.filter(function (t) { return t.toLowerCase().indexOf(filter) !== -1; }) : tags;
+      var counts = {};
+      (project.controls || []).forEach(function (c) { (c.tags || []).forEach(function (t) { counts[t] = (counts[t] || 0) + 1; }); });
+
+      var modeBtn = '<button type="button" data-cm-tag-toggle' + (_cm.tagMode ? ' class="active"' : '') +
+        ' title="' + (_cm.tagMode ? 'Leave tag mode' : 'Pick a tag, then tick controls to apply it') + '">' +
+        (_cm.tagMode ? 'Exit tag mode' : 'Apply Tag Mode') + '</button>';
+
+      var body = '';
+      if (_cm.tagMode) {
+        var shownCount = shownControls(project).length;
+        var cards = shownTags.map(function (t) {
+          var on = _cm.tagName === t;
+          return '<button type="button" class="ctl-card' + (on ? ' active' : '') + '" data-cm-tag-pick="' + esc(t) + '" aria-pressed="' + on + '">' +
+            '<span class="ctl-card-head"><span class="ctl-card-title">' + esc(t) + '</span>' +
+            '<span class="ctl-card-type">' + (counts[t] || 0) + '</span></span>' +
+            '<span class="ctl-card-desc">' + (counts[t] ? 'On ' + counts[t] + ' control' + (counts[t] === 1 ? '' : 's') + '.' : '<em>Not used yet.</em>') + '</span>' +
+            '</button>';
+        }).join('');
+        var removing = _cm.tagName && allShownHaveTag(project, _cm.tagName);
+        var bulk = '<button type="button" class="apply-all' + (removing ? ' danger' : '') + '" data-cm-tag-all' +
+          (_cm.tagName && shownCount ? '' : ' disabled') +
+          ' title="' + esc(!_cm.tagName ? 'Pick a tag first'
+            : !shownCount ? 'No controls are shown'
+            : removing ? 'Every control shown already has this tag — click to remove it from all ' + shownCount
+            : 'Add this tag to all ' + shownCount + ' control(s) currently shown') + '">' +
+          esc(removing ? 'Untag all ' + shownCount + ' shown' : 'Tag all ' + shownCount + ' shown') + '</button>';
+        // "New tag" sits ABOVE the picker: with a long tag list the rail scrolls, and the
+        // one control you cannot reach by scrolling is the one that creates the first tag.
+        body =
+          '<div class="rail-section">' +
+            '<div class="rail-label">New tag</div>' +
+            '<div class="cm-newtag"><input type="text" data-cm-tag-new placeholder="e.g. administrative" value="' + esc(_cm.newTag || '') + '" aria-label="New tag name">' +
+            '<button type="button" data-cm-tag-add>Add</button></div>' +
+          '</div>' +
+          '<div class="rail-section">' +
+            '<div class="rail-label">Tag to apply</div>' +
+            '<input type="search" class="rail-search" data-cm-tag-search placeholder="Filter tags…" value="' + esc(_cm.tagSearch || '') + '" aria-label="Filter tags">' +
+            '<div class="ctl-cards cm-tag-cards">' + (cards || '<p class="muted rail-empty">' + (tags.length ? 'No tag matches that filter.' : 'No tags yet — create one above.') + '</p>') + '</div>' +
+            bulk +
+            '<div class="muted apply-all-note">Acts on exactly what the table shows — narrow it with the search box first.</div>' +
+            (_cm.tagName ? '<button type="button" class="danger" data-cm-tag-delete="' + esc(_cm.tagName) + '" title="Delete this tag everywhere it is used">Delete tag &ldquo;' + esc(_cm.tagName) + '&rdquo;</button>' : '') +
+          '</div>';
+      }
+      return '<aside class="side-rail" data-side-rail>' +
+        '<div class="rail-head"><span class="rail-title">Tools</span>' +
+          '<button type="button" class="rail-toggle" data-cm-rail-toggle title="Hide the tools panel" aria-expanded="true">Hide ›</button></div>' +
+        '<div class="rail-section rail-modes">' + modeBtn + '</div>' +
+        body +
+        '</aside>';
+    }
+
     /** Comma-joined device names for a control's assigned baseIds (display only). */
     function deviceNames(project, assigned) {
       var byBase = {};
@@ -7349,13 +7622,9 @@
      * and the Remove button. Filtered by the toolbar search term.
      */
     function renderTable(project) {
-      var controls = (project.controls || []).slice().sort(function (a, b) { return a.title < b.title ? -1 : a.title > b.title ? 1 : 0; });
+      var controls = (project.controls || []).slice();
       if (!controls.length) return '<p class="muted">No controls yet — add one above, or they are created automatically when migrating a v1 project.</p>';
-      var q = (_cm.search || '').toLowerCase().trim();
-      var filtered = controls.filter(function (c) {
-        if (!q) return true;
-        return ((c.title || '') + ' ' + (c.type || '') + ' ' + (c.description || '')).toLowerCase().indexOf(q) !== -1;
-      });
+      var filtered = shownControls(project);
       // review-6 #4: data-driven headers with drag-to-resize handles + stored widths.
       // review-13 #4: plus one checkbox column per device selected in the picker.
       var colWidths = _cm.colWidths || {};
@@ -7364,17 +7633,38 @@
         return '<th data-cm-col="' + key + '" scope="col"' + (extraClass ? ' class="' + extraClass + '"' : '') + ' style="width:' + (colWidths[key] || w) + 'px">' + esc(label) +
           '<span class="col-resize" data-cm-col-resize="' + key + '" title="Drag to resize"></span></th>';
       }
+      // TAG-3: the device NAME in the header is a button that toggles the whole column
+      // across the shown controls — onboard a device, search for the controls it needs,
+      // and assign them all in one click. It reads "remove" when they all already have it.
+      function devTh(d) {
+        var all = allShownHaveDevice(project, d.baseId);
+        var w = colWidths['dev:' + d.baseId] || 110;
+        return '<th data-cm-col="dev:' + esc(d.baseId) + '" scope="col" class="cm-dev-col" style="width:' + w + 'px">' +
+          '<button type="button" class="cm-dev-head' + (all ? ' all-on' : '') + '" data-cm-dev-toggle="' + esc(d.baseId) + '"' +
+          ' title="' + esc(all ? 'Every control shown is assigned to ' + d.name + ' — click to remove it from all of them'
+                              : 'Assign ' + d.name + ' to every control currently shown') + '">' + esc(d.name) + '</button>' +
+          '<span class="col-resize" data-cm-col-resize="dev:' + esc(d.baseId) + '" title="Drag to resize"></span></th>';
+      }
+      var tagCol = _cm.tagMode ? '<th class="cm-tag-col" scope="col" title="Tick to apply the selected tag">✓ Tag</th>' : '';
       var head = '<tr><th class="lead-col" aria-label="expand"></th>' +
         CM_COLS.map(function (c) { return th(c.key, c.label, c.w); }).join('') +
-        devCols.map(function (d) { return th('dev:' + d.baseId, d.name, 110, 'cm-dev-col'); }).join('') + '</tr>';
-      var colspan = 1 + CM_COLS.length + devCols.length;
+        devCols.map(devTh).join('') + tagCol + '</tr>';
+      var colspan = 1 + CM_COLS.length + devCols.length + (_cm.tagMode ? 1 : 0);
       var body = filtered.map(function (c) {
         var open = !!_cm.expanded[c.id];
         var lead = '<td><button class="expand-btn" data-ctl-expand="' + esc(c.id) + '" aria-expanded="' + open + '" title="Edit / remove">' + (open ? '▾' : '▸') + '</button></td>';
+        var applies = deviceNames(project, c.assignedDeviceIds);
+        var tagList = (c.tags || []).join(', ');
         var row = '<tr>' + lead +
           '<td><input type="text" data-ctl-field="title" data-ctl-id="' + esc(c.id) + '" value="' + esc(c.title) + '" aria-label="title"></td>' +
           '<td><select data-ctl-field="type" data-ctl-id="' + esc(c.id) + '" aria-label="type">' + typeOptions(c.type) + '</select></td>' +
-          '<td class="ctl-applies-cell">' + (esc(deviceNames(project, c.assignedDeviceIds)) || '<span class="muted">—</span>') + '</td>' +
+          // TAG-1: the tags a control carries, as badges. Clamped like Applies-to so
+          // tagging never changes a row's height (STAB-1).
+          '<td class="ctl-tags-cell"><span class="cell-clamp' + (tagList ? '' : ' muted') + '"' + (tagList ? ' title="' + esc(tagList) + '"' : '') + '>' +
+            ((c.tags || []).length ? (c.tags || []).map(function (t) { return '<span class="badge tag">' + esc(t) + '</span>'; }).join(' ') : '—') + '</span></td>' +
+          // STAB-1: clamped — this is the cell that grows as you tick device columns.
+          '<td class="ctl-applies-cell"><span class="cell-clamp' + (applies ? '' : ' muted') + '"' + (applies ? ' title="' + esc(applies) + '"' : '') + '>' +
+            (applies ? esc(applies) : '—') + '</span></td>' +
           '<td class="ctl-desc-cell">' + esc(c.description || '') + '</td>' +
           // review-13 #4: one checkbox per shown device — ticking assigns this control
           // to it (and seeds its per-device Unsatisfied state), unticking un-assigns.
@@ -7386,6 +7676,12 @@
             return '<td class="cm-dev-cell"><label class="cell-check"><input type="checkbox" data-ctl-device="' + esc(c.id) + '" data-baseid="' + esc(d.baseId) + '"' + (on ? ' checked' : '') +
               ' aria-label="Apply ' + esc(c.title) + ' to ' + esc(d.name) + '"></label></td>';
           }).join('') +
+          // TAG-2: the per-row tick column, shown only while Apply Tag Mode is on.
+          (_cm.tagMode
+            ? '<td class="cm-tag-cell"><label class="cell-check"><input type="checkbox" data-ctl-tag-check data-ctl-id="' + esc(c.id) + '"' +
+              (_cm.tagName && (c.tags || []).indexOf(_cm.tagName) !== -1 ? ' checked' : '') + (_cm.tagName ? '' : ' disabled') +
+              ' aria-label="Apply the selected tag to ' + esc(c.title) + '"></label></td>'
+            : '') +
           '</tr>';
         if (open) {
           // review-4 #4: the dropdown holds the wide wrapping description editor, the
@@ -7433,16 +7729,19 @@
 
       // review-4 #3: the add-type + import tools sit to the RIGHT of the title, not beneath it.
       // review-4 #4: a searchable table (search box outside #ctl-table-host so it keeps focus).
-      var toolbar = '<div class="ctl-toolbar"><input type="search" class="ctl-search" data-ctl-search placeholder="Search controls (title / type / description)…" value="' + esc(_cm.search) + '" aria-label="Search controls"></div>';
+      var toolbar = '<div class="ctl-toolbar"><input type="search" class="ctl-search" data-ctl-search placeholder="Search controls (title / type / tag / description)…" value="' + esc(_cm.search) + '" aria-label="Search controls"></div>';
       // review-10 #2: no max-width cap so the table can span the full screen width
       // when columns are widened (the .main content area is already full-width).
       return '<div>' +
         '<div class="ctl-header"><h2>Control Manager</h2>' + tools + '</div>' +
-        '<p class="muted">Controls are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs); assign them to <strong>devices</strong> with the per-device columns below (or the row dropdown).</p>' +
+        '<p class="muted">Controls are the requirements an item satisfies. Assign controls to items from the data tabs (Control Refs); assign them to <strong>devices</strong> with the per-device columns below (or by clicking a device&rsquo;s column heading to do every control shown at once).</p>' +
         addForm +
         toolbar +
         renderDeviceBar(project) +
-        '<div id="ctl-table-host">' + renderTable(project) + '</div>' +
+        '<div class="table-wrap' + (_cm.railCollapsed ? ' rail-collapsed' : '') + '">' +
+          '<div id="ctl-table-host">' + renderTable(project) + '</div>' +
+          renderTagRail(project) +
+        '</div>' +
         '</div>';
     }
 
@@ -7477,8 +7776,19 @@
         if (_cmSearchTimer) clearTimeout(_cmSearchTimer);
         _cmSearchTimer = setTimeout(function () {
           _cm.search = val;
+          var project = App.store.getProject();
           var host = document.getElementById('ctl-table-host');
-          if (host) host.innerHTML = renderTable(App.store.getProject());
+          if (host) host.innerHTML = renderTable(project);
+          // TAG-2: the rail's bulk button names the SHOWN count and flips between
+          // tag/untag, both of which the search changes — so it has to be re-rendered
+          // with the table or it will promise a number it is not going to act on.
+          // (Re-rendered in place, not via refreshMain, so the search box keeps focus.)
+          var rail = document.querySelector('.table-wrap [data-side-rail]');
+          if (rail) {
+            var wrap = document.createElement('div');
+            wrap.innerHTML = renderTagRail(project);
+            if (wrap.firstChild) rail.parentNode.replaceChild(wrap.firstChild, rail);
+          }
         }, 150);
       });
       // Per-row dropdown (expander) — re-render only the table host.
@@ -7516,6 +7826,73 @@
         if (el.checked) set.push(baseId);
         App.store.updateControl(id, { assignedDeviceIds: set });
       });
+      // ---- TAG-3: the device column header toggles the whole column, over the SHOWN set
+      dom.on(ctx.root, 'click', '[data-cm-dev-toggle]', function (e, el) {
+        var baseId = el.getAttribute('data-cm-dev-toggle');
+        var project = App.store.getProject();
+        var list = shownControls(project);
+        if (!list.length) return;
+        var removing = allShownHaveDevice(project, baseId);
+        var res = App.store.setControlsDevice(list.map(function (c) { return c.id; }), baseId, !removing);
+        var dev = allDevices(project).filter(function (d) { return d.baseId === baseId; })[0];
+        App.ui.activity.log({ severity: 'info',
+          message: (removing ? 'Removed' : 'Assigned') + ' device "' + ((dev && dev.name) || baseId) + '" ' +
+            (removing ? 'from' : 'to') + ' ' + res.changed + ' of the ' + list.length + ' control(s) shown' +
+            (_cm.search ? ' (search: "' + _cm.search + '")' : '') + '.' });
+      });
+
+      // ---- TAG-2: the tools rail -------------------------------------------------
+      dom.on(ctx.root, 'click', '[data-cm-rail-toggle]', function () { _cm.railCollapsed = !_cm.railCollapsed; ctx.refreshMain(); });
+      dom.on(ctx.root, 'click', '[data-cm-tag-toggle]', function () {
+        _cm.tagMode = !_cm.tagMode;
+        if (!_cm.tagMode) _cm.tagName = '';   // leaving clears the selection; the tags stay
+        ctx.refreshMain();
+      });
+      dom.on(ctx.root, 'click', '[data-cm-tag-pick]', function (e, el) {
+        var t = el.getAttribute('data-cm-tag-pick');
+        _cm.tagName = (_cm.tagName === t) ? '' : t;   // click the active one to deselect
+        ctx.refreshMain();
+      });
+      dom.on(ctx.root, 'input', '[data-cm-tag-search]', function (e, el) {
+        var pos = el.selectionStart;
+        _cm.tagSearch = el.value;
+        ctx.refreshMain();
+        var again = document.querySelector('[data-cm-tag-search]');
+        if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (err) {} }
+      });
+      dom.on(ctx.root, 'input', '[data-cm-tag-new]', function (e, el) { _cm.newTag = el.value; });
+      dom.on(ctx.root, 'click', '[data-cm-tag-add]', function () {
+        var name = String(_cm.newTag || '').trim();
+        var res = App.store.addControlTag(name);
+        App.ui.activity.logIssues(res.issues, 'Tag');
+        if (res.ok) { _cm.newTag = ''; _cm.tagName = name; }
+        ctx.refreshMain();
+      });
+      dom.on(ctx.root, 'change', '[data-ctl-tag-check]', function (e, el) {
+        if (!_cm.tagName) return;
+        var res = App.store.setControlTag([el.getAttribute('data-ctl-id')], _cm.tagName, el.checked);
+        App.ui.activity.logIssues(res.issues, 'Tag');
+      });
+      dom.on(ctx.root, 'click', '[data-cm-tag-all]', function () {
+        if (!_cm.tagName) return;
+        var project = App.store.getProject();
+        var list = shownControls(project);
+        if (!list.length) return;
+        var removing = allShownHaveTag(project, _cm.tagName);
+        var res = App.store.setControlTag(list.map(function (c) { return c.id; }), _cm.tagName, !removing);
+        App.ui.activity.log({ severity: 'info',
+          message: (removing ? 'Removed' : 'Applied') + ' tag "' + _cm.tagName + '" ' + (removing ? 'from' : 'to') + ' ' +
+            res.changed + ' of the ' + list.length + ' control(s) shown' +
+            (_cm.search ? ' (search: "' + _cm.search + '")' : '') + '.' });
+      });
+      dom.on(ctx.root, 'click', '[data-cm-tag-delete]', function (e, el) {
+        var t = el.getAttribute('data-cm-tag-delete');
+        if (!window.confirm('Delete the tag "' + t + '"? It is removed from every control that carries it. Nothing else about those controls changes.')) return;
+        App.ui.activity.logIssues(App.store.removeControlTag(t).issues, 'Tag');
+        _cm.tagName = '';
+        ctx.refreshMain();
+      });
+
       dom.on(ctx.root, 'click', '[data-ctl-remove]', function (e, el) {
         var res = App.store.removeControl(el.getAttribute('data-ctl-remove'));
         App.ui.activity.logIssues(res.issues);
@@ -7557,7 +7934,8 @@
     }
 
     App.ui = App.ui || {}; App.ui.views = App.ui.views || {};
-    App.ui.views.controls = { render: render, wire: wire, renderTable: renderTable, _cm: _cm };
+    App.ui.views.controls = { render: render, wire: wire, renderTable: renderTable, _cm: _cm,
+      shownControls: shownControls, allShownHaveDevice: allShownHaveDevice, allShownHaveTag: allShownHaveTag };
   })(App);
   </script>
 
@@ -7972,9 +8350,22 @@
         ]) +
         h(3, 'Assigning controls to devices') +
         p('The <strong>Device columns</strong> bar above the table gives each ticked device its own column, so you can apply or remove a control ' +
-          'for that device with a single click. Use <strong>All</strong> / <strong>None</strong> to change how many columns are shown; ' +
+          'for that device with a single click — anywhere in the cell, not just on the small box. Use <strong>All</strong> / <strong>None</strong> to change how many columns are shown; ' +
           'the row expander still offers the same assignment if you prefer it.') +
+        p('<strong>Click a device&rsquo;s column heading to do the whole column at once.</strong> It assigns that device to every control the table is currently showing, ' +
+          'so when you onboard a new device you can search for the controls it needs and apply them all in one click. If every shown control already has that device, ' +
+          'the heading turns green and the same click takes it back off. Like everywhere else, &ldquo;shown&rdquo; means whatever the search box has narrowed the table to.') +
         note('Assigning a control to a device creates that control\'s <strong>Unsatisfied</strong> state on the device (see <em>Devices &amp; groups</em>). Un-assigning removes it.') +
+        h(3, 'Tags') +
+        p('A control&rsquo;s <strong>type</strong> is one classification; <strong>tags</strong> are a free, multi-valued one, so a control can carry several at once. ' +
+          'Use them for whatever cuts across your catalogue — marking the administrative controls you need to track but will never action through this tool, for example.') +
+        ul([
+          'Click <strong>Apply Tag Mode</strong> in the Tools panel on the right. Type a name and press <strong>Add</strong> to create a tag, then click it in the list to select it.',
+          'With a tag selected, a <strong>✓ Tag</strong> column appears — tick a control to give it that tag. The Tools panel stays in place as you scroll, so the selected tag is still there hundreds of controls down.',
+          '<strong>Tag all N shown</strong> applies it to every control the table is showing (narrow it with the search box first). If they all have it already, the button flips to <strong>Untag all N shown</strong>.',
+          'The search box matches tags as well as title, type and description, so searching a tag name filters the table to the controls carrying it.',
+          'Deleting a tag removes it from every control that carries it and changes nothing else about them.'
+        ]) +
         h(3, 'Linking controls to items') +
         p('Assignment answers "does this control apply to this device?". <strong>Control Refs</strong> in the data tabs answers "which items satisfy it?". ' +
           'Set refs in a row expander, or attach one control to many items at once with Apply Control Mode.');
@@ -8044,6 +8435,7 @@
           ['<strong>Item</strong>', 'One configuration entry in the register: a package or a tactical path.'],
           ['<strong>Key</strong>', 'An item\'s identity, e.g. a package name or <code>imsSettings.simSlot0.enabled</code>.'],
           ['<strong>Decision</strong>', 'What the item should be — an action for packages, a value for tactical.'],
+          ['<strong>Tag</strong>', 'A free, multi-valued label on a control (e.g. <em>administrative</em>), separate from its single Type. Applied from the Control Manager&rsquo;s Tools panel.'],
           ['<strong>Value format</strong>', 'The shape a value is allowed to take (boolean, number, text, string list, JSON, or your own named set of options). Inferred from the capture unless you pick one; a value outside its format blocks completeness.'],
           ['<strong>Snapshot</strong>', 'What one capture contained for one dataset: the key list plus a hash of the file.'],
           ['<strong>Applicable</strong>', 'An item is applicable to a device when its key is in that device\'s snapshot.'],
@@ -8282,16 +8674,52 @@
     // So snapshot the scroll offsets of the containers that survive a render — the main
     // area and the rail's own control list — and restore them afterwards.
     var SCROLL_KEEP = ['.ctl-cards', '.fmt-list', '.ctl-opts'];
+
+    /**
+     * STAB-2: a re-queryable selector for the element the user is interacting with, built
+     * from its own data-* attributes. Used as a SCROLL ANCHOR: restoring `scrollTop`
+     * alone is not enough, because a render can legitimately change the height of content
+     * ABOVE the viewport (ticking a box adds a name to a neighbouring cell, that cell
+     * wraps, its row grows). The scroll offset is then still "correct" while everything
+     * on screen has slid — which reads as the page jumping under you.
+     * @param {Element} el @returns {string|null}
+     */
+    function anchorSelector(el) {
+      if (!el || el.nodeType !== 1 || !el.attributes) return null;
+      var parts = [], tag = el.tagName ? el.tagName.toLowerCase() : '';
+      for (var i = 0; i < el.attributes.length; i++) {
+        var a = el.attributes[i];
+        if (a.name.indexOf('data-') !== 0) continue;
+        // Skip volatile attributes; keep the identifying ones (ds/key/id/baseid/field…).
+        if (a.value === '') { parts.push('[' + a.name + ']'); continue; }
+        parts.push('[' + a.name + '="' + String(a.value).replace(/"/g, '\\"') + '"]');
+      }
+      return parts.length ? tag + parts.join('') : null;
+    }
+
     function captureScroll() {
-      var snap = { main: 0, inner: [] };
+      var snap = { main: 0, inner: [], anchor: null, anchorTop: 0 };
       var main = document.getElementById('main');
       if (main) snap.main = main.scrollTop;
       if (_root) SCROLL_KEEP.forEach(function (sel) {
         var el = _root.querySelector(sel);
         if (el && el.scrollTop) snap.inner.push([sel, el.scrollTop]);
       });
+      // Anchor on whatever currently has focus inside the scroll region — for a click on
+      // a checkbox (or its label) that is the checkbox itself.
+      try {
+        var act = document.activeElement;
+        if (main && act && act !== document.body && main.contains(act)) {
+          var sel2 = anchorSelector(act);
+          if (sel2 && main.querySelectorAll(sel2).length === 1) {
+            snap.anchor = sel2;
+            snap.anchorTop = act.getBoundingClientRect().top;
+          }
+        }
+      } catch (e) { /* anchoring is best-effort; never let it break a render */ }
       return snap;
     }
+
     function restoreScroll(snap) {
       if (!snap) return;
       var main = document.getElementById('main');
@@ -8300,6 +8728,17 @@
         var el = _root.querySelector(pair[0]);
         if (el) el.scrollTop = pair[1];
       });
+      // STAB-2: if the anchor moved, the content around it grew or shrank — shift the
+      // scroll by the same amount so the thing under the cursor stays under the cursor.
+      if (main && snap.anchor) {
+        try {
+          var again = main.querySelector(snap.anchor);
+          if (again) {
+            var delta = again.getBoundingClientRect().top - snap.anchorTop;
+            if (delta) main.scrollTop = main.scrollTop + delta;
+          }
+        } catch (e) { /* best-effort */ }
+      }
     }
 
     // ---- top-level render ----
@@ -11250,7 +11689,9 @@
         var html = App.ui.views.controls.render(App.store.getProject());
         T.assert(/class="cm-devbar"/.test(html), 'no device-columns picker');
         T.assert(/data-cm-devcol="alpha-m1" checked/.test(html) && /data-cm-devcol="bravo-m2" checked/.test(html), 'picker must list both devices, ticked');
-        T.assert(/data-cm-col="dev:alpha-m1"[^>]*>Alpha/.test(html) && /data-cm-col="dev:bravo-m2"[^>]*>Bravo/.test(html), 'missing per-device columns');
+        // TAG-3: the device name in the header is now a bulk-toggle button.
+        T.assert(/data-cm-col="dev:alpha-m1"/.test(html) && /data-cm-col="dev:bravo-m2"/.test(html), 'missing per-device columns');
+        T.assert(/data-cm-dev-toggle="alpha-m1"[^>]*>Alpha</.test(html) && /data-cm-dev-toggle="bravo-m2"[^>]*>Bravo</.test(html), 'the device name must be a column toggle');
         T.assert(/2 of 2 shown/.test(html), 'picker count wrong');
       });
       s.test('each cell is an assignment checkbox that reflects (and drives) assignment', function () {
@@ -11284,9 +11725,13 @@
         var CV = App.ui.views.controls;
         CV._cm.expanded = {}; CV._cm.expanded[id] = true;
         var html = CV.renderTable(App.store.getProject());
-        T.assert(/<tr class="detail-row"><td colspan="7"/.test(html), 'detail row must span 1 lead + 4 base + 2 device columns');
+        T.assert(/<tr class="detail-row"><td colspan="8"/.test(html), 'detail row must span 1 lead + 5 base + 2 device columns');
         CV._cm.deviceCols = {};
-        T.assert(/<tr class="detail-row"><td colspan="5"/.test(CV.renderTable(App.store.getProject())), 'colspan must follow the shown columns');
+        T.assert(/<tr class="detail-row"><td colspan="6"/.test(CV.renderTable(App.store.getProject())), 'colspan must follow the shown columns');
+        // ...and the Apply-Tag tick column widens it again (TAG-2).
+        CV._cm.tagMode = true;
+        T.assert(/<tr class="detail-row"><td colspan="7"/.test(CV.renderTable(App.store.getProject())), 'the tag column must count too');
+        CV._cm.tagMode = false;
         CV._cm.expanded = {}; CV._cm.deviceCols = null;
       });
       s.test('device columns are drag-resizable like the rest', function () {
@@ -11481,7 +11926,8 @@
          'Satisfied', 'override', 'Verification', 'Control report', 'manifest', 'Draft autosave',
          'Export CSV', 'Triage', 'group',
          // v2.1
-         'Value format', 'String list', 'Custom options', 'Tools'].forEach(function (topic) {
+         'Value format', 'String list', 'Custom options', 'Tools',
+         'Apply Tag Mode', 'column heading'].forEach(function (topic) {
           T.assert(all.indexOf(topic) !== -1, 'the manual never mentions "' + topic + '"');
         });
       });
@@ -12249,6 +12695,246 @@
         var held = App.generate.buildImplementation(App.store.getProject(), 'hd-m1');
         T.assert(!/pm uninstall/.test(held.files.filter(function (f) { return f.name === 'packages.impl.ps1'; })[0].content),
           'a held item must not be acted on until it has been reviewed');
+      });
+    });
+
+    T.suite('STAB-1 a tick never changes a row height', function (s) {
+      s.test('the cells that grow when you tick are clamped to a fixed height', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Long Device Name Alpha', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'A control with a fairly long title', type: 'ISM' }).id;
+        App.store.setItemFields('android.packages', 'com.a', { controlRefs: [id] });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', {}, {});
+        // Control Refs and Applies-to are the two cells that gain text on a tick.
+        T.assert(/<td><span class="cell-clamp" title="A control with a fairly long title">/.test(html),
+          'the Control Refs cell must be clamped, or ticking Apply re-wraps it and grows the row');
+        T.assert(/<span class="cell-clamp" title="Long Device Name Alpha">/.test(html),
+          'the Applies-to cell must be clamped too');
+      });
+      s.test('an EMPTY clamped cell is emitted too, so the first tick does not resize it', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'D', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var html = App.ui.tables.renderTableHtml(App.store.getProject(), 'android.packages', {}, {});
+        T.assert(/<td><span class="cell-clamp"><\/span><\/td>/.test(html),
+          'an item with no controls must still render the clamp span (min-height keeps the row stable)');
+      });
+      s.test('the Control Manager Applies-to and Tags cells are clamped as well', function () {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'Dev One', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        var id = App.store.addControl({ title: 'C', type: 'ISM' }).id;
+        App.store.setControlsDevice([id], 'dev-one-m1', true);
+        App.store.setControlTag([id], 'administrative', true);
+        var html = App.ui.views.controls.renderTable(App.store.getProject());
+        T.assert(/<td class="ctl-applies-cell"><span class="cell-clamp" title="Dev One">/.test(html), 'Applies-to not clamped');
+        T.assert(/<td class="ctl-tags-cell"><span class="cell-clamp" title="administrative">/.test(html), 'Tags not clamped');
+      });
+      s.test('the clamp CSS pins a FIXED height, not a range', function () {
+        var el = document.querySelector('style');
+        var sheet = (el && (el.textContent || el.innerHTML)) || '';
+        if (!sheet) return;
+        var i = sheet.indexOf('.cell-clamp {');
+        T.assert(i !== -1, 'no .cell-clamp rule');
+        var rule = sheet.slice(sheet.indexOf('{', i) + 1, sheet.indexOf('}', i));
+        T.assert(/height:\s*1\.45em/.test(rule), 'the height must be FIXED — a 1-2 line range still grows the row on the first tick');
+        T.assert(/overflow:\s*hidden/.test(rule) && /text-overflow:\s*ellipsis/.test(rule), 'overflow must be clipped, not shown');
+      });
+    });
+
+    T.suite('TAG-3 the device column heading assigns the whole shown column', function (s) {
+      function cmProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        ['Alpha', 'Bravo'].forEach(function (n, i) {
+          App.store.onboardDevice({ name: n, model: 'M' + i, snapshots: {
+            'android.packages': snapB('android.packages', 'com.a'),
+            'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        });
+        ['Bluetooth off', 'Bluetooth pairing off', 'Wifi off', 'Staff vetting'].forEach(function (t) {
+          App.store.addControl({ title: t, type: 'ISM', description: 'desc' });
+        });
+        return App.store.getProject();
+      }
+      var CV = function () { return App.ui.views.controls; };
+      function titlesWith(baseId) {
+        return App.store.getProject().controls.filter(function (c) { return (c.assignedDeviceIds || []).indexOf(baseId) !== -1; })
+          .map(function (c) { return c.title; }).sort();
+      }
+
+      s.test('the heading is a button, and the shown set follows the search', function () {
+        var p = cmProject();
+        CV()._cm.search = '';
+        var html = CV().render(p);
+        T.assert(/data-cm-dev-toggle="alpha-m0"[^>]*>Alpha</.test(html), 'the device name must be a bulk toggle');
+        T.assertEqual(CV().shownControls(p).length, 4);
+        CV()._cm.search = 'bluetooth';
+        T.assertDeepEqual(CV().shownControls(App.store.getProject()).map(function (c) { return c.title; }),
+          ['Bluetooth off', 'Bluetooth pairing off'], 'the search must define the shown set');
+        CV()._cm.search = '';
+      });
+
+      s.test('it assigns only the shown controls, and toggles back off', function () {
+        cmProject();
+        CV()._cm.search = 'bluetooth';
+        var shown = CV().shownControls(App.store.getProject()).map(function (c) { return c.id; });
+        App.store.setControlsDevice(shown, 'alpha-m0', true);
+        T.assertDeepEqual(titlesWith('alpha-m0'), ['Bluetooth off', 'Bluetooth pairing off'], 'only the shown controls');
+        T.assertEqual(CV().allShownHaveDevice(App.store.getProject(), 'alpha-m0'), true, 'all shown now have it');
+        // ...so the next click removes.
+        App.store.setControlsDevice(shown, 'alpha-m0', false);
+        T.assertDeepEqual(titlesWith('alpha-m0'), []);
+        CV()._cm.search = '';
+      });
+
+      s.test('assigning seeds the per-device Unsatisfied state, un-assigning drops it', function () {
+        cmProject();
+        var id = App.store.getProject().controls[0].id;
+        App.store.setControlsDevice([id], 'alpha-m0', true);
+        var c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(c.deviceStates['alpha-m0'], 'unsatisfied', 'review-12 #1 must still hold on the bulk path');
+        App.store.setControlsDevice([id], 'alpha-m0', false);
+        c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(c.deviceStates['alpha-m0'], undefined);
+      });
+
+      s.test('the heading marks itself when every shown control already has the device', function () {
+        var p = cmProject();
+        CV()._cm.search = '';
+        App.store.setControlsDevice(p.controls.map(function (c) { return c.id; }), 'alpha-m0', true);
+        var html = CV().render(App.store.getProject());
+        T.assert(/class="cm-dev-head all-on" data-cm-dev-toggle="alpha-m0"/.test(html), 'the heading should show it is fully applied');
+        T.assert(/data-cm-dev-toggle="alpha-m0"[^>]*title="[^"]*remove it from all/.test(html), 'and offer to remove');
+      });
+    });
+
+    T.suite('TAG-1/TAG-2 custom tags on controls', function (s) {
+      function tagProject() {
+        ensureA(); App.store.init(App.store.empty('android-adb'));
+        App.store.onboardDevice({ name: 'D', model: 'M1', snapshots: {
+          'android.packages': snapB('android.packages', 'com.a'),
+          'android.tactical': snapB('android.tactical', '{"enabled":true}') } });
+        ['Bluetooth off', 'Staff vetting', 'Physical security'].forEach(function (t) {
+          App.store.addControl({ title: t, type: 'ISM', description: 'desc' });
+        });
+        return App.store.getProject();
+      }
+      function tagsOf(title) {
+        var c = App.store.getProject().controls.filter(function (x) { return x.title === title; })[0];
+        return (c && c.tags) || [];
+      }
+
+      s.test('a tag can be created, applied and is offered by the catalogue', function () {
+        tagProject();
+        T.assertEqual(App.store.addControlTag('administrative').ok, true);
+        T.assert(App.store.knownControlTags().indexOf('administrative') !== -1);
+        var id = App.store.getProject().controls.filter(function (c) { return c.title === 'Staff vetting'; })[0].id;
+        var res = App.store.setControlTag([id], 'administrative', true);
+        T.assertEqual(res.changed, 1);
+        T.assertDeepEqual(tagsOf('Staff vetting'), ['administrative']);
+        T.assertDeepEqual(tagsOf('Bluetooth off'), [], 'other controls untouched');
+      });
+
+      s.test('a control can carry several tags, stored sorted and de-duplicated', function () {
+        tagProject();
+        var id = App.store.getProject().controls[0].id;
+        App.store.setControlTag([id], 'zeta', true);
+        App.store.setControlTag([id], 'alpha', true);
+        App.store.setControlTag([id], 'alpha', true);   // idempotent
+        var c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertDeepEqual(c.tags, ['alpha', 'zeta']);
+      });
+
+      s.test('an empty tag list is dropped, so "no tags" has one canonical form', function () {
+        tagProject();
+        var id = App.store.getProject().controls[0].id;
+        App.store.setControlTag([id], 'x', true);
+        App.store.setControlTag([id], 'x', false);
+        var c = App.store.getProject().controls.filter(function (x) { return x.id === id; })[0];
+        T.assertEqual(c.tags, undefined, 'the key must be removed, not left as []');
+      });
+
+      s.test('tags round-trip and are schema-checked', function () {
+        tagProject();
+        var id = App.store.getProject().controls[0].id;
+        App.store.setControlTag([id], 'administrative', true);
+        var text = App.projectIo.serializeProject(App.store.getProject());
+        var back = App.projectIo.parseProject(text);
+        T.assertEqual(back.ok, true, JSON.stringify(back.issues));
+        T.assertEqual(App.projectIo.serializeProject(back.value), text, 'must round-trip byte-identically');
+        T.assert(back.value.controlTags.indexOf('administrative') !== -1, 'the catalogue must persist');
+        var bad = JSON.parse(text); bad.controls[0].tags = 'nope';
+        T.assert(App.projectIo.validateSchema(bad).some(function (i) { return /Control.tags/.test(i.message) && i.severity === 'error'; }));
+        var bad2 = JSON.parse(text); bad2.controlTags = [1];
+        T.assert(App.projectIo.validateSchema(bad2).some(function (i) { return /controlTags/.test(i.message) && i.severity === 'error'; }));
+      });
+
+      s.test('deleting a tag strips it from every control but changes nothing else', function () {
+        tagProject();
+        var ids = App.store.getProject().controls.map(function (c) { return c.id; });
+        App.store.setControlTag(ids, 'administrative', true);
+        App.store.setControlTag([ids[0]], 'keepme', true);
+        App.store.removeControlTag('administrative');
+        T.assert(App.store.knownControlTags().indexOf('administrative') === -1, 'gone from the catalogue');
+        T.assertDeepEqual(tagsOf('Staff vetting'), [], 'stripped from controls');
+        T.assertDeepEqual(App.store.getProject().controls.filter(function (c) { return c.id === ids[0]; })[0].tags, ['keepme'],
+          'other tags on the same control survive');
+      });
+
+      s.test('the search matches tags, so you can narrow to them then bulk-apply', function () {
+        tagProject();
+        var CV = App.ui.views.controls;
+        var id = App.store.getProject().controls.filter(function (c) { return c.title === 'Staff vetting'; })[0].id;
+        App.store.setControlTag([id], 'administrative', true);
+        CV._cm.search = 'administrative';
+        T.assertDeepEqual(CV.shownControls(App.store.getProject()).map(function (c) { return c.title; }), ['Staff vetting'],
+          'searching a tag must narrow the table to it');
+        CV._cm.search = '';
+      });
+
+      s.test('the rail renders a tag picker with counts, a tick column and a bulk button', function () {
+        var p = tagProject();
+        var CV = App.ui.views.controls;
+        App.store.addControlTag('administrative');
+        var id = App.store.getProject().controls[0].id;
+        App.store.setControlTag([id], 'administrative', true);
+        CV._cm.tagMode = false;
+        var off = CV.render(App.store.getProject());
+        T.assert(/data-cm-tag-toggle/.test(off), 'no Apply Tag Mode button');
+        T.assert(off.indexOf('data-ctl-tag-check') === -1, 'the tick column must be hidden when the mode is off');
+        CV._cm.tagMode = true; CV._cm.tagName = 'administrative';
+        var on = CV.render(App.store.getProject());
+        T.assert(/<aside class="side-rail" data-side-rail>/.test(on), 'the rail must render');
+        T.assert(/class="ctl-card active" data-cm-tag-pick="administrative"/.test(on), 'the selected tag is not marked');
+        T.assert(/On 1 control\./.test(on), 'the picker should show how many controls carry the tag');
+        T.assert(/data-ctl-tag-check/.test(on), 'no per-row tick column in tag mode');
+        T.assert(/data-cm-tag-all/.test(on), 'no bulk tag button');
+        T.assert(/data-cm-tag-new/.test(on), 'no way to create a tag');
+        CV._cm.tagMode = false; CV._cm.tagName = '';
+      });
+
+      s.test('the bulk button names the shown count and flips to untag', function () {
+        tagProject();
+        var CV = App.ui.views.controls;
+        CV._cm.tagMode = true; CV._cm.tagName = 'administrative'; CV._cm.search = 'staff';
+        var html = CV.render(App.store.getProject());
+        T.assert(html.indexOf('Tag all 1 shown') !== -1, 'the label must name the shown count');
+        var id = CV.shownControls(App.store.getProject())[0].id;
+        App.store.setControlTag([id], 'administrative', true);
+        T.assertEqual(CV.allShownHaveTag(App.store.getProject(), 'administrative'), true);
+        T.assert(CV.render(App.store.getProject()).indexOf('Untag all 1 shown') !== -1, 'it must flip to untag');
+        CV._cm.tagMode = false; CV._cm.tagName = ''; CV._cm.search = '';
+      });
+
+      s.test('the Tags column shows the tags as badges', function () {
+        tagProject();
+        var id = App.store.getProject().controls[0].id;
+        App.store.setControlTag([id], 'administrative', true);
+        var html = App.ui.views.controls.renderTable(App.store.getProject());
+        T.assert(/<span class="badge tag">administrative<\/span>/.test(html), 'no tag badge in the Tags column');
       });
     });
 
