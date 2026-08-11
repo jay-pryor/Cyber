@@ -1566,3 +1566,36 @@ overrides, generate or the report shell.
   reports carry the text.
 - **Out-of-band:** browser-verify the filter→search flow end to end, and that typing a
   justification then clicking Mark satisfied persists BOTH (the blur/commit race).
+
+### T13.12 · Universal undo in the data tabs (UNDO-1/2/3)
+- **Depends on:** T13.11
+- **Spec:** §22.9, §22.3 (UNDO-A, UNDO-B, UNDO-C)
+- **Objective:** Make the Undo button cover every change a data tab can make, not just the two bulk
+  modes it shipped attached to.
+- **Build:**
+  - **UNDO-1.** Add `withUndo(dsId, label, fn)` beside the existing `pushUndo`/`stepHistory`
+    machinery: it closes any open apply run, snapshots the dataset, runs `fn`, and owns the
+    bookkeeping. Route **every** mutating data-tab handler through it — decision commit and clear,
+    the Status badge (adopt / hold / release), relevance, diverges, field edits, the rationale
+    preset, control-ref ticks, value-format pick, rename, add, delete, bulk apply. Make it the
+    only route, so forgetting to be undoable requires bypassing the wrapper rather than omitting
+    a line.
+  - **UNDO-2.** Nothing extra: the snapshot is whole-dataset, so a many-row action is already one
+    entry. Keep review-13 #2's tick-folding, and let `withUndo`'s `closeRun()` end an open run when
+    any other edit intervenes.
+  - **UNDO-3.** Compare the dataset before/after and drop the entry — restoring the redo branch —
+    when nothing changed. Keep the 20-entry cap and the per-dataset, per-session scope. Re-word
+    `UNDO_OFF_TITLE`, the toolbar comment, the Help manual entry and the Help troubleshooting entry
+    so none of them claims the old narrower scope.
+  - **Wiring trap:** the handlers that deliberately re-render only the table (STAB-3 keeps the
+    element under the pointer still) do **not** rebuild the toolbar the button lives in, so each
+    MUST call `refreshUndoButton(dsId)` explicitly — decision commit/clear, the Status badge and
+    the Diverges tick. Without it Undo works but the button stays grey.
+- **Self-tests:** an ordinary decision is undoable; a mixed sequence steps back newest-first, one
+  click per edit, to an empty stack; a many-row action costs one entry and restores every row; a
+  no-op pushes nothing and preserves the redo branch; an ordinary edit closes an open apply run;
+  the cap holds and datasets are independent; the greyed-out tooltip no longer names the bulk modes.
+- **Out-of-band:** drive the real DOM (not just the wrapper) for each handler — decision select,
+  `✓ Apply all N`, the expander's rationale box, the Status badge both ways, relevance, the Diverges
+  tick, a Delete-Mode run and a Custom Security Action add — confirming both the state revert and
+  the button/tooltip state. Then re-run in a real browser for the scroll-dependent suites.

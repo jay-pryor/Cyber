@@ -338,8 +338,9 @@ Decision shapes per Android adapter:
   captured leaf's type (§18.5 RV3-2), so there is no user-facing type control.
 
 `RegisterItem` also carries the optional **`relevance`** field (§18.8): `''` or one of
-`HIGH | MEDIUM | CONTEXT | REPORTING | IRRELEVANT`. `REPORTING` and `IRRELEVANT` are *parked* — hidden
-from the default table view — and `ismRefs` is now **`controlRefs`** (§18.3 CTL-2).
+`HIGH | MEDIUM | LOW | REPORT | IRRELEVANT`. `IRRELEVANT` is *parked* — hidden from the default
+table view until "Include irrelevant" is on (REL-8) — and `ismRefs` is now **`controlRefs`**
+(§18.3 CTL-2).
 
 ### 6.5 Status & completeness
 
@@ -526,6 +527,16 @@ ctx)`. Wrap each script with `platform.scriptPreamble/Postamble(ctx)`. Android s
 Appendix B (pm/tactical). Include a generated header comment noting the source project,
 device, firmware, generation timestamp, and tool version.
 
+Android implementation scripts must **converge** the device onto the decisions, not merely apply
+changes in one direction, and must **grade themselves**: after the run the state is re-read and each
+item is classified APPLIED / ALREADY / FAILED / MISSING / REVIEW. The end-of-run summary carries the
+count and percentage per class plus every failure, missing package and review item with a reason,
+in the same layout as the §10.2 verification summary. **Exit semantics:** `0` = every decision met;
+`1` = at least one FAILED. MISSING and REVIEW do not fail the run but each needs a documented cause.
+REVIEW covers a device found *more* restricted than decided (e.g. a `disable` item already
+uninstalled): the script reports it and does not act, because restoring it would exceed the
+decision.
+
 ### 10.2 Verification
 
 As above with `generateVerification`. Android verify scripts read state back (`pm list packages`,
@@ -589,7 +600,7 @@ print-friendly palette). No icon fonts/CDNs; use Unicode glyphs or inline SVG sp
 - Name/model/firmware fields. **Onboard** button disabled until every slot parses without errors and a non-empty device name is given. A name+model matching an existing device is **allowed** — it is a re-onboard (§8.7); if so, the UI MUST indicate "this will re-onboard <name> (creates a new version / no-op if unchanged)" before commit. On click: run onboarding/re-onboarding, then show the triage summary (counts of new/existing per dataset, warnings, drift info, and which version was created or that it was an unchanged no-op) and switch focus to the first dataset filtered to "Incomplete only".
 
 ### 11.5 Generate tab
-- Device selector. Four independent commands — **Implementation**, **Verification**, **Reporting**, **Control report** (§20.5) — each enabled iff `deviceReady`. Disabled buttons show why ("3 tactical undecided"). Clicking produces the single zip download and logs to the Activity drawer. Each command carries its own collapsible **Options** panel (§20.8); a global "Output scripts as `.txt`" checkbox spans Implementation and Verification (§18.5 RV3-1).
+- Device selector. Four independent commands — **Implementation**, **Verification**, **Reporting**, **Control report** (§20.5) — each enabled iff `deviceReady`. Disabled buttons show why ("3 tactical undecided"). Clicking produces the single zip download and logs to the Activity drawer. Each command carries its own collapsible **Options** panel (§20.8) — except **Reporting**, whose options are a full-screen workspace (§20.10 RPT-4); a global "Output scripts as `.txt`" checkbox spans Implementation and Verification (§18.5 RV3-1).
 
 ### 11.6 Activity / Errors drawer
 - Append-only, timestamped log of parse results, validations, and generations; errors/warnings styled distinctly; clearable. Nothing fails silently (§12).
@@ -830,10 +841,17 @@ line, when conceptually unwrapped one layer at a time, yields exactly that liter
 **`android.packages`** — inputKind `text`. parse per §9. decisionSchema:
 `[{name:'action',kind:'enum',options:['keep','disable','remove'],required:true}]`. columns: key,
 description, decision(action), appliesTo, ism, status. isComplete: action ∈ options.
-generateImplementation: for `disable` → `adb -s $Serial shell pm disable-user --user 0 <pkg>`; for
-`remove` → `adb -s $Serial shell pm uninstall --user 0 <pkg>`; `keep` → no-op (comment only). Guard
-each with a presence check; idempotent. generateVerification: `pm list packages -d`/`-e` read-back,
-compare, emit PASS/FAIL/MISSING. renderReportSection: a table of pkg/action/ism/rationale.
+generateImplementation: reads the device state back FIRST (the same inventory the verification
+script builds), then converges each item onto its decision — `disable` → `pm disable-user --user 0
+<pkg>`; `remove` → `pm uninstall --user 0 <pkg>`; `keep` → left alone when already enabled, else
+**restored**: a disabled package is re-enabled (`pm enable --user 0 <pkg>`) and one uninstalled for
+user 0 is reinstated (`pm install-existing --user 0 <pkg>`, then enable). A `keep` package absent
+from the build cannot be restored and is reported MISSING. Idempotency comes from that state read —
+an item already in its decided state issues no device command — **not** from a presence-check
+placeholder. Every pm invocation is checked for failure by exit code *and* output text (PowerShell
+does not throw on a native non-zero exit, and adb does not reliably propagate the remote code), and
+the state is re-read after the run so verdicts describe the device rather than the command.
+generateVerification: `pm list packages -d`/`-e` read-back, compare, emit PASS/FAIL/MISSING. renderReportSection: a table of pkg/action/ism/rationale.
 **Quoting:** package tokens are restricted to `[A-Za-z0-9._]`; reject anything else at parse to keep
 shell generation injection-safe.
 
@@ -886,7 +904,7 @@ Platform profile, Item, Complete/Ready, EVIDENCED (applied but not machine-verif
 (changed default across firmware), Triage (the new/existing/not-applicable split), Control (a named
 requirement an item satisfies — §18.3), Assignment (setting a device's decisions in bulk from files —
 §18.2), Override / Deviation (a per-device or per-group exception to the baseline decision — §19),
-Parked item (one tagged REPORTING or IRRELEVANT and hidden from the default view — §18.8),
+Parked item (one tagged IRRELEVANT and hidden from the default view until its Include toggle is on — §18.8),
 Retired dataset (one removed from the product whose data is stripped from older project files on
 load — §21).
 
@@ -1117,16 +1135,18 @@ project schema to **version 2**.
 ### 18.8 Security Relevance & the decisions-import columns (reviews 12 & 14)
 
 - **REL-1 `RegisterItem.relevance` (optional).** Every item MAY carry a `relevance` string: `''`
-  (unset) or one of **`HIGH`**, **`MEDIUM`**, **`CONTEXT`**, **`REPORTING`**, **`IRRELEVANT`**. The
+  (unset) or one of **`HIGH`**, **`MEDIUM`**, **`LOW`**, **`REPORT`**, **`IRRELEVANT`**. The
   vocabulary is a single exported constant (`App.projectIo.RELEVANCE_OPTIONS`) consumed by the UI
   picker, the CSV importer and store validation, so the three can never drift. Additive — no
-  `schemaVersion` bump; an unknown value is a schema **error**.
+  `schemaVersion` bump; an unknown value is a schema **error**. Two values have been renamed since
+  this was first written — `CONTEXT` → `LOW`, and `REPORTING` → `REPORT` (REL-7) — each as a
+  load-time translation rather than a new option, for the reason given there.
 - **REL-2 A column in every data table.** Each data table gains a **Security Relevance** column with an
   inline badge-select. Sorting on it sorts by **severity** (HIGH first), not alphabetically.
-- **REL-3 Parked items.** `REPORTING` and `IRRELEVANT` mark an item as *parked*: **hidden from the
-  default table view**, so the working view stays on items that still need a security decision. Two
-  toolbar toggles reveal each category (tick both to see either); the default view MUST state what it
-  is hiding. Parked-ness composes with search and "Incomplete only".
+- **REL-3 Parked items.** *Superseded by REL-8.* A *parked* category is one **hidden from the default
+  table view**, so the working view stays on items that still need a security decision; the default
+  view MUST state what it is hiding, and parked-ness composes with search, column filters and
+  "Incomplete only". Which categories are parked, and what the toggles do, is REL-8.
 - **REL-4 Optional trailing CSV columns.** The decisions-import CSV (§18.2 ASG-4) accepts two further
   columns after its required ones — **`rationale`** then **`relevance`**, in that order, named exactly.
   Either may be omitted; a short row simply means "column absent" and an empty cell **clears** the
@@ -1141,6 +1161,29 @@ project schema to **version 2**.
   group override pointing at a deleted item; the capture snapshots are untouched, so re-onboarding the
   same file brings the item back. **Undo/Redo** steps through that table's Delete-Mode and
   Apply-Control-Mode actions; a whole Apply run counts as **one** action, and history is per dataset.
+- **REL-7 `REPORTING` is renamed `REPORT`.** The category never meant "this is a reporting activity";
+  it means *"not a hardening decision, but carry it into the report anyway"*. Because the vocabulary is
+  **closed**, the rename is a **load-time translation** (`App.projectIo.RELEVANCE_RENAMES`), exactly as
+  `CONTEXT` → `LOW` was: a project or CSV carrying the old word still opens/imports, is translated, and
+  says so with a warning; `REPORTING` is no longer settable through the UI or a store mutator. No
+  `schemaVersion` bump — the file format is unchanged, only a value's spelling.
+- **REL-8 Only `IRRELEVANT` is parked, and its toggle *includes* rather than isolates.** Amends REL-3
+  in two ways:
+  1. **`REPORT` is no longer parked.** `App.projectIo.RELEVANCE_PARKED` is `['IRRELEVANT']`, and there
+     is no "Report only" toggle. `REPORT` is a statement about what the *report* carries (§20.10
+     RPT-2), not a reason to hide the item from the person making decisions — and hiding it made an
+     item deliberately tagged harder to find than one nobody had looked at.
+  2. **The toggle is additive.** UI state is `ui.includeRelevance: string[]` — the parked categories
+     switched **on**. An item is hidden **iff** its category is parked and absent from that list;
+     everything else is always shown. Ticking *Include irrelevant* therefore shows the parked items
+     **alongside** the rest of the table, not instead of it: reviewing them against everything else is
+     the whole reason to look. (The previous "only" semantics — tick a category, see nothing but that
+     category — answered a question nobody was asking.)
+
+  The toolbar renders **one toggle per `RELEVANCE_PARKED` entry**, generated from the vocabulary
+  rather than hard-coded, so the controls cannot drift from the filter. Each is labelled
+  *Include &lt;category&gt;* and carries `data-include-rel="<CATEGORY>"`. The default view states which
+  categories it is hiding; with nothing hidden it says so.
 
 ### 18.9 Review-15 → review-17 amendments (UI + tactical fidelity)
 
@@ -1670,8 +1713,11 @@ var _gen = {
     columns: {                         // per datasetId → { columnId: bool }; missing ⇒ shown
       // 'android.packages': { action:true, control:true, rationale:true }
     },
-    classification: false              // OFFICIAL: Sensitive banner
+    classification: false,             // OFFICIAL: Sensitive banner
+    relevance: { IRRELEVANT: false }   // RPT-2 include-map over RELEVANCE_OPTIONS + `_unset`;
+                                       // missing key ⇒ included. IRRELEVANT starts excluded.
   },
+  reportModal: false,                  // RPT-4 open/closed state of the Report options workspace
   control: { classification: false, includeUncontrolled: false },
   implementation: {
     datasets: {},                      // datasetId → bool; missing ⇒ included
@@ -1724,16 +1770,18 @@ adapters and the control/coverage builders don't duplicate table markup or the e
 1. **Title** (`h1`, always) + **classification banner** at top if `opts.classification`.
 2. **Sections included** table (GEN-4) — always rendered; lists each candidate section
    (Device Config Information, Packages — Removed/Disabled/Kept, Tactical, Control coverage,
-   Deviations) with `Included`/`Omitted`, computed from the resolved flags. Built from the same
-   descriptor the UI uses, so UI and report never drift.
-3. **Metadata block** (device/model/firmware/version/generated-UTC + project & snapshot SHA-256) — only
-   if `opts.sections.meta`. Hashes remain inside this block (they are not separately toggleable).
-4. **Per-dataset sections** — for each platform dataset, call
-   `ds.renderReportSection(gather(...), ctx, { columns: opts.columns[ds.id], groups: opts.datasetSections[ds.id] })`.
-   A grouped dataset with all groups off contributes nothing.
-5. **Control coverage** if `opts.sections.control`; **Deviations from default** if
-   `opts.sections.deviations`.
-6. **Classification banner** at the bottom if `opts.classification`.
+   Deviations) with `Included`/`Omitted`, computed from the resolved flags, **in the order the
+   sections will actually be emitted** (RPT-3). Built from the same descriptor the UI uses, so UI
+   and report never drift.
+3. **Security Relevance filter** note (RPT-2) — only when the run excludes at least one category.
+4. **The section blocks, in `project.report.order`** (RPT-3), each emitted only if included:
+   - **Metadata block** (device/model/firmware/version/generated-UTC + project & snapshot SHA-256)
+     for `meta`. Hashes remain inside this block (they are not separately toggleable).
+   - **A dataset block** — call
+     `ds.renderReportSection(gather(...), ctx, { columns: opts.columns[ds.id], groups: opts.datasetSections[ds.id] })`.
+     A grouped dataset with all groups off contributes nothing.
+   - **Control coverage** for `control`; **Deviations from default** for `deviations`.
+5. **Classification banner** at the bottom if `opts.classification`.
 
 `App.report.wrapReport(title, meta, sections, wrapOpts)` gains a `wrapOpts.classification` string;
 when set it injects a `<div class="classification">…</div>` banner immediately inside `<body>` and again
@@ -1798,11 +1846,9 @@ Each command card gains a **collapsible "Options" panel** beneath its Generate b
 command's `_gen` block; a **fourth card, "Control report"**, is added after Reporting. All controls are
 data-driven from the active platform's datasets/adapters (no hard-coded dataset ids):
 
-- **Reporting options:** a "Device Config Information" checkbox; for each dataset either one checkbox per
-  `reportGroups` option (Packages: Removed / Disabled / Kept) or a single dataset checkbox
-  (Tactical); per-dataset **column** checkboxes from the adapter's `optional` `reportColumns`;
-  "Control coverage" and "Deviations from default" checkboxes; and an "OFFICIAL: Sensitive header/footer"
-  checkbox.
+- **Reporting options:** *superseded by RPT-4* — Reporting has **no** inline panel. Its button opens the
+  full-screen **Report options workspace** (§20.10), which carries every control listed here plus the
+  section order and the Security Relevance filter.
 - **Control report options:** "OFFICIAL: Sensitive header/footer" and "Include items with no control".
 - **Implementation options:** a per-dataset include checkbox; for enum datasets (packages) an action-
   subset checkbox group (Keep / Disable / Remove).
@@ -1816,8 +1862,9 @@ or dirty state.
 
 ## 20.9 Determinism, manifest & schema (unchanged surfaces)
 
-- **Schema:** no change. `schemaVersion` stays at 3; Appendix A untouched. Options are not part of project
-  state.
+- **Schema:** `schemaVersion` stays at 3. Session *options* are not part of project state — but the
+  report's **section order** is (RPT-3, `project.report.order`): an arrangement is a decision, not a
+  preference, exactly as `procedure.order` is. Additive and optional, so no version bump.
 - **Manifest:** shape unchanged (§10.4). It records the device's full effective decisions and the actual
   output files with their `sha256`; it does **not** record the customisation options (the report's
   "Sections included" table self-documents composition; scripts self-evidently contain only what was
@@ -1827,6 +1874,59 @@ or dirty state.
   `(project, device, options)`, and add coverage that a **different** options object changes only the
   intended files. Mock-platform portability (DOD-11) MUST stay green with a dataset that declares neither
   `reportGroups` nor `reportColumns`.
+
+## 20.10 Report scope, section order & the options workspace (RPT-2 · RPT-3 · RPT-4)
+
+Three amendments to the Reporting command. They exist because the report was reporting on everything:
+an item that was left exactly as captured, satisfying no control, still occupied a row, and there was
+no way to say "not that" short of deleting the item.
+
+- **RPT-2 Security Relevance is the report's scope control.** `buildReport` accepts
+  `opts.relevance`, an include-map over `RELEVANCE_OPTIONS` plus the sentinel **`_unset`** (an item
+  whose column is blank). Missing key ⇒ **included**, as every other generator include-map; an absent
+  `opts.relevance` means **no filtering at all**, so a caller that asks for a report without options
+  still gets every item. The filter applies to the dataset sections **and** to Control coverage —
+  it is the scope of the whole document, not of one table.
+
+  A filtered report MUST **say so**: a *Security Relevance filter* note directly under the
+  "Sections included" table names the categories carried, names the categories dropped, and states
+  how many applicable items were left out. Same principle as GEN-4 — an omission is stated, never
+  merely absent, or a short report passes for a complete one.
+
+  `App.generate.relevanceCounts(project, deviceId)` returns the per-category item counts and is the
+  single source for both the note and the UI, so the count shown before generating is the count the
+  document states afterwards.
+
+- **RPT-3 The sections can be re-ordered, and the order is saved.** `App.generate.reportBlocks()`
+  returns the ordered **candidate blocks** — the orderable unit — each with a stable id: `meta`, one
+  `ds:<datasetId>` per dataset, `control`, `deviations`. Ids derive from the platform, so a new
+  dataset is orderable with **no core edit** (DOD-11). A dataset that splits its section by an
+  adapter `reportGroups` field stays **one** block: the adapter renders those groups itself, so they
+  are inclusion toggles inside the block, not separately orderable sections.
+
+  The order lives in the project as `report.order: string[]` (optional; validated structurally;
+  never sorted by the canonical serializer; empty ⇒ key absent, so "never arranged" and "arranged
+  and reset" are one file). Resolution rules, matching `procedure.order`: an id the order does not
+  mention keeps its natural position **after** everything the order does mention (so a newly added
+  dataset appends rather than vanishing); an id in the order that no longer exists is **ignored**
+  (deleting a dataset must not invalidate an arrangement). The "Sections included" table and the
+  emitted body are both built from `reportBlocks`, so they cannot disagree.
+
+- **RPT-4 The Reporting options are a workspace, not a dropdown.** Reporting has no inline options
+  panel; its card offers a button that opens a **full-screen modal** (`.modal.modal-full` inside
+  `.modal-overlay.overlay-full`). Fixed skeleton, designed to be extended:
+  - **Left — Sections.** The ordered block list: drag or ▲/▼ to re-order, a tick to include, and each
+    row carrying its own group ticks and optional-column ticks. Numbering counts only included
+    sections (an excluded row shows "—"), so the list reads as the document will.
+  - **Right — a stack of panes**, declared as a list in the view so a later addition is one entry:
+    *Security Relevance* (a tick per category with a live item count, and the running omission
+    total) and *Document* (the OFFICIAL: Sensitive banner).
+  - **Footer.** How many sections are included, how many items the filter drops, whether the device
+    is ready; plus *Reset order*, *Close*, and *Generate Reporting*.
+
+  Every control the inline panel offered is still present. A change inside the workspace repaints
+  **only** the workspace, preserving its scroll position (same reasoning as PRO-3): the page behind
+  it has not changed. Ticks remain session state; only the section order writes to the project.
 
 
 ---
@@ -2022,6 +2122,22 @@ an operator typing `enabl_both` into a key that accepts exactly three values.
   > tells an operator what a control means while they are assigning it.
 - **SP-3a (MUST)** The "Apply to `<action>`" bulk toggle (RV8-2/RV9-1) moves into the rail
   beneath the picker, since it acts on the selected control. It remains enum-only.
+- **CTLSORT-1 (MUST)** The card list carries an **order** selector and a **tag filter**
+  above its text filter:
+  - **Order** — **`A→Z`** (by title; the default and the pre-existing behaviour) or
+    **`By type`**, which sorts by control type first and title within it, and renders a
+    **sticky heading per type** so the group stays named while the list scrolls.
+  - **Tag** — narrows the list to controls carrying one tag, or to the **untagged** ones
+    (reusing FIL-3's private-use sentinel so `""` can still mean *any tag*). The selector is
+    rendered **only when something in the project is tagged**; an always-empty dropdown is
+    worse than none.
+
+  Tag MUST be a **filter, not an ordering**. A control may carry several tags, so grouping by
+  tag would render the same card once per tag — in a picker whose entire job is "choose one".
+
+  All three narrowing controls (text, tag, order) **compose**, are **UI state only** (never
+  written to the project), and MUST NOT clear the selected control: changing how the list is
+  arranged is not a statement about what you are applying.
 - **SP-4 (MUST — the layout sticky depends on).** `position:sticky` fails **silently** when
   the surrounding layout is wrong, so these four properties are binding, not incidental:
   1. `#app-root` has a **fixed** `height:100vh`. With `min-height` it grows with its content,
@@ -2043,11 +2159,23 @@ an operator typing `enabl_both` into a key that accepts exactly three values.
   captured before a render and restored after — otherwise every click jumps to row 1, which
   is the very problem the rail exists to solve. Scroll is preserved **within** a tab only:
   changing tab lands at the top of the new one.
+- **SP-7 (MUST)** That restore covers **both axes**. `.main` scrolls sideways as well as down
+  (SP-6 sizes `.table-wrap` to its content), and the columns reached by scrolling right are the
+  ones the user acts on — Status, and the ✓ Apply tick column itself. Restoring `scrollTop`
+  alone snapped the view back to the left-hand edge on every store edit: scroll right to set an
+  action, and setting it throws the column away. `scrollLeft` MUST be captured and restored with
+  it, and the STAB-2 anchor correction MUST apply on both axes. The offset MUST be written after
+  a forced measure, since after a full `render()` `#main` is a brand-new element whose content
+  has not been laid out. Because this is a layout behaviour no render-to-string test can see, it
+  MUST be covered by a **real DOM** round-trip test (§22.3 SP-B's rationale).
 
 ## 22.4 Bulk assignment over the shown set, and holding a decision (v2.1.1)
 
 ### BULK-1 (MUST) — apply the selected control to everything currently shown
-The rail carries a single **"Apply to all N shown"** button. *Shown* means exactly what the
+*(The button's LOCATION is superseded by **BULK-3** below — it is now the tick column's own
+heading. Everything else here stands.)*
+
+The bulk action is a single **"Apply to all N shown"** control. *Shown* means exactly what the
 table is displaying — whatever the search box and every filter (Incomplete only, the parked
 toggles) have narrowed it to — so `search: bluetooth` followed by one click tags every
 Bluetooth-related item. It toggles like RV9-1: when every shown row already carries the
@@ -2062,6 +2190,58 @@ The button's LABEL and the click's ACTION MUST come from **one** shared plan
 (`App.ui.model.applyAllShownPlan`), so the count the button promises and the set it acts on
 cannot drift. The whole run is one undo entry, and the Activity log records the count and
 the search term in force.
+
+### BULK-3 (MUST) — the ✓ Apply column heading IS the bulk action (v2.1.4)
+The bulk apply MUST live on the **heading of the tick column it fills**, not in the rail beside
+the table. The heading reads **"✓ Apply all N"**, or **"✕ Remove all N"** in the danger style
+when every shown row already carries the control (the BULK-1 toggle, unchanged), and is disabled
+with an explanatory `title` when no control is selected or nothing is shown.
+
+Two reasons this is normative rather than cosmetic:
+
+1. **The count cannot go stale.** The toolbar and rail are deliberately NOT re-rendered while the
+   user types in the search box (that would steal focus), so a count rendered there goes wrong the
+   moment the table narrows. The heading is part of the table, so it is re-rendered with the rows
+   it counts. Consequently the rail MUST keep the explanation — a clickable column heading is not
+   self-evident — but MUST NOT repeat the number.
+2. **A row tick suppresses the full re-render** (that is what keeps the page still, SP-5/STAB-3),
+   so the tick handler MUST repaint this one heading in place. The heading MUST therefore be
+   emitted by a single shared helper used by both the table render and that in-place refresh —
+   otherwise ticking every shown row by hand leaves the heading promising an *Apply* while the
+   click would in fact *Remove*.
+
+### BULK-4 (MUST) — bulk Security Relevance and bulk decision
+Two further rail modes, on top of Apply Control Mode and Assign to Device:
+
+- **Apply Security Relevance** — offered on **every** dataset, because relevance is a core column.
+- **Apply Decision** — offered **only** where the adapter declares an `enum` **primary decision
+  field**, discovered from `decisionSchema` and never from a dataset id (DOD-11). "Pick one of
+  these" is the only decision shape a picker can bulk-apply; a typed or free-text value needs a
+  different control, and the mode MUST be absent rather than guess one. Today this means Packages
+  (`action`: keep/disable/remove) and not Tactical.
+
+Both are the **same gesture** as the two existing modes — arm the mode, pick a value in the rail,
+tick the rows — and they MUST **share one tick column**, one heading action, one plan helper and
+one set of handlers, because they differ only in the field being written. `App.ui.tables.
+valueApplySpec(adapter, ui)` is that single description (value list, field, and a `read(item)`
+returning a row's current value); `App.ui.model.valueAllShownPlan` is the BULK-1 plan over it.
+
+- **Ticking** sets the value; **unticking CLEARS the field** — "not set" for a relevance,
+  *undecided* for a decision. This is what makes a mis-tick reversible without Undo, and the rail
+  MUST say so.
+- The column heading is the bulk action, exactly as BULK-3 requires: **"✓ Set all N"**, or
+  **"✕ Clear all N"** in the danger style when every shown row already carries the value.
+- Unlike the control and device ticks, a value tick MUST go through the ordinary re-render rather
+  than a quiet in-place patch: it changes the row's badge, its **Status** and (for a decision) its
+  undecided styling, and three surgical patches would be three chances to drift from the renderer.
+- A whole bulk run is **one** undo entry; consecutive hand ticks of the same value fold into one.
+- Writing a decision MUST **merge** onto the item's existing decision object rather than replace
+  it, so an adapter whose `decisionSchema` grows a second field does not silently lose it.
+
+**Mode exclusivity.** All bulk modes own the same tick column and so remain mutually exclusive.
+With five of them, the modes and their blocking messages MUST be **declared** (`App.ui.tables.
+PICK_MODES` + `blockedBy(ui, id)`) rather than hand-wired pairwise; a disabled button MUST still
+name the mode to leave first.
 
 ### BULK-2 (MUST) — every checkbox in a table cell is a full-cell hit target
 **Any** bare checkbox occupying a table cell MUST be wrapped in a cell-filling `<label>` so a
@@ -2154,12 +2334,25 @@ simply gets no Action filter.
 Filters **compose** — with each other (AND), with the free-text search, with Incomplete-only and
 with the parked-relevance toggles. "Packages being removed whose name contains bluetooth" is
 therefore Action = `remove` plus a search, not a special case. Every surface that acts on "what
-is shown" — **Apply to all N shown** (BULK-1), **Export CSV** — inherits them, because they all
+is shown" — the **✓ Apply all N** heading (BULK-1/BULK-3), **Export CSV** — inherits them, because they all
 run through the same `filterSortRows`.
 
 An active filter MUST be visibly marked and the toolbar MUST say how many are active, with a
 clear affordance: a table that is mysteriously short is worse than no filter at all. Filter state
 is UI-only and never written to the project.
+
+### FIL-2 (MUST, v2.1.4) — filter by Control Refs
+The **Control Refs** column gets a filter of its own, so "show me every action assigned to this
+control" is answered in the register itself rather than by counting rows in the Control Manager —
+which is how a control's coverage is actually reviewed, alongside the decisions it drives.
+
+The vocabulary is the project's controls listed by **title** (what the cell renders) while the
+option **value** is the control **id** (what the item stores), so renaming a control cannot
+orphan the filter. **Every** control is offered, not only those already referenced in that
+dataset: "nothing here is assigned to it" is a legitimate and useful answer. A
+**(none assigned)** option lists the items carrying no control at all — the gap list. The filter
+appears only once the project has at least one control, and like every other it is
+dataset-agnostic and composes with the rest.
 
 ### JUS-1 (MUST) — a justification for control satisfaction
 A `Control` MAY carry **`deviceJustifications: { [deviceBaseId]: string }`** — free text saying
@@ -2171,8 +2364,23 @@ dropped, so "no justification" has one canonical form. Additive; no `schemaVersi
 The **Mark satisfied / unsatisfied** control and the justification box MUST live **inside the
 per-control modal**, beneath the list of items that satisfy the control — not on the summary row.
 The point is procedural: a control is marked satisfied having just looked at what satisfies it,
-and the reason is captured in the same moment. The summary row keeps the state **badge** (and a
-preview of the justification) and routes into the modal.
+and the reason is captured in the same moment. The summary row keeps the state **badge** and
+routes into the modal.
+
+**REV-2 (MUST, v2.1.4 — amends the above):** the summary row MUST NOT echo the justification
+text. It is free prose, and a preview of it sat beside the control button in a flex row, so the
+button — the thing you actually click — lost width in proportion to how much had been written,
+and no two rows lined up. The row carries the state badge and, when a control is satisfied with
+nothing recorded, the **no justification** flag (a warning about something *missing*, not
+content). The space freed MUST go back to the button rather than being reserved.
+
+**CTLM-1 (MUST, v2.1.4):** the modal's per-dataset item lists carry **Key and Decision only**.
+The panels are laid out side by side in a grid, and a grid item's `min-width` is `auto` — its
+*min-content* width — so one long unbreakable package key widened its track and pushed the
+Packages panel underneath Tactical, hiding the very list the modal exists to show. The panels
+MUST therefore set `min-width: 0`, and this table MUST be `table-layout: fixed` with wrapping
+cells, so a long key wraps instead of overflowing. A **Status** column is redundant here in any
+case: an undecided item shows an empty Decision.
 
 Committing the state MUST first flush any pending justification edit: clicking the button blurs
 the textarea, and the two must not race for the same commit.
@@ -2183,6 +2391,203 @@ columns; the **Control report** prints the per-device status and justification u
 heading. A control marked satisfied with **no** justification MUST be shown as such — in the
 modal, on the list row, and in the report ("No justification recorded") — rather than rendering
 as a blank cell that reads as clean.
+
+## 22.7 Hidable columns and recorded divergence (v2.1.5)
+
+### COL-1 (MUST) — every column is hidable except the key
+Each data table carries a **Columns bar above the table**: one tick per column, plus **All** and
+**None**. Unticking a column removes it from the **heading, the filter row and every cell** —
+the header, the filter row and the body all walk the same visible-column list, so they cannot
+disagree about what the table has.
+
+Exactly one column is **not** offered: the dataset's **first** column — Package on Packages,
+Path on Tactical. It is the item's identity and what the generated output acts on, so a table
+without it is a view of nothing. It is read off `adapter.columns[0]`, never named in the core, so
+a new dataset locks its own key column with no core edit. It appears in the bar as an
+**"always shown" chip** — text, not a disabled box and not an emoji glyph the machine may lack.
+A request to hide it (`hiddenCols.key`) MUST be refused rather than obeyed.
+
+Hiding a column **clears that column's filter**. FIL-1's promise is that a table is never
+mysteriously short; a filter whose dropdown has just been hidden is exactly that.
+
+Visibility is **UI-only and per dataset**, held with the sort and the column widths for the
+session, and MUST never be written to the project file. **Export CSV** follows it — the export
+already promises the same columns, filters and order as the table.
+
+Ticking a column MUST NOT rebuild the bar: the box already shows its new state, and hiding
+three columns is three clicks in a row. Only the table and the bar's own count are repainted
+(the same reasoning as STAB-3).
+
+### DIV-1 (MUST) — divergence from the guidelines is recorded, not implied
+A `RegisterItem` MAY carry **`diverges: true`** — this decision knowingly departs from the
+guidelines being worked to. Only ever `true` when present; absent means it does not diverge, so
+the canonical form has no `false` (exactly as HELD-1's `held`). Additive; no `schemaVersion` bump.
+
+It is a **core column** — `Diverges from Guidelines`, alongside Security Relevance / Applies to /
+Status — so every dataset gets it without an adapter edit, for the same reason: it is a property
+of a *decision*, not of a dataset. The cell is a full-cell hit target (BULK-2).
+
+### DIV-2 (MUST) — the flag is worthless without the narrative
+A `RegisterItem` MAY carry **`divergenceNarrative: string`** — how the decision departs from the
+guidelines, **which** guideline it departs from, and **why** that choice was made.
+
+The box appears in the row's expander **only while `diverges` is set**: ticking the column is what
+produces it, and its absence is what "does not diverge" looks like. An item flagged with nothing
+recorded MUST be shown as a **gap** — the cell is tinted and its hover says so — for the same
+reason JUS-3 flags a control satisfied without a justification: a bare exception is
+indistinguishable from a mistake. A ticked cell's hover carries the narrative, so the reasoning
+is readable without opening the row.
+
+**Unticking the flag MUST NOT delete the narrative.** Losing a paragraph of written reasoning to a
+mis-click is far worse than carrying a few unused characters; re-ticking brings it straight back.
+Emptying the box is the erasure, and unsets the field (no stored `""`).
+
+### DIV-3 (MUST) — the tick must not move the page
+Ticking the column changes what the row's expander contains, so the handler edits **quietly**
+(STAB-3) and repaints exactly two things: the cell's hover text and missing-narrative tint, and
+the **one open detail row**, addressed by `data-detail-key`. Re-rendering the table would replace
+the checkbox under the pointer — the failure STAB-3 exists to prevent.
+
+**Scope (v2.1.5):** divergence is recorded in the project file and shown in the table only. It is
+deliberately **not** carried into `buildReport`, `buildControlReport` or the CSV export yet, and
+the Help manual MUST say so — an undocumented boundary reads as a bug.
+
+### CMD-1 (MUST) — a checkbox label is not a column of letters
+`.detail-form input { width: 100% }` also matched the device checkboxes in the Control Manager's
+row expander. A checkbox stretched to 100% of its own inline-flex label leaves the label's text no
+width at all, so a device named `TA5` rendered **one character per row**. The device options MUST
+therefore carry the same override the control multiselect already has (review-9 #2): the box keeps
+its natural size (`flex: 0 0 auto; width: auto`) and the name stays on one line, with the options
+flowing across and wrapping. The layout MUST live in the stylesheet — inline styles on the label
+cannot beat a rule that targets the input.
+
+## 22.8 Custom Security Actions — an authored register (v2.2)
+
+### CUS-1 (MUST) — a dataset whose items are written, not captured
+Packages and Tactical can only ever hold what a capture reported. A great deal of real hardening
+is in neither file: setting a **Knox tactical passcode**, sealing a SIM tray, a documented physical
+or procedural step. Before v2.2 those had nowhere to live — not being in a capture, they could not
+be a register row, and anything outside the register is absent from the report.
+
+A third dataset, **`android.custom` — "Custom Security Actions"**, is registered on the Android
+profile **after** Packages and Tactical (the workflow is: decide what the capture showed you, then
+record what the capture could not). It is a **virtual** dataset:
+
+- `virtual: true` — there is **no capture file, no Onboard slot and no `Snapshot`**. Onboard MUST
+  NOT offer a file input for it, MUST NOT gate the Onboard button on one, and MUST NOT include it
+  in the re-onboard identity check or the triage summary; a re-capture of identical files MUST
+  still be a no-op.
+- **Applicability without a snapshot.** "Applicable to this device" is normally `key ∈
+  snapshot.keys`. For a virtual dataset every register item applies to **every** device. This rule
+  MUST live in **one** place (`App.registry.applicableKeys` / `applicableKeySet` /
+  `deviceHasDataset`) and every consumer — Applies-to, readiness, generation, overrides,
+  `selfHealV3`'s override pruning, the device panels, the filter vocabularies — MUST ask it rather
+  than reaching for `dc.snapshots[dsId]`. A null-check repeated at eight call sites is a rule that
+  will be forgotten at the ninth.
+- Per-device and per-group **overrides still apply** (§19.2): they are how one device differs.
+  `selfHealV3` MUST NOT prune a virtual dataset's overrides for want of a snapshot.
+- The decision is `{ action: string }` — **free text, and no value format**. The adapter declares
+  `noValueFormats: true`, so no Value-format picker is offered and VF-7 enforcement is skipped:
+  this dataset exists precisely for what nobody could enumerate in advance, so constraining the box
+  would defeat it. An **empty** action is NOT a decision (unlike a blank Tactical value, which is a
+  real value to push) — the row stays undecided with a located reason, since there is no step in
+  "do nothing".
+- Every **universal** aspect is the shared machinery, unchanged: Description, Control Refs,
+  Applies to, Status, Security Relevance, Diverges from Guidelines, Rationale and Rollback. No
+  core edit may be needed to give a new dataset these — that is DOD-11 and it is re-proved here.
+
+### CUS-2 (MUST) — creating, naming and renaming a row
+A dataset MAY declare `userCreatable: true`. Only such a dataset gets an **add bar above the
+table** (`New <noun>` + name box + button). It sits above the table, **not** in the tools rail: the
+rail is the bulk-edit surface and MUST stay identical on every data tab (SP-1), whereas creating a
+row is something you do *to this table*. `App.store.addItem` MUST refuse a hand-added item for a
+captured dataset — a package with no capture behind it would sit in the register applicable to
+nothing and silently never generate.
+
+Only the **name** is asked for at creation. Everything else is edited in the row that now exists,
+which is where those boxes already are for every other dataset; a six-field creation dialog would
+be a second, divergent editor for the same item. A new row lands **undecided with its expander
+open**, so what is still missing is what is on screen.
+
+The **name is the key** — it identifies the row in the tables, in device and group overrides, in
+the manifest and in the report, exactly as a package name does. Renaming is therefore a real
+operation (`App.store.renameItem`), offered in the row's expander for `userCreatable` datasets
+only, and it MUST move everything keyed by the old name — otherwise the rename silently orphans
+the overrides, which the next load prunes as "not applicable", taking a real per-device decision
+with them. A captured row MUST have **no** rename box at all: its key is evidence, and a disabled
+box implies the name is merely locked for now.
+
+### CUS-3 (MUST) — what is generated is a runbook, not a script
+The tool cannot know how to perform an action it did not define, and pretending otherwise is worse
+than saying so. Implementation emits **`custom-actions.txt`** — per action: name, description, the
+step to perform, rationale, rollback, controls, and any divergence — and Verification emits
+**`custom-actions.verify.txt`** with an `EVIDENCED` line per action (the §10.2 semantics Tactical
+already uses). Neither has the platform `scriptExtension`, so neither is wrapped in the ADB
+PowerShell preamble.
+
+With **no decided custom actions, neither file is emitted at all.** Packages and Tactical always
+emit theirs because a device always has packages and a tactical document; an empty runbook in the
+ZIP reads as a step someone forgot to write rather than a step that does not exist.
+
+The report gains a **Custom Security Actions** section — Action Name, Description, Action, Control,
+Rationale, **Rollback** — whose optional columns are droppable and whose section is omittable
+through the ordinary §20.3 declarative metadata. Rollback is offered here and nowhere else: a
+manual action is the one kind whose undo nobody can reconstruct from the tool. The section heading,
+the Generate tick and the tab MUST all read the **same label**, or ticking a section and reading
+the heading disagree.
+
+### CUS-4 (MUST) — an older project must still open
+A project saved before this dataset existed has no `items["android.custom"]` entry. Reads tolerate
+that (`items[dsId] || []`) but the mutation paths do not, so the tab would appear and then refuse
+the first edit made in it. `selfHealV3` MUST therefore **seed an empty register for every dataset
+the active platform declares** — the same pre-seeding `App.store.empty()` does for a new project,
+and not a warning-worthy repair.
+
+## 22.9 Undo covers every change a data tab makes (v2.2.1)
+
+### UNDO-1 (MUST) — one Undo button, every action
+Undo shipped alongside Delete Mode and Apply Control Mode and only ever covered those two. That
+made it a specialist tool wearing a general label: the commonest edit in the whole tool — setting a
+package's decision to `remove`, then wanting it back — had nothing to press, while a bulk apply
+did. An operator cannot be expected to hold a list of which edits are recoverable and which are
+not, and the one time it matters is the one time they will be wrong about it.
+
+**Every mutating action a data tab performs MUST be undoable**: a decision (including a return to
+undecided), a Status flip in either direction, Security Relevance, Diverges, the divergence
+narrative, Description, Rationale, Rollback, a control-ref tick, the per-item value format, a
+rename, an add, a delete, a per-row control tick and a bulk apply-to-all-shown.
+
+This MUST be enforced structurally rather than by remembering: mutating handlers run inside a
+single wrapper (`withUndo(dsId, label, fn)`) which owns the snapshot, so the way to write a new
+handler that forgets to be undoable is to write one that does not go through the wrapper at all.
+
+### UNDO-2 (MUST) — one action is one click, regardless of how many rows it touched
+The unit of undo is the **action the operator took**, not the row. Applying a control to ten shown
+rows from the tick-column heading is one click and MUST be one Undo, restoring all ten. So must a
+Delete-Mode run over ten ticked rows. Consecutive Apply-Control-Mode ticks of the *same* control
+continue to fold into one entry (§19.11 review-13 #2) — three ticks is one user action in three
+clicks — and that run is closed by anything that ends it, now including any other edit.
+
+The mechanism is a whole-dataset snapshot taken before the wrapped function runs, which is what
+makes "however many rows" free: the wrapper does not need to know what `fn` touched.
+
+### UNDO-3 (MUST) — the history is honest about itself
+- **An action that changed nothing MUST NOT reach the stack.** A rejected rename, a re-picked enum,
+  a blur that re-committed the value already in force: the wrapper compares the dataset before and
+  after and discards the entry if they are identical. An Undo click that visibly does nothing is
+  worse than a greyed-out button. Discarding also **restores the redo branch**, since a no-op is
+  not a new action and MUST NOT strand a redo.
+- **Depth is bounded and stated.** At most `UNDO_LIMIT` (20) entries per dataset; the oldest is
+  dropped. Snapshots are of whole item arrays, and an unbounded stack is an unbounded leak.
+- **Scope is per dataset and per session.** Each data tab has its own stack, because the buttons
+  live in that tab's toolbar and an Undo pressed on Packages must not silently rewrite Tactical.
+  Nothing is written to the project file, so both buttons start greyed out on every launch and the
+  history is cleared on load or draft-restore — those snapshots belong to the previous project.
+- **The greyed-out tooltip MUST NOT claim a narrower scope than the button has**, and the enabled
+  tooltip MUST name the action it will take back.
+
+Undo remains scoped to the **data tabs**. Control Manager, Devices and Onboard are not covered, and
+the Help troubleshooting entry MUST say so rather than leaving the operator to discover it.
 
 ## 22.3 Acceptance (additive to §1.1)
 
@@ -2220,3 +2625,37 @@ as a blank cell that reads as clean.
 - **HELD-A** Flipping a decided item retains its `decision` byte-for-byte, marks it held,
   drops the device out of ready, and excludes it from the generated script; flipping back
   restores the same value. Editing releases the hold; `clear` still clears.
+- **COL-A** Unticking a column removes it from the heading, the filter row and every cell, and
+  clears that column's filter; the key column of every dataset stays whatever is asked of it;
+  **None** leaves exactly the key column and **All** restores the set; the choice never reaches
+  the project file, and Export CSV follows it.
+- **DIV-A** Ticking Diverges makes the narrative box appear in that row's expander and nowhere
+  else; a tick with no narrative is flagged in the cell; unticking keeps the text and re-ticking
+  restores it; emptying the box unsets the field; `diverges: false` is refused on load;
+  divergence round-trips byte-identically and appears in **no** generated artefact.
+- **CMD-A** In a real browser, a device option in the Control Manager expander is **one line
+  tall** with its name laid out horizontally — measured, not eyeballed, since the failure was a
+  label one character wide.
+- **CUS-A** Custom Security Actions is the third tab, takes no Onboard slot, and a re-onboard of
+  identical captures is still a no-op. A hand-added action applies to **every** device, is refused
+  a blank name, a duplicate name and an empty Action, and un-readies every device until decided.
+- **CUS-B** The tab's tools rail is byte-for-byte the same set of controls as Packages (Apply
+  Control Mode, Delete Items, Undo/Redo, the control picker), plus the add bar; Packages gets no
+  add bar and no rename box.
+- **CUS-C** Renaming an action carries its decision and its device *and* group overrides with it;
+  a captured key cannot be renamed. A device override on an action survives a save/load round-trip
+  (byte-stable) and a genuine re-capture.
+- **CUS-D** The action reaches `custom-actions.txt` unwrapped, `custom-actions.verify.txt`, its own
+  report section, Control coverage, the control report and the manifest's decision snapshot; with
+  no custom actions, neither file is in the bundle. A project with no `items["android.custom"]`
+  opens and is immediately editable.
+- **UNDO-A** Every edit listed in UNDO-1 is undoable from the tab's Undo button, and each restores
+  exactly the prior state of that row. A mixed sequence of different edit kinds steps back newest
+  first, one click per edit, and the button greys out when the sequence is exhausted.
+- **UNDO-B** One action that touched many rows is one Undo: applying a control to every shown row,
+  and a Delete-Mode run over several ticked rows, each cost exactly one entry and each restore
+  every row they touched. Consecutive ticks of one control still fold into a single entry, and an
+  intervening edit of any other kind starts a new one.
+- **UNDO-C** An edit that changed nothing pushes no entry and leaves an existing redo branch
+  intact. The history is capped at 20 entries per dataset, is independent per dataset, and is
+  cleared by a load. The greyed-out tooltip claims no narrower a scope than the button has.
