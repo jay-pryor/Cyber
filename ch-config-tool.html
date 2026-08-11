@@ -3324,7 +3324,7 @@
       // v2.3: NAM-1 section names, SEC-1 per-section introductions, TBS-1 per-section
       // table styling. All three are keyed by BLOCK ID, so they cover a generated
       // section and a hand-authored one with one shape and no per-kind special case.
-      'names', 'headings', 'intros', 'tableStyles', 'tableWidths'];
+      'names', 'headings', 'intros', 'introNumbered', 'tableStyles', 'tableWidths'];
 
     /**
      * TW-1/TW-2: a column-width array.
@@ -3630,7 +3630,7 @@
           }
           // v2.2: `centred` and `meta` are both "true/false by id" maps. Only the
           // NON-default value is ever stored, so both are validated the same way.
-          [['centred', true], ['meta', false]].forEach(function (pair) {
+          [['centred', true], ['meta', false], ['introNumbered', true]].forEach(function (pair) {
             var m = p.report[pair[0]];
             if (m === undefined) return;
             if (!isPlainObject(m)) { issues.push(issue('error', 'report.' + pair[0] + ' must be an object.', 'report.' + pair[0])); return; }
@@ -4379,7 +4379,7 @@
             p.report.tableWidths[id] = ws.map(function (w) { return Math.round(Number(w) * 10000) / 10000; });
           });
         }
-        ['centred', 'meta', 'names', 'headings', 'intros', 'tableStyles', 'tableWidths'].forEach(function (k) {
+        ['centred', 'meta', 'names', 'headings', 'intros', 'introNumbered', 'tableStyles', 'tableWidths'].forEach(function (k) {
           if (isPlainObject(p.report[k]) && !Object.keys(p.report[k]).length) delete p.report[k];
         });
         // v2.2: `sections` is the DOCUMENT ORDER of the hand-authored sections and each
@@ -8985,6 +8985,16 @@
       var counters = [], lastHeading = 0, depth = 0;
       var out = [];
 
+      /** Take the next number at `lvl`, clearing everything below it. The counter stack
+       *  is what makes 1 -> 1.1 -> 1.2 -> 1.2.1 -> 2 fall out of the order alone. */
+      function bump(lvl) {
+        counters.length = lvl;
+        for (var i = 0; i < lvl; i++) if (counters[i] == null) counters[i] = 0;
+        counters[lvl - 1]++;
+        depth = lvl;
+        return numbered ? counters.slice(0, lvl).join('.') : '';
+      }
+
       /**
        * Resolve one block's level, advance the counters, and record it.
        *
@@ -9014,10 +9024,7 @@
         // the first H1 after a title is still 1.
         if (lvl !== BODY_LEVEL && lvl !== TITLE_LEVEL) {
           if (lvl > depth + 1) { skipped = true; if (clamp) lvl = depth + 1; }
-          counters.length = lvl;
-          for (var i = 0; i < lvl; i++) if (counters[i] == null) counters[i] = 0;
-          counters[lvl - 1]++;
-          depth = lvl;
+          bump(lvl);
           if (forced == null) lastHeading = lvl;
         }
 
@@ -9034,6 +9041,23 @@
 
       (blocks || []).filter(function (b) { return b && b.included !== false; }).forEach(function (b) {
         var parent = place(b);
+        var childLevel = parent.level === BODY_LEVEL ? base : Math.min(parent.level + 1, 4);
+        /* SEC-2: a numbered introduction takes the FIRST of its section's child numbers,
+         * so a register's groups shift down to make room for it — 4 Tactical, 4.1 the
+         * introduction; 5 Packages, 5.1 the introduction, 5.2 Removed, 5.3 Disabled.
+         *
+         * It takes a number without becoming a BLOCK, because it is not one: it has no
+         * heading, so it emits no anchor, so it is not something a cross-reference could
+         * point at. The number is recorded on the parent and App.doc.render prefixes it
+         * to the text. An empty introduction consumes nothing. */
+        // `introBody` is the RENDERED introduction, which only the generator has built by
+        // the time it outlines; the designer outlines the raw blocks, which carry the
+        // unrendered `intro`. Either is evidence that there is one to number, and taking
+        // both is what stops the preview numbering a section the document does not.
+        var hasIntro = String((b.introBody == null ? b.intro : b.introBody) || '').trim();
+        if (b.introNumbered && hasIntro && parent.level !== TITLE_LEVEL) {
+          parent.introNumber = bump(childLevel);
+        }
         // A grouped dataset (Packages → Removed / Disabled / Kept) declares its groups
         // as CHILDREN. They become sub-sections one level down, which is what earns
         // each of them a number and an anchor — and therefore makes "see section 4.2"
@@ -9041,8 +9065,7 @@
         // Level 4 is the floor: there is no H5, so a fourth-level parent keeps its
         // children beside it rather than inventing a level LaTeX has no command for.
         (b.children || []).forEach(function (c) {
-          var at = parent.level === BODY_LEVEL ? base : Math.min(parent.level + 1, 4);
-          place(Object.assign({}, c, { id: b.id + '::' + c.id, kind: 'child', parentId: b.id, level: null }), at);
+          place(Object.assign({}, c, { id: b.id + '::' + c.id, kind: 'child', parentId: b.id, level: null }), childLevel);
         });
       });
       return out;
@@ -9260,8 +9283,14 @@
       resolved.forEach(function (b) {
         var h = headingFor(b);
         var body = b.kind === 'custom' ? renderParts(b.parts, ctx) : (b.body || '');
+        // SEC-1/SEC-2: the introduction sits between the heading and whatever the
+        // register produced, and carries its number when it has one. The number is
+        // escaped because `4.1` in column 1 is an ordered-list marker in markdown.
+        var intro = String(b.introBody == null ? '' : b.introBody);
+        if (intro && b.introNumber) intro = MD.text(b.introNumber) + ' ' + intro;
         if (b.pageBreakBefore) out.push(MD.pageBreak());
         if (h) out.push(h);
+        if (intro) out.push(intro);
         if (body) out.push(body);
       });
       var doc = MD.join(out);
@@ -9620,6 +9649,10 @@
       // and unwidenable. It is a column like any other now, on by default so nothing is
       // lost from an existing report by the change.
       { id: 'type', label: 'Type', optional: true },
+      // CCOL-3: what the control actually SAYS. The coverage table named a control and
+      // asserted a status against it, and a reader who did not already know the control
+      // had to go and look it up — which for an external reader means they cannot.
+      { id: 'description', label: 'Description', optional: true },
       { id: 'status', label: 'Status', optional: true },
       { id: 'items', label: 'Items (by dataset)', optional: true },
       { id: 'justification', label: 'Justification', optional: true }
@@ -9632,7 +9665,7 @@
       var deviceBaseId = dcSec ? dcSec.baseId : '';
       var cols = colOpts || {};
       var shown = CONTROL_COLUMNS.filter(function (c) { return !c.optional || cols[c.id] !== false; });
-      var byCtl = {}; var ctlLabel = {}; var ctlType = {};
+      var byCtl = {}; var ctlLabel = {}; var ctlType = {}; var ctlDesc = {};
       var controlsById = {}; (project.controls || []).forEach(function (c) { controlsById[c.id] = c; });
       platform.datasets.forEach(function (ds) {
         var adapter = App.registry.getDataset(project.platformProfileId, ds.id);
@@ -9649,6 +9682,7 @@
             var c = controlsById[ref];
             ctlLabel[ref] = c ? c.title : ref;
             ctlType[ref] = c ? c.type : '';
+            ctlDesc[ref] = (c && c.description) || '';
             byCtl[ref] = byCtl[ref] || {};
             (byCtl[ref][ds.label] = byCtl[ref][ds.label] || []).push(dispKey(it.key));
           });
@@ -9669,6 +9703,10 @@
         var why = c ? App.store.controlDeviceJustification(c, deviceBaseId) : '';
         var cells = {
           type: MD.cell(ctlType[ref] || ''),
+          // An undescribed control is stated as such rather than left blank, on the same
+          // rule as the justification: an empty cell reads as an oversight either way,
+          // and this way it says which.
+          description: ctlDesc[ref] ? MD.cell(ctlDesc[ref]) : '*' + MD.text('No description recorded.') + '*',
           status: MD.cell(state ? App.projectIo.controlStateLabel(state) : '—'),
           items: itemsCell,
           // EXC-1: an exception with no justification is the worst of the three to leave
@@ -9975,7 +10013,7 @@
        * `label` becomes the name. App.doc.headingFor and refResolver already prefer
        * `title` over `label`, so a named section still prints its heading. */
       var names = bag.names || {}, intros = bag.intros || {}, tstyles = bag.tableStyles || {}, twidths = bag.tableWidths || {};
-      var heads = bag.headings || {};
+      var heads = bag.headings || {}, introNums = bag.introNumbered || {};
       var centred = bag.centred || {};
       return applySectionOrder(d, bag.order).map(function (b) {
         // NAM-2: a GENERATED section's heading is editable too. It has to be: once a
@@ -10001,6 +10039,8 @@
           // its generated table. Stored as the same rich-text token markup a custom
           // paragraph uses, so one editor serves both.
           intro: String(intros[b.id] || ''),
+          // SEC-2: whether that introduction takes a number of its own.
+          introNumbered: introNums[b.id] === true,
           // TBS-1: which of this section's tables wear the profile's table styling.
           tableStyle: { head: (tstyles[b.id] || {}).head === true, firstColumn: (tstyles[b.id] || {}).firstColumn === true },
           // TW-2: hand-set column widths for this section's generated table.
@@ -10196,13 +10236,16 @@
         }, tblOpts));
         out = Object.assign({}, b, { body: r.body, children: r.children });
       }
-      // SEC-1: the operator's own words, between the heading and whatever the register
-      // produced. It sits ABOVE the table because that is where a reader looks for what
-      // a table is for — and it belongs to the section rather than to the table, so a
-      // grouped dataset's introduction is written once rather than once per group.
+      /* SEC-1: the operator's own words, between the heading and whatever the register
+       * produced. It sits ABOVE the table because that is where a reader looks for what
+       * a table is for — and it belongs to the section rather than to the table, so a
+       * grouped dataset's introduction is written once rather than once per group.
+       *
+       * Kept OUT of `body` and handed to App.doc as its own field, because SEC-2 lets it
+       * take a number and numbering is App.doc's job — baked into the body it would have
+       * been a string nobody could put a number in front of. */
       if (b.kind !== 'custom' && String(b.intro || '').trim()) {
-        var lead = MD.rich(b.intro, {});
-        if (lead) out = Object.assign({}, out, { body: MD.join([lead, out.body || '']) });
+        out = Object.assign({}, out, { introBody: MD.rich(b.intro, {}) });
       }
       // Centring is applied to the BODY, not the heading: a centred heading is a
       // formatting-profile decision, and centring the heading here would fight it.
@@ -15020,6 +15063,9 @@
         p('<strong>Introduction</strong> is your own prose, printed between the section\u2019s heading and its table. It takes the same ' +
           '<strong>B</strong> / <strong>I</strong> / <strong>\u2039\u203a</strong> buttons as a hand-written paragraph. A register that splits into groups is introduced ' +
           '<em>once</em>, above the lot, rather than once per group.') +
+        p('<strong>Number it</strong> gives the introduction the first of its section\u2019s numbers, and the groups shift down to make room: ' +
+          '<em>5 Packages</em>, then <em>5.1</em> the introduction, then <em>5.2 Packages \u2014 Removed</em>. Left unnumbered it is simply the prose under the heading. ' +
+          'A section with no introduction consumes no number either way.') +
 
         h(3, 'What each section offers') +
         p('Selecting any section \u2014 generated or hand-written \u2014 shows a <strong>preview of that section alone</strong>, for the currently selected device, rendered from exactly the same code the document is built from, numbered as it will be numbered. ' +
@@ -15028,7 +15074,7 @@
           ['<strong>About this report</strong>', 'The composition table: every section and whether it was included. A section that <em>cannot</em> apply is not listed at all — only a real omission is reported as one.'],
           ['<strong>Device Config Information</strong>', 'The provenance block. Tick individual rows on or off — platform, device, model, firmware, version, generated time, the project hash and one row per capture hash. Useful when a report is going somewhere the SHA-256s mean nothing. The choice is saved with the project and travels in a report template.'],
           ['<strong>The registers</strong>', 'Optional columns, and (where the adapter splits by action) which groups to carry.'],
-          ['<strong>Control coverage</strong>', 'Each control, its status on this device, the items satisfying it, and the justification. All three of those columns are optional.'],
+          ['<strong>Control coverage</strong>', 'Each control, its type, its description, its status on this device, the items satisfying it, and the justification. Every column but the control itself is optional.'],
           ['<strong>Deviations from default</strong>', 'Where a device or group override differs from the default decision.'],
           ['<strong>Deviations from Security Guidelines</strong>', 'Every item flagged as departing from the guidelines, grouped by register, with its description and the narrative behind it.']
         ]) +
@@ -20769,8 +20815,13 @@
           App.store.setDecision('android.tactical', it.key, { value: cap[it.key] ? cap[it.key].value : '' });
         });
         var rep = named(App.generate.buildReport(App.store.getProject(), 'dev-m1').files, 'report.md').content;
-        T.assert(/\|\s*Control\s*\|\s*Type\s*\|\s*Status\s*\|\s*Items \(by dataset\)\s*\|\s*Justification\s*\|/.test(rep), 'Control coverage needs a Status column');
-        T.assert(rep.indexOf('BT removed and disabled by policy.') !== -1, 'the justification must appear in the report');
+        // Six columns wrap their headings across source lines, so the row is asserted
+        // through the preview, which reassembles a cell column-aware.
+        var head = App.ui.mdPreview.toHtml(rep).html;
+        ['Control', 'Type', 'Description', 'Status', 'Items \\(by dataset\\)', 'Justification'].forEach(function (h) {
+          T.assert(new RegExp('<th>' + h.replace(/ /g, '\\s+') + '</th>').test(head), 'Control coverage needs a ' + h + ' column');
+        });
+        T.assert(/BT\s+removed\s+and\s+disabled\s+by\s+policy\./.test(head), 'the justification must appear in the report');
         T.assert(rep.indexOf('Satisfied') !== -1, 'the state must appear too');
         var cr = named(App.generate.buildControlReport(App.store.getProject(), 'dev-m1', {}).files, 'control-report.md').content;
         T.assert(cr.indexOf('BT removed and disabled by policy.') !== -1, 'the control report must carry it as well');
@@ -20786,7 +20837,7 @@
           App.store.setDecision('android.tactical', it.key, { value: cap[it.key] ? cap[it.key].value : '' });
         });
         var rep = named(App.generate.buildReport(App.store.getProject(), 'dev-m1').files, 'report.md').content;
-        T.assert(/No justification recorded\./.test(rep), 'an unjustified control must be visible as such');
+        T.assert(/No\s+justification\s+recorded\./.test(App.ui.mdPreview.toHtml(rep).html), 'an unjustified control must be visible as such');
       });
     });
 
@@ -24171,6 +24222,26 @@
     }
 
     /**
+     * SEC-2: whether a section's introduction takes a number of its own.
+     *
+     * It takes the FIRST of the section's child numbers, so a register's groups shift
+     * down to make room — 5 Packages, 5.1 the introduction, 5.2 Removed. Off is the
+     * absent state, so a numbered-then-unnumbered introduction leaves no trace.
+     */
+    function setBlockIntroNumbered(blockId, on) {
+      if (!P()) return errNoProject();
+      if (!blockId) return err('A section is required.');
+      App.store._commit(function (p) {
+        var b = bag(p);
+        b.introNumbered = b.introNumbered || {};
+        if (on) b.introNumbered[blockId] = true; else delete b.introNumbered[blockId];
+        if (!Object.keys(b.introNumbered).length) delete b.introNumbered;
+        if (!Object.keys(b).length) delete p.report;
+      });
+      return ok();
+    }
+
+    /**
      * NAM-2: the heading a GENERATED section prints, when the platform's own label is
      * not the wording this house uses. Blank hands it back to the label, so a reworded
      * and then blanked heading leaves no trace in the file.
@@ -24279,7 +24350,7 @@
         if (!b.sections.length) delete b.sections;
         // Everything keyed by block id goes with the block, or a deleted section would
         // leave a name and an introduction behind for an id nothing can reach.
-        ['levels', 'centred', 'names', 'headings', 'intros', 'tableStyles', 'tableWidths'].forEach(function (k) {
+        ['levels', 'centred', 'names', 'headings', 'intros', 'introNumbered', 'tableStyles', 'tableWidths'].forEach(function (k) {
           if (!b[k]) return;
           delete b[k][id];
           if (!Object.keys(b[k]).length) delete b[k];
@@ -24776,6 +24847,7 @@
           names: JSON.parse(JSON.stringify(b.names || {})),
           headings: JSON.parse(JSON.stringify(b.headings || {})),
           intros: JSON.parse(JSON.stringify(b.intros || {})),
+          introNumbered: JSON.parse(JSON.stringify(b.introNumbered || {})),
           tableStyles: JSON.parse(JSON.stringify(b.tableStyles || {})),
           tableWidths: JSON.parse(JSON.stringify(b.tableWidths || {})),
           sections: JSON.parse(JSON.stringify(b.sections || [])),
@@ -24815,12 +24887,13 @@
         b.names = JSON.parse(JSON.stringify(t.names || {}));
         b.headings = JSON.parse(JSON.stringify(t.headings || {}));
         b.intros = JSON.parse(JSON.stringify(t.intros || {}));
+        b.introNumbered = JSON.parse(JSON.stringify(t.introNumbered || {}));
         b.tableStyles = JSON.parse(JSON.stringify(t.tableStyles || {}));
         b.tableWidths = JSON.parse(JSON.stringify(t.tableWidths || {}));
         b.sections = JSON.parse(JSON.stringify(t.sections || []));
         if (!b.order.length) delete b.order;
         if (!b.sections.length) delete b.sections;
-        ['levels', 'centred', 'meta', 'names', 'headings', 'intros', 'tableStyles', 'tableWidths'].forEach(function (k) {
+        ['levels', 'centred', 'meta', 'names', 'headings', 'intros', 'introNumbered', 'tableStyles', 'tableWidths'].forEach(function (k) {
           if (!Object.keys(b[k]).length) delete b[k];
         });
         if (t.format) {
@@ -24838,7 +24911,8 @@
       nextId: nextId, blankPart: blankPart,
       setBlockLevel: setBlockLevel, setBlockCentre: setBlockCentre, setMetaField: setMetaField,
       // NAM-1 / SEC-1 / TBS-1: a section's name, its introduction, its table styling.
-      setBlockName: setBlockName, setBlockHeading: setBlockHeading, setBlockIntro: setBlockIntro, setBlockTableStyle: setBlockTableStyle,
+      setBlockName: setBlockName, setBlockHeading: setBlockHeading, setBlockIntro: setBlockIntro,
+      setBlockIntroNumbered: setBlockIntroNumbered, setBlockTableStyle: setBlockTableStyle,
       addSection: addSection, updateSection: updateSection, removeSection: removeSection,
       addPart: addPart, updatePart: updatePart, removePart: removePart, movePart: movePart,
       setCell: setCell, addRow: addRow, removeRow: removeRow,
@@ -25955,6 +26029,12 @@
           // `title`, and forcing the label in here was showing the section list's
           // shorthand in a preview of the page, where the page will print the heading.
           resolved ? App.doc.headingFor(resolved) : '',
+          // SEC-1/SEC-2: the introduction, with the number it will actually carry. The
+          // number comes from `resolved`, which is the same outline the document uses,
+          // so the preview cannot show a different one.
+          filled.introBody
+            ? ((resolved && resolved.introNumber) ? App.md.text(resolved.introNumber) + ' ' + filled.introBody : filled.introBody)
+            : '',
           filled.body || '',
           (filled.children || []).map(function (c) {
             var lvl = Math.min((resolved ? resolved.level : 1) + 1, 4);
@@ -26023,7 +26103,10 @@
         '<div class="rd-part-head"><span class="rd-tbs">' + tb + '</span></div>' +
         '<textarea class="rd-para" rows="3" data-rd-intro="' + esc(block.id) + '"' +
           ' placeholder="Optional. A blank line starts a new paragraph." aria-label="Introduction for ' + esc(block.label) + '">' + esc(block.intro || '') + '</textarea>' +
-        hostileHint(block.intro || '') + '</div>';
+        hostileHint(block.intro || '') +
+        cb('data-rd-intro-num="' + esc(block.id) + '"', 'Number it', block.introNumbered === true) +
+        '<p class="muted rd-hint">A numbered introduction takes the first of this section\u2019s numbers \u2014 <em>5 Packages</em>, then <em>5.1</em> the introduction, then <em>5.2 Packages \u2014 Removed</em>. Unnumbered, it is simply the prose under the heading.</p>' +
+        '</div>';
     }
 
     /** TBS-1: whether this section's generated tables wear the profile's table styling. */
@@ -26655,6 +26738,10 @@
       });
       dom.on(ctx.root, 'change', '[data-rd-intro]', function (e, el) {
         quietly(function () { logIssues(App.docStore.setBlockIntro(el.getAttribute('data-rd-intro'), el.value)); });
+        dirty(); repaint();
+      });
+      dom.on(ctx.root, 'change', '[data-rd-intro-num]', function (e, el) {
+        quietly(function () { logIssues(App.docStore.setBlockIntroNumbered(el.getAttribute('data-rd-intro-num'), el.checked)); });
         dirty(); repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-intro-wrap]', function (e, el) {
@@ -28329,9 +28416,9 @@
       s.test('Control coverage declares its columns, key column excluded', function () {
         docProject();
         var cols = App.generate.sectionColumns(App.store.getProject(), blockOf('control'), {});
-        T.assertDeepEqual(cols.optional.map(function (c) { return c.id; }), ['type', 'status', 'items', 'justification']);
+        T.assertDeepEqual(cols.optional.map(function (c) { return c.id; }), ['type', 'description', 'status', 'items', 'justification']);
         T.assertDeepEqual(cols.all.map(function (c) { return c.label; }),
-          ['Control', 'Type', 'Status', 'Items (by dataset)', 'Justification']);
+          ['Control', 'Type', 'Description', 'Status', 'Items (by dataset)', 'Justification']);
       });
 
       s.test('switching one off drops it from the table, and from the column list', function () {
@@ -28349,7 +28436,7 @@
         T.assert(section.indexOf('Justification') === -1, 'the column must be gone from the section:\n' + section);
         T.assert(/ISM-1 BT/.test(section), 'while the rest of the table stays');
         T.assertDeepEqual(App.generate.sectionColumns(App.store.getProject(), blockOf('control'), opts).all.map(function (x) { return x.id; }),
-          ['control', 'type', 'status', 'items']);
+          ['control', 'type', 'description', 'status', 'items']);
       });
 
       s.test('every generated section reports the columns it will have', function () {
@@ -28370,12 +28457,12 @@
         var base = App.store.getProject().deviceConfigs[0].baseId;
         var c = App.store.addControl({ title: 'ISM-1 BT', type: 'ISM', description: '', assignedDeviceIds: [base] });
         App.store.setItemFields('android.packages', 'com.b', { controlRefs: [c.id] });
-        T.assertEqual(App.docStore.setBlockWidth('control', 5, 0, 0.40, true).ok, true);
-        [1, 2, 3, 4].forEach(function (i) { App.docStore.setBlockWidth('control', 5, i, 0.15, true); });
+        T.assertEqual(App.docStore.setBlockWidth('control', 6, 0, 0.40, true).ok, true);
+        [1, 2, 3, 4, 5].forEach(function (i) { App.docStore.setBlockWidth('control', 6, i, 0.12, true); });
         var md = reportMd({});
         var section = md.slice(md.indexOf('{#sec-control}'));
         var f = borderFractions(section);
-        T.assert(f && f.length === 5, 'expected a five-column grid: ' + section.slice(0, 300));
+        T.assert(f && f.length === 6, 'expected a six-column grid: ' + section.slice(0, 300));
         T.assert(Math.abs(f[0] - 0.4) < 0.02, 'the set width must reach the table, got ' + f[0].toFixed(3));
       });
 
@@ -28392,7 +28479,7 @@
 
       s.test('widths for the wrong number of columns are ignored, not applied', function () {
         docProject();
-        App.docStore.setBlockWidth('control', 9, 0, 0.5, true);   // nine columns; there are five
+        App.docStore.setBlockWidth('control', 9, 0, 0.5, true);   // nine columns; there are six
         var md = reportMd({});
         T.assert(md.indexOf('Control coverage') !== -1, 'the document must still generate');
       });
@@ -28420,8 +28507,8 @@
         T.assert(/data-rd-dsmap="columns" data-rd-ds="control" data-rd-key="justification"/.test(withMenu), 'no column tick');
         App.ui.views.reportDesign._rd.optMenu = null;
         T.assert(/rd-widthbar/.test(html), 'no width strip');
-        T.assertEqual((html.match(/data-rd-colresize\b/g) || []).length, 4, 'a five-column strip has four edges');
-        T.assert(/data-rd-pct="b\|control\|5" data-rd-col="0"/.test(html), 'no typed-width chip');
+        T.assertEqual((html.match(/data-rd-colresize\b/g) || []).length, 5, 'a six-column strip has five edges');
+        T.assert(/data-rd-pct="b\|control\|6" data-rd-col="0"/.test(html), 'no typed-width chip');
         T.assert(/data-rd-block-autowidth="control"/.test(html), 'no reset');
         App.ui.views.reportDesign.close();
       });
@@ -28797,8 +28884,8 @@
         App.ui.views.reportDesign.open();
         App.ui.views.reportDesign.select('control');
         var html = App.ui.views.generate.render(App.store.getProject());
-        var chips = (html.match(/data-rd-pct="b\|control\|5" data-rd-col="\d"/g) || []);
-        T.assertEqual(chips.length, 5, 'every column has a chip, including the last: ' + chips.join(', '));
+        var chips = (html.match(/data-rd-pct="b\|control\|6" data-rd-col="\d"/g) || []);
+        T.assertEqual(chips.length, 6, 'every column has a chip, including the last: ' + chips.join(', '));
         // They share one target string, which is how the Tab handler finds the next one
         // after the repaint has thrown away the element it was editing.
         T.assertEqual(new Set(chips.map(function (c) { return /data-rd-pct="([^"]+)"/.exec(c)[1]; })).size, 1);
@@ -29420,6 +29507,143 @@
         T.assert(/data-rd-sec-name="ds:android.packages"/.test(html), 'no name box');
         T.assert(/data-rd-intro="ds:android.packages"/.test(html), 'no introduction box');
         T.assert(/data-rd-intro-wrap="b"/.test(html), 'no rich-text control on the introduction');
+        App.ui.views.reportDesign.close();
+      });
+    });
+
+    /* ===== SUITES: a numbered introduction (SEC-2) · control description (CCOL-3) ===== */
+
+    T.suite('SEC-2 an introduction can take a number of its own', function (s) {
+      s.test('it takes the FIRST of its section\'s child numbers', function () {
+        var r = DOC.outline([
+          { id: 'p', kind: 'dataset', label: 'Packages', level: 1, included: true,
+            introBody: 'Reviewed.', introNumbered: true,
+            children: [{ id: 'rm', label: 'Removed' }, { id: 'dis', label: 'Disabled' }] }
+        ], {});
+        T.assertEqual(r[0].number, '1');
+        T.assertEqual(r[0].introNumber, '1.1', 'the introduction goes first');
+        T.assertDeepEqual(r.slice(1).map(function (x) { return x.number; }), ['1.2', '1.3'],
+          'and the groups shift down to make room');
+      });
+
+      s.test('unnumbered, it consumes nothing', function () {
+        var blocks = [{ id: 'p', kind: 'dataset', label: 'Packages', level: 1, included: true,
+          introBody: 'Reviewed.', children: [{ id: 'rm', label: 'Removed' }] }];
+        var r = DOC.outline(blocks, {});
+        T.assertEqual(r[0].introNumber, undefined);
+        T.assertEqual(r[1].number, '1.1', 'the first group is still 1.1');
+      });
+
+      s.test('an empty introduction consumes nothing either', function () {
+        var r = DOC.outline([{ id: 'p', kind: 'dataset', label: 'P', level: 1, included: true,
+          introBody: '   ', introNumbered: true, children: [{ id: 'g', label: 'G' }] }], {});
+        T.assertEqual(r[0].introNumber, undefined);
+        T.assertEqual(r[1].number, '1.1');
+      });
+
+      s.test('a section with no groups still numbers its introduction', function () {
+        var r = DOC.outline([
+          { id: 'a', kind: 'dataset', label: 'Tactical', level: 1, included: true, introBody: 'X.', introNumbered: true },
+          { id: 'b', kind: 'dataset', label: 'Next', level: 1, included: true }
+        ], {});
+        T.assertEqual(r[0].introNumber, '1.1');
+        T.assertEqual(r[1].number, '2', 'and the section after it is unaffected');
+      });
+
+      s.test('the number is escaped, because 4.1 in column 1 is a list marker', function () {
+        var md = DOC.render({ blocks: DOC.outline([
+          { id: 'p', kind: 'dataset', label: 'Packages', level: 1, included: true,
+            introBody: 'Reviewed.', introNumbered: true, body: 'TABLE' }
+        ], {}) });
+        T.assert(/^1\\\.1 Reviewed\.$/m.test(md), 'expected an escaped number: ' + JSON.stringify(md));
+        // And it must come between the heading and the body, which is the whole point.
+        T.assert(md.indexOf('1\\.1 Reviewed.') < md.indexOf('TABLE'), 'the introduction precedes the table');
+      });
+
+      s.test('a title section never numbers its introduction', function () {
+        // A title is outside the counter machinery; giving its introduction a number
+        // would be inventing one from counters it deliberately does not touch.
+        var r = DOC.outline([{ id: 't', kind: 'custom', label: 'T', title: 'Foreword',
+          level: DOC.TITLE_LEVEL, included: true, introBody: 'X.', introNumbered: true }], {});
+        T.assertEqual(r[0].introNumber, undefined);
+      });
+
+      s.test('it reaches the document, and shifts the groups there too', function () {
+        docProject();
+        App.docStore.setBlockIntro('ds:android.packages', 'Reviewed against the baseline.');
+        var plain = reportMd({});
+        T.assert(/^## \d+\.1 Removed/m.test(plain), 'unnumbered, the first group is x.1');
+        App.docStore.setBlockIntroNumbered('ds:android.packages', true);
+        var numbered = reportMd({});
+        T.assert(/^\d+\\\.1 Reviewed against the baseline\.$/m.test(numbered), 'the introduction takes x.1');
+        T.assert(/^## \d+\.2 Removed/m.test(numbered), 'and the first group moves to x.2');
+      });
+
+      s.test('off is the absent state, and it travels in a report template', function () {
+        docProject();
+        App.docStore.setBlockIntro('ds:android.packages', 'X.');
+        App.docStore.setBlockIntroNumbered('ds:android.packages', true);
+        T.assertEqual(App.store.getProject().report.introNumbered['ds:android.packages'], true);
+        var ser = App.projectIo.serializeProject(App.store.getProject());
+        T.assertEqual(App.projectIo.parseProject(ser).ok, true, 'the schema must accept it');
+        App.docStore.saveReportTemplate('House');
+        App.docStore.setBlockIntroNumbered('ds:android.packages', false);
+        T.assertEqual((App.store.getProject().report || {}).introNumbered, undefined, 'off leaves no trace');
+        App.docStore.useReportTemplate('rpt1');
+        T.assertEqual(App.store.getProject().report.introNumbered['ds:android.packages'], true, 'and a template carries it');
+      });
+
+      s.test('the Section pane offers the switch, and the preview honours it', function () {
+        docProject();
+        App.docStore.setBlockIntro('ds:android.packages', 'Reviewed against the baseline.');
+        App.docStore.setBlockIntroNumbered('ds:android.packages', true);
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign.select('ds:android.packages');
+        var html = App.ui.views.generate.render(App.store.getProject());
+        T.assert(/data-rd-intro-num="ds:android.packages"[^>]*checked/.test(html), 'the switch, ticked');
+        var prev = html.slice(html.indexOf('rd-secprev'));
+        T.assert(/\d+\.1 Reviewed against the baseline\./.test(prev), 'the preview must show the number: ' + prev.slice(0, 400));
+        App.ui.views.reportDesign.close();
+      });
+    });
+
+    T.suite('CCOL-3 the control coverage table can carry the description', function (s) {
+      function withControl(desc) {
+        docProject();
+        var base = App.store.getProject().deviceConfigs[0].baseId;
+        var c = App.store.addControl({ title: 'ISM-1 BT', type: 'ISM', description: desc, assignedDeviceIds: [base] });
+        App.store.setItemFields('android.packages', 'com.b', { controlRefs: [c.id] });
+        return c;
+      }
+      function section(md) { return md.slice(md.indexOf('{#sec-control}'), md.indexOf('{#sec-deviations}')); }
+
+      s.test('the description is a column, on by default', function () {
+        withControl('Bluetooth must be off unless an exception is recorded.');
+        var shown = App.ui.mdPreview.toHtml(section(reportMd({}))).html;
+        T.assert(/<th>Description<\/th>/.test(shown), 'the column: ' + shown.slice(0, 300));
+        T.assert(/Bluetooth\s+must\s+be\s+off/.test(shown), 'carrying what the control says');
+      });
+
+      s.test('a control with no description says so rather than leaving a gap', function () {
+        withControl('');
+        var shown = App.ui.mdPreview.toHtml(section(reportMd({}))).html;
+        T.assert(/No\s+description\s+recorded\./.test(shown), 'an empty cell reads as an oversight either way');
+      });
+
+      s.test('and it switches off like any other column', function () {
+        withControl('Bluetooth must be off.');
+        var shown = App.ui.mdPreview.toHtml(section(reportMd({ columns: { control: { description: false } } }))).html;
+        T.assert(!/<th>Description<\/th>/.test(shown), 'the column must be gone');
+        T.assert(/ISM-1 BT/.test(shown), 'while the control stays');
+      });
+
+      s.test('it is offered in the section row menu with the rest', function () {
+        docProject();
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign._rd.optMenu = 'control';
+        var html = App.ui.views.generate.render(App.store.getProject());
+        App.ui.views.reportDesign._rd.optMenu = null;
+        T.assert(/data-rd-dsmap="columns" data-rd-ds="control" data-rd-key="description"/.test(html), 'no description tick');
         App.ui.views.reportDesign.close();
       });
     });

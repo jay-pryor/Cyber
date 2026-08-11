@@ -146,29 +146,29 @@ click('[data-rd-select="control"]');
 click('[data-rd-optmenu="control"]');
 const ccols = qa('.rd-optmenu [data-rd-dsmap="columns"][data-rd-ds="control"]').map(e => e.getAttribute('data-rd-key'));
 click('[data-rd-optmenu="control"]');
-ok(ccols.join(',') === 'type,status,items,justification', 'Control coverage offers its optional columns: ' + ccols);
-ok(qa('.rd-widthbar .rd-wseg').length === 5, 'the width strip stands in for the generated table: ' + qa('.rd-widthbar .rd-wseg').length);
-ok(qa('.rd-widthbar [data-rd-colresize]').length === 4, 'a five-column strip has four draggable edges');
-[[0, 0.26], [1, 0.10], [2, 0.18], [3, 0.20], [4, 0.26]].forEach(([i, w]) => A.docStore.setBlockWidth('control', 5, i, w, true));
+ok(ccols.join(',') === 'type,description,status,items,justification', 'Control coverage offers its optional columns: ' + ccols);
+ok(qa('.rd-widthbar .rd-wseg').length === 6, 'the width strip stands in for the generated table: ' + qa('.rd-widthbar .rd-wseg').length);
+ok(qa('.rd-widthbar [data-rd-colresize]').length === 5, 'a six-column strip has five draggable edges');
+const CCW = [[0, 0.20], [1, 0.08], [2, 0.22], [3, 0.14], [4, 0.16], [5, 0.20]];
+CCW.forEach(([i, w]) => A.docStore.setBlockWidth('control', 6, i, w, true));
 ok(Math.abs(A.docStore.widthTotal(A.store.getProject().report.tableWidths.control).total - 100) < 0.6,
   'a typed set that adds up is not flagged');
 // Over-commit it, check the flag, then put it back.
-A.docStore.setBlockWidth('control', 5, 0, 0.60, true);
+A.docStore.setBlockWidth('control', 6, 0, 0.60, true);
 A.ui.views.reportDesign.refresh();
 ok(/rd-wflag/.test(q('#rd-modal-host').innerHTML), 'an over-committed set must be flagged in red');
 ok(!!q('.rd-wflag') && /more than the page has/.test(q('.rd-wflag').textContent), 'and must say what will happen');
-A.docStore.setBlockWidth('control', 5, 0, 0.26, true);
+A.docStore.setBlockWidth('control', 6, 0, 0.20, true);
 A.ui.views.reportDesign.refresh();
 ok(!q('.rd-wflag'), 'and the flag clears when it adds up again');
 
 // TW-3: a set that does not fill the page makes a NARROWER table, not a stretched one.
-[[0, 0.2], [1, 0.2], [2, 0.2]].forEach(([i, w]) => A.docStore.setBlockWidth('control', 5, i, w, true));
-A.docStore.setBlockWidth('control', 5, 3, 0.05, true);
-A.docStore.setBlockWidth('control', 5, 4, 0.05, true);
+[[0, 0.2], [1, 0.2], [2, 0.2]].forEach(([i, w]) => A.docStore.setBlockWidth('control', 6, i, w, true));
+[3, 4, 5].forEach(i => A.docStore.setBlockWidth('control', 6, i, 0.05, true));
 A.ui.views.reportDesign.refresh();
 ok(!!q('.rd-wnote') && /of the page width, centred/.test(q('.rd-wnote').textContent),
   'under 100% is an outcome, not a fault: ' + (q('.rd-wnote') || {}).textContent);
-[[0, 0.26], [1, 0.10], [2, 0.18], [3, 0.20], [4, 0.26]].forEach(([i, w]) => A.docStore.setBlockWidth('control', 5, i, w, true));
+CCW.forEach(([i, w]) => A.docStore.setBlockWidth('control', 6, i, w, true));
 
 // ---- TTL-1 + NAM-2 + CAP-2: a title, a reworded heading, a centred caption ---
 setVal('[data-rd-level="composition"]', String(A.doc.TITLE_LEVEL));

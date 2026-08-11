@@ -42,6 +42,41 @@ checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and r
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
 
+### 2026-08-11 — v2.6 a Description column, and a numbered introduction — ✅ COMPLETE
+
+**CCOL-3 — the control's description in the coverage table.** The table named a control and asserted
+a status against it, and a reader who did not already know the control had to go and look it up —
+which for an external reader means they cannot. On by default, like the other optional columns, and
+an undescribed control reads *"No description recorded."* rather than leaving a blank cell, on the
+same rule as the justification: an empty cell reads as an oversight either way, and this way it says
+which.
+
+**SEC-2 — a numbered introduction.** The wording ("optionally be numbered or not") had two readings
+that meant different builds, so it was asked rather than guessed. The answer: the introduction takes
+the **first of its section's child numbers**, and the groups shift down to make room —
+*5 Packages*, *5.1* the introduction, *5.2 Packages — Removed*. Per section, not document-wide.
+
+It takes a number without becoming a BLOCK, because it is not one: it has no heading, so it emits no
+anchor, so it is not something a cross-reference could point at. `App.doc.outline` bumps a child-level
+counter for it and records the number on the parent; `render` prefixes it to the text. The number is
+escaped on the way out, because `4.1` in column 1 is an ordered-list marker in markdown.
+
+**One thing that had to change to make it possible:** the introduction was being baked into the
+section's `body` by `sectionContent`. Numbering is App.doc's job, and inside a body string there is
+nothing to put a number in front of — so it travels as its own field now, which is the tidier shape
+anyway. A title section never numbers its introduction: a title is deliberately outside the counter
+machinery, and giving its introduction a number would be inventing one from counters it does not
+touch.
+
+**A wrinkle worth recording.** The generator outlines blocks that have been through
+`sectionContent`, so they carry the rendered `introBody`; the designer outlines the RAW blocks, which
+carry the unrendered `intro`. Taking only the first meant the preview numbered nothing while the
+document numbered correctly — the two disagreeing about the same section. `outline` reads either.
+
+**Verification.** 13 new self-tests → **856/856 pass**, 145 suites; live-DOM 64/64; end-to-end 60/60.
+Built for real: *3 Packages* with *3.1* the introduction and *3.2 Removed* under it, and a six-column
+Control coverage table carrying the description — zero overfull boxes.
+
 ### 2026-08-11 — v2.5a the table font size skipped the package names, in the preview — ✅ COMPLETE
 
 **Reported:** the table text size did not appear to apply to the package names, "because they are

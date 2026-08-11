@@ -101,13 +101,15 @@ left and five panes on the right.
   section has a heading box too, so the wording a register section prints is yours to set (blank =
   the standard wording). Every generated section also takes an **introduction** — your own prose
   between the heading and the table, written once for the section rather than once per group.
+  **Number it** gives that introduction the first of its section's numbers, with the groups shifting
+  down to make room — *5 Packages*, then *5.1* the introduction, then *5.2 Packages — Removed*.
 - **Your own sections.** A heading plus an ordered stack of paragraphs, fill-in tables, horizontal
   lines and page breaks, in any arrangement. Leave the heading blank and the section becomes body
   text at the level above it. Bold/italic/code/line-break buttons insert markers rather than raw
   markdown, so nothing you type can collide with the escaping.
 - **Columns and groups.** The **☰** button on each section row says which columns its table carries
-  — the registers, and **Control coverage** too (Type, Status, Items and Justification are each
-  optional) — and for a register that splits by action, which groups. They are on the row rather than
+  — the registers, and **Control coverage** too (Type, Description, Status, Items and Justification
+  are each optional) — and for a register that splits by action, which groups. They are on the row rather than
   in a pane so they can be changed with the Preview open. The first column is the key and is always
   there. A control's **type** is its own column rather than brackets after the title.
 - **Selecting a section does not change which pane is showing**, so you can click down the list and
