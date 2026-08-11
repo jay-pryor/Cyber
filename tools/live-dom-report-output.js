@@ -107,8 +107,14 @@ ok(/captured from the device/.test(bag.intros['ds:android.tactical']), 'the intr
 ok(bag.tableStyles['ds:android.tactical'].head === true, 'header styling reaches the project');
 ok(/>Knox</.test(q('#rd-modal-host').innerHTML), 'the section list shows the NAME');
 
-// Show the tactical Value column (optional, off unless ticked).
-check('[data-rd-dsmap="columns"][data-rd-ds="android.tactical"][data-rd-key="value"]', true);
+// Show the tactical Value column. OPT-1 put the ticks behind the menu on the section
+// ROW, so the menu has to be opened first — which is the point of the change: it can be
+// opened from whichever pane you are on.
+click('[data-rd-optmenu="ds:android.tactical"]');
+ok(!!q('.rd-optmenu'), 'the options menu opens on the row');
+check('.rd-optmenu [data-rd-dsmap="columns"][data-rd-ds="android.tactical"][data-rd-key="value"]', true);
+ok(!!q('.rd-optmenu'), 'and stays open while you tick through it');
+click('[data-rd-optmenu="ds:android.tactical"]');
 
 // ---- TW-1: a custom section with a 60/20/20 table ---------------------------
 click('[data-rd-add-section]');
@@ -137,7 +143,9 @@ ok(Math.abs(w[0] - 0.6) < 0.001 && Math.abs(w[1] - 0.2) < 0.001 && Math.abs(w[2]
 
 // ---- CCOL-1 + TW-2: Control coverage columns and widths ---------------------
 click('[data-rd-select="control"]');
-const ccols = qa('[data-rd-dsmap="columns"][data-rd-ds="control"]').map(e => e.getAttribute('data-rd-key'));
+click('[data-rd-optmenu="control"]');
+const ccols = qa('.rd-optmenu [data-rd-dsmap="columns"][data-rd-ds="control"]').map(e => e.getAttribute('data-rd-key'));
+click('[data-rd-optmenu="control"]');
 ok(ccols.join(',') === 'type,status,items,justification', 'Control coverage offers its optional columns: ' + ccols);
 ok(qa('.rd-widthbar .rd-wseg').length === 5, 'the width strip stands in for the generated table: ' + qa('.rd-widthbar .rd-wseg').length);
 ok(qa('.rd-widthbar [data-rd-colresize]').length === 4, 'a five-column strip has four draggable edges');
@@ -175,8 +183,13 @@ A.docStore.addFormat('House', A.docFormat.standard());
 A.docStore.setFormatId('fmt1');
 const house = A.docFormat.list(A.store.getProject()).filter(f => f.id === 'fmt1')[0];
 house.tables.captionCentre = true;
+// FNT-1: three sizes — document 11pt, table body 9pt, table header 12pt.
+house.tables.fontSize = '9';
+house.tables.headFontSize = '12';
 A.docStore.updateFormat('fmt1', house);
-ok(A.docFormat.resolve(A.store.getProject()).tables.captionCentre === true, 'the caption-centring switch saves');
+const live = A.docFormat.resolve(A.store.getProject());
+ok(live.tables.captionCentre === true, 'the caption-centring switch saves');
+ok(live.tables.fontSize === '9' && live.tables.headFontSize === '12', 'the table font sizes save');
 
 // ---- round trip through the project file ------------------------------------
 const ser = A.projectIo.serializeProject(A.store.getProject());
@@ -208,6 +221,8 @@ ok(/^# About this report \{#sec-composition\}$/m.test(md), 'a title section carr
 ok(/^# 1 Device Config Information/m.test(md), 'and the section after it is still 1');
 ok(md.indexOf('Departures from the fleet default {#sec-deviations}') !== -1, 'the reworded heading reaches the document');
 ok(/\\usepackage\{caption\}/.test(md) && /singlelinecheck=false/.test(md), 'the caption-centring preamble is emitted');
+ok(/chTblBodyFont\}\{\\fontsize\{9pt\}/.test(md) && /chTblHeadFont\}\{\\fontsize\{12pt\}/.test(md),
+  'the three font sizes reach the document');
 ok(/Tactical \{#sec-ds-android-tactical\}/.test(md), 'the HEADING is still Tactical, not the name Knox');
 ok(md.indexOf('captured from the device') !== -1, 'the introduction is in the document');
 ok(md.indexOf(A.md.HEAD_SHADE_OPEN) !== -1, 'the header-shade fence is emitted');

@@ -42,6 +42,47 @@ checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and r
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
 
+### 2026-08-11 — v2.5 quality of life: three font sizes, a workspace that stays put — ✅ COMPLETE
+
+**Four asks, all landed.**
+
+- **FNT-1 — separate font sizes for document text, table text and table headers.** The two table
+  sizes are new; blank means the document size, so an untouched profile emits no font machinery at
+  all. Getting a per-ROW size into a pandoc longtable took a measurement: `\global\fontsize` is an
+  error (it uses `\afterassignment`), so the size cannot be flipped between rows directly. What CAN
+  be flipped is which macro a name points at — `\chRowFont` is applied by every cell (pandoc writes
+  `\raggedright` into every column spec, so redefining it reaches every cell of every table), and
+  `\toprule`/`\midrule`, the rules either side of a header row, flip which size it names. Done in
+  the preamble rather than per table, so no flag has to be threaded through three modules.
+- **The pane stops moving.** Clicking a section on the left no longer jumps the right-hand side to
+  the Section pane. That jump made the Preview useless for the thing it is best at — clicking down
+  the list and watching the document — because every trip cost two clicks to get back.
+- **Tab between the width boxes.** Tab commits and opens the next column's box, Shift+Tab the
+  previous. The repaint has already rebuilt the chips by then, so the next one is found by its target
+  and column rather than held onto across the rebuild.
+- **OPT-1 — columns and groups moved to a ☰ menu on the section row.** They were in the Section pane,
+  which meant changing what a register carries cost a trip away from whatever was on the right — and
+  the pane worth being on while doing it is the Preview, exactly the one you had to leave.
+
+**A defect the font work exposed (D-027), and it was the interesting part.** With the header at 12pt
+the headings overflowed again, and only some of them. Two causes:
+
+1. The width model measured every table at the document size. A header a point larger needs a ninth
+   more room than it was given. `App.docFormat.tableMetrics` now hands App.md the page in ems and each
+   table size relative to the document's, threaded through `tableOpts`/`renderPart` — passed rather
+   than read, because App.md has no business knowing which profile is in force.
+2. The other one had been there all along. **Past pandoc's `--columns` default of 72, a pipe table's
+   widths stop being LaTeX's business and become pandoc's — and it reads them off the SEPARATOR row,
+   so `| --- | --- |` gives every column an equal share whatever is in it.** Seven equal columns, each
+   too narrow for its own heading. Measured on 3.1.11: an 83-character pipe table comes out as seven
+   `\real{0.1429}` columns. The grid form now takes over at 72 rather than at the page budget, so
+   those widths are ours to decide.
+
+**Verification.** 15 new self-tests → **841/841 pass**, 143 suites; live-DOM 64/64; end-to-end 60/60.
+Built for real with three sizes in force (11pt text, 9pt table body, 12pt table headers): the PDF has
+**zero overfull boxes** — including the four 0.1111pt longtable rounding artifacts that had been
+there since v2.2, which were pandoc's equal-width pipe tables all along.
+
 ### 2026-08-11 — v2.4e long identifiers are marked so they can wrap (BRK-1) — ✅ COMPLETE
 
 **Reported:** "those unbreakable words are a problem, they still aren't wrapping, can we make them

@@ -105,13 +105,17 @@ left and five panes on the right.
   lines and page breaks, in any arrangement. Leave the heading blank and the section becomes body
   text at the level above it. Bold/italic/code/line-break buttons insert markers rather than raw
   markdown, so nothing you type can collide with the escaping.
-- **Columns.** Every generated section says which columns its table carries — the registers, and
-  **Control coverage** too (Type, Status, Items and Justification are each optional). The first
-  column is the key and is always there. A control's **type** is its own column rather than brackets
-  after the title, so it can be widened, hidden or left out like anything else.
+- **Columns and groups.** The **☰** button on each section row says which columns its table carries
+  — the registers, and **Control coverage** too (Type, Status, Items and Justification are each
+  optional) — and for a register that splits by action, which groups. They are on the row rather than
+  in a pane so they can be changed with the Preview open. The first column is the key and is always
+  there. A control's **type** is its own column rather than brackets after the title.
+- **Selecting a section does not change which pane is showing**, so you can click down the list and
+  watch the Preview without two clicks back each time.
 - **Column widths.** On a table you wrote, drag the right-hand edge of a column heading. On a
   generated section, the **Column widths** strip stands in for the table and drags the same way.
-  Or double-click a percentage and type one (minimum 5%).
+  Or double-click a percentage and type one (minimum 5%); **Tab** moves to the next column's box and
+  **Shift+Tab** to the previous.
   **Dragging** moves a boundary — the others give way and the table stays the width it was.
   **Typing** sets one column and leaves the rest alone, which is what changes the total.
   A percentage is a share of **the page's text width, and the shares need not fill it**: three
@@ -154,8 +158,9 @@ left and five panes on the right.
   grouped by register, with its description and narrative. A register with nothing flagged is left
   out; if nothing anywhere is flagged the section does not exist — not even as an "Omitted" row,
   because nobody chose to leave it out.
-- **Formatting profiles** — paper, margins, font size, line spacing, page numbers, per-level heading
-  styling, contents depth, and the header-row / first-column table styling. Saved with the project.
+- **Formatting profiles** — paper, margins, page numbers, per-level heading styling, contents depth,
+  three font sizes (document text, table text, table headers), caption centring, and the header-row /
+  first-column table styling. Saved with the project.
   The built-in **Standard** profile cannot be edited; duplicate it, so every project keeps a
   known-good baseline.
 - **Templates** — a single section, a formatting profile, or a whole report design. All three export

@@ -851,6 +851,23 @@
      the table still renders, scaled down, so a silent version would be a wrong table. */
   .rd-wflag { font-size: 11px; color: var(--c-error); font-weight: 600; }
   .rd-wnote { font-size: 11px; color: var(--c-text-muted); }
+  /* OPT-1: the columns/groups menu on a section row. Anchored to the row so it opens
+     over whatever is beside it rather than pushing the list around, and the row is the
+     positioning context. */
+  .rd-row { position: relative; }
+  .rd-opt { position: relative; display: inline-flex; }
+  .rd-optbtn { font-size: 12px; line-height: 1; padding: 3px 6px; border: 1px solid var(--c-border);
+    border-radius: 4px; background: var(--c-surface); color: var(--c-text-muted); cursor: pointer; }
+  .rd-optbtn:hover, .rd-optbtn.on { color: var(--c-text); border-color: var(--c-accent, #4a7fd0); }
+  .rd-optmenu { position: absolute; top: 100%; right: 0; z-index: 30; margin-top: 4px; min-width: 190px;
+    max-height: 300px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--c-border);
+    border-radius: 6px; background: var(--c-surface); box-shadow: 0 4px 14px rgba(0,0,0,.22);
+    display: flex; flex-direction: column; gap: 1px; text-align: left; }
+  .rd-optmenu-h { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--c-text-muted); margin: 4px 0 2px; }
+  .rd-optmenu-h:first-child { margin-top: 0; }
+  .rd-optmenu .gen-opt { margin: 0; white-space: nowrap; }
+
   /* TBS-1: a colour well, sized like the tiny inputs beside it. */
   .rd-shade { width: 38px; height: 20px; padding: 0; border: 1px solid var(--c-border); border-radius: 3px; background: var(--c-surface); cursor: pointer; }
 
@@ -1996,6 +2013,9 @@
     // PDF, so this number decides nothing but how legible the .md is to a human.
     var WIDTH_BUDGET = 96;
     var MIN_COL = 3;
+    // Pandoc's `--columns` default. Past it, a pipe table's widths stop being LaTeX's
+    // business and become pandoc's, which reads them off the separator row (see table()).
+    var PIPE_MAX = 72;
 
     /** Field widths for `n` columns from fractions summing to ~1. */
     function widthsFor(fracs, n) {
@@ -2164,16 +2184,35 @@
       return w;
     }
 
-    /** Auto widths for `n` columns of `all` rows: natural where they fit, shared out
-     *  against the page where they do not. Returned in SOURCE CHARACTERS. */
-    function autoWidths(all, n) {
+    /**
+     * Auto widths for `n` columns of `all` rows: natural where they fit, shared out
+     * against the page where they do not. Returned in SOURCE CHARACTERS.
+     *
+     * @param {{pageEm?:number, head?:number, body?:number}} [metrics]
+     *        The page in ems and the two table font sizes relative to the document's.
+     *        They have to be passed in because a table set at 12pt in an 11pt document
+     *        needs a ninth more room than the same table set at 11pt, and this module
+     *        has no business knowing which profile is in force. Absent, everything is
+     *        the shipped profile at one size — which is what it was before FNT-1.
+     */
+    function autoWidths(all, n, metrics) {
+      metrics = metrics || {};
+      var pageEm = metrics.pageEm > 0 ? metrics.pageEm : PAGE_EM;
+      var headScale = metrics.head > 0 ? metrics.head : 1;
+      var bodyScale = metrics.body > 0 ? metrics.body : 1;
+      return layout(all, n, pageEm, headScale, bodyScale);
+    }
+
+    function layout(all, n, PAGE_EM, headScale, bodyScale) {
       var wantEm = [], floorEm = [], softEm = [], floorChars = [], natural = [], i;
       for (i = 0; i < n; i++) {
         var line = 0, word = 0, soft = 0, chars = MIN_COL, cols = MIN_COL;
-        all.forEach(function (r) {
-          splitCell(r && r[i]).forEach(function (l) { line = Math.max(line, lineEm(l)); cols = Math.max(cols, l.length); });
-          word = Math.max(word, longestWordEm(r && r[i], false));
-          soft = Math.max(soft, longestWordEm(r && r[i], true));
+        all.forEach(function (r, ri) {
+          // Row 0 is the header, which may be set at its own size (FNT-1).
+          var k = ri === 0 ? headScale : bodyScale;
+          splitCell(r && r[i]).forEach(function (l) { line = Math.max(line, lineEm(l) * k); cols = Math.max(cols, l.length); });
+          word = Math.max(word, longestWordEm(r && r[i], false) * k);
+          soft = Math.max(soft, longestWordEm(r && r[i], true) * k);
           chars = Math.max(chars, longestWord(r && r[i]));
         });
         natural.push(cols);
@@ -2319,7 +2358,7 @@
       var pre = opts.cellPrefix || [];
       var n = headers.length;
       var explicit = !!(opts.widths && opts.widths.length === n);
-      var widths = explicit ? widthsFor(opts.widths, n) : autoWidths([headers].concat(rows), n);
+      var widths = explicit ? widthsFor(opts.widths, n) : autoWidths([headers].concat(rows), n, opts.metrics);
       // A prefix is literal source text, so a column carrying one can never be
       // narrower than it — otherwise the raw-LaTeX span would be wrapped and broken.
       widths = widths.map(function (w, i) { return pre[i] ? Math.max(w, pre[i].length) : w; });
@@ -2468,11 +2507,19 @@
         natural += w + 3;
       });
       var widthed = !!(opts.widths && opts.widths.length === headers.length);
-      var sub = { align: opts.align || [], cellPrefix: pre };
+      var sub = { align: opts.align || [], cellPrefix: pre, metrics: opts.metrics };
       if (widthed) sub.widths = opts.widths;
       // A prefix cannot live on its own line in a pipe table, so a shaded first column
       // is one more reason the grid form is the only one that can carry it.
-      var grid = multi || widthed || shadeCol || natural > WIDTH_BUDGET;
+      /* PIPE_MAX is pandoc's `--columns` default, and it is the real limit on the pipe
+       * form — not the page budget. Up to it, pandoc leaves a pipe table's columns to
+       * LaTeX, which sizes them to their content. Past it, pandoc invents widths from
+       * the SEPARATOR row, and `| --- | --- |` gives every column an equal share
+       * regardless of what is in it — seven equal columns with a heading in each that
+       * does not fit. Measured on 3.1.11, not read: an 83-character pipe table comes out
+       * as seven `\real{0.1429}` columns. So a table that would cross that line takes
+       * the grid form instead, where the widths are ours to decide. */
+      var grid = multi || widthed || shadeCol || natural > PIPE_MAX;
       var out = (grid ? gridTable : pipeTable)(head, body, sub);
 
       // The caption must sit directly under the table for pandoc to attach it, so every
@@ -8407,6 +8454,10 @@
         // shorter than the table is centred by LaTeX anyway; one that wraps is not, and
         // that inconsistency is what this switch settles.
         captionCentre: false,
+        // FNT-1: a table usually wants to be set smaller than the prose around it, and
+        // its header row bigger than its body. Blank means "the document size", so the
+        // shipped profile still sets everything at one size until told otherwise.
+        fontSize: '', headFontSize: '',
         head: { bold: true, italic: false, shade: '#D9E2F3' },
         firstColumn: { bold: true, italic: false, shade: '#F2F2F2' }
       }
@@ -8541,7 +8592,48 @@
       if (t.captionCentre) {
         out.push('\\usepackage{caption}', '\\captionsetup{justification=centering,singlelinecheck=false}');
       }
-      return out;
+      return out.concat(fontPreamble(f));
+    }
+
+    /* FNT-1: a table's own font sizes, and why they are a preamble matter.
+     *
+     * `\fontsize` cannot be made global from inside a `\noalign` — it uses
+     * `\afterassignment`, and `\global\fontsize` is an error (measured). What CAN be
+     * flipped between rows is a MACRO, so the size travels as one: `\chRowFont` is
+     * applied by every cell (pandoc writes `>{\raggedright\arraybackslash}` into every
+     * column spec, so redefining `\raggedright` reaches every cell of every table), and
+     * `\toprule` and `\midrule` — the rules pandoc puts either side of a header row —
+     * flip which size it names.
+     *
+     * Document-wide rather than per-table because the sizes are a house decision, and
+     * because doing it in the preamble means no flag has to be threaded through three
+     * modules to reach App.md. `\midrule` appears only in tables and `\raggedright` only
+     * in their cells, so nothing else is touched; with neither size set the macro is
+     * empty and the preamble is unchanged.
+     */
+    function fontPreamble(f) {
+      var t = f.tables || {};
+      var body = ptNum(t.fontSize, 0), head = ptNum(t.headFontSize, 0);
+      if (!body && !head) return [];
+      var base = ptNum(f.page.fontSize, 11);
+      function sel(size) {
+        var s = size || base;
+        return '\\fontsize{' + s + 'pt}{' + (Math.round(s * 1.2 * 100) / 100) + 'pt}\\selectfont';
+      }
+      return [
+        '\\newcommand{\\chTblHeadFont}{' + sel(head) + '}',
+        '\\newcommand{\\chTblBodyFont}{' + sel(body) + '}',
+        '\\newcommand{\\chRowFont}{}',
+        // DISTINCT names from the shading macro's `\chOldToprule`. That one re-lets its
+        // saved rule per table, and if the two shared a name it would capture a macro
+        // whose own body names it — an expansion that never terminates.
+        '\\let\\chBaseRaggedright\\raggedright',
+        '\\renewcommand{\\raggedright}{\\chBaseRaggedright\\chRowFont}',
+        '\\let\\chBaseToprule\\toprule',
+        '\\renewcommand{\\toprule}{\\chBaseToprule\\noalign{\\global\\let\\chRowFont\\chTblHeadFont}}',
+        '\\let\\chBaseMidrule\\midrule',
+        '\\renewcommand{\\midrule}{\\noalign{\\global\\let\\chRowFont\\chTblBodyFont}\\chBaseMidrule}'
+      ];
     }
 
     /**
@@ -8689,6 +8781,25 @@
     }
 
     /**
+     * FNT-1: what App.md's width model needs to know about this profile — the page in
+     * ems, and each table font size relative to the document's.
+     *
+     * Without it the model measures every table at the document size, and a header set
+     * a point larger overflows by exactly the ratio it was enlarged by. Passed rather
+     * than read, because App.md has no business knowing which profile is in force.
+     * @returns {{pageEm:number, head:number, body:number}}
+     */
+    function tableMetrics(profile) {
+      var f = normalise(profile);
+      var base = ptNum(f.page.fontSize, 11);
+      return {
+        pageEm: textWidthMm(f) / 25.4 * 72 / base,
+        head: ptNum(f.tables.headFontSize, base) / base,
+        body: ptNum(f.tables.fontSize, base) / base
+      };
+    }
+
+    /**
      * PRV-2: the profile as a stylesheet, scoped to `.rd-paper`.
      * @param {Object} profile @returns {string} CSS
      */
@@ -8704,7 +8815,10 @@
         '.rd-paper { width: ' + textWidthPx(f) + 'px; max-width: 100%; margin: 0 auto;' +
           ' background: #fff; color: #111; font-size: ' + px(base) + 'px; line-height: ' + (Math.round(spacing * 100) / 100) + '; }',
         '.rd-paper p, .rd-paper li { font-size: ' + px(base) + 'px; line-height: ' + (Math.round(spacing * 100) / 100) + '; }',
-        '.rd-paper .prv-table { font-size: ' + px(base * 0.92) + 'px; }',
+        // FNT-1: three sizes, and blank means "the document size" for the two table ones
+        // — which is what LaTeX does with them, so the preview agrees by construction.
+        '.rd-paper .prv-table { font-size: ' + px(ptNum(f.tables.fontSize, base)) + 'px; }',
+        '.rd-paper .prv-table th { font-size: ' + px(ptNum(f.tables.headFontSize, base)) + 'px; }',
         // The page's own defaults, and they must be stated rather than inherited: the
         // app's table styling paints a header with `--c-surface-alt`, which in dark mode
         // is a near-black cell on a white sheet — and shows an UNSTYLED header as though
@@ -8765,7 +8879,7 @@
       preamble: preamble, frontMatter: frontMatter, tablePreamble: tablePreamble,
       tableStyle: tableStyle, normaliseShade: normaliseShade,
       // PRV-2: the same profile, compiled for the on-screen preview instead of for TeX.
-      previewCss: previewCss, textWidthMm: textWidthMm, textWidthPx: textWidthPx,
+      previewCss: previewCss, textWidthMm: textWidthMm, textWidthPx: textWidthPx, tableMetrics: tableMetrics,
       PAPERS: PAPERS, NUMBER_POSITIONS: NUMBER_POSITIONS, LATEX_LEVELS: LATEX_LEVELS
     };
   })(App);
@@ -9088,6 +9202,7 @@
           widths: (part.widths && part.widths.length === head.length) ? part.widths : null,
           // TBS-1: the table says whether it is styled; the profile says how.
           style: ctx.styleFor ? ctx.styleFor(part) : null,
+          metrics: ctx.metrics || null,
           caption: meta ? { id: part.id, text: meta.caption } : null
         });
         return part.centre ? MD.centred(tbl) : tbl;
@@ -9128,7 +9243,7 @@
       spec = spec || {};
       var resolved = spec.blocks || [];
       var tables = tableIndex(resolved);
-      var ctx = { resolveRef: refResolver(resolved, tables), tables: tables, styleFor: spec.styleFor || null };
+      var ctx = { resolveRef: refResolver(resolved, tables), tables: tables, styleFor: spec.styleFor || null, metrics: spec.metrics || null };
       var out = [];
       resolved.forEach(function (b) {
         var h = headingFor(b);
@@ -9192,6 +9307,7 @@
       var out = Object.assign({}, extra || {});
       if (opts.style) out.style = opts.style;
       if (opts.widths && opts.widths.length) out.widths = opts.widths;
+      if (opts.metrics) out.metrics = opts.metrics;
       if (opts.captionId) out.caption = { id: opts.captionId, text: opts.captionText || '' };
       return out;
     }
@@ -9267,7 +9383,7 @@
           rows = [empty];
         }
         return MD.table(headers.map(MD.cell), rows,
-          tableOpts({ style: opts.style, widths: opts.widths, captionId: capId, captionText: capText }));
+          tableOpts({ style: opts.style, widths: opts.widths, metrics: opts.metrics, captionId: capId, captionText: capText }));
       }
 
       var capBase = opts.captionId || '';
@@ -9733,6 +9849,7 @@
       // business knowing about either, so it is handed the resolver rather than the two.
       var md = App.doc.render({
         frontMatter: frontMatter, blocks: resolved,
+        metrics: App.docFormat.tableMetrics(profile),
         styleFor: function (part) {
           return App.docFormat.tableStyle(profile, { head: part.styleHead === true, firstColumn: part.styleFirstColumn === true });
         }
@@ -10037,9 +10154,11 @@
       // to, so the same project always emits the same caption and the same anchor
       // (DOD-7) — nothing is minted at generate time.
       var capText = String(b.title || '').trim() || b.label;
+      var profile = App.docFormat.resolve(project);
       var tblOpts = {
         captionId: b.id, captionText: capText,
-        style: App.docFormat.tableStyle(App.docFormat.resolve(project), b.tableStyle),
+        metrics: App.docFormat.tableMetrics(profile),
+        style: App.docFormat.tableStyle(profile, b.tableStyle),
         // TW-2: a generated table's columns are the section's, not any one table's, so a
         // grouped register's groups all wear the same widths — which is right, since
         // they are the same columns showing different rows.
@@ -14862,11 +14981,13 @@
           'Open it from the Reporting card on the Generate tab.') +
         p('The section list on the left is the spine of the document and stays visible whatever else you are doing. The panes on the right ' +
           'answer questions about it — one section, the relevance filter, the formatting, the templates, and a live preview.') +
+        note('Clicking a section on the left <strong>does not change which pane is showing</strong>. That is what makes the Preview usable for the thing it is best at: clicking down the list and watching the document, without two clicks back each time.') +
 
         h(3, 'Sections, order and heading levels') +
         ul([
           '<strong>Order</strong> — drag a row, or use ▲/▼. The order is saved <em>with the project</em>, so it survives a reload and travels with the file.',
           '<strong>Include</strong> — untick a row to leave it out. Nothing is dropped quietly: the document opens with an <strong>About this report</strong> table naming every section and whether it was included.',
+          '<strong>&#9776;</strong> — which <strong>columns</strong> the section\u2019s table carries, and for a register that splits by action, which <strong>groups</strong>. On the row rather than in a pane, so they can be changed with the Preview open.',
           '<strong>Level</strong> — the box on each row: <code>T</code> for a title, <code>H1</code> to <code>H4</code>, <code>N</code> for normal text with no heading of its own, or <strong>Auto</strong>.'
         ]) +
         p('<strong>Auto</strong> makes a section a sibling of the last heading above it. That is what produces the nesting: set one section to <code>H1</code> ' +
@@ -14924,7 +15045,7 @@
         p('<strong>Widths.</strong> Every table takes them \u2014 the ones you write and the generated ones alike. On a table you wrote, drag the right-hand edge of a column heading. ' +
           'On a generated section, the <strong>Column widths</strong> strip in the Section pane stands in for the table (its content comes from the register, so there is nothing to type in) ' +
           'and drags exactly the same way. Both are drawn at the <em>page\u2019s</em> text width, taken from the formatting profile, so what you drag is the shape the PDF gets rather than a ratio you have to imagine.') +
-        p('<strong>Or type one.</strong> Double-click a percentage and type a number \u2014 60 for 60%. A column never goes below 5%.') +
+        p('<strong>Or type one.</strong> Double-click a percentage and type a number \u2014 60 for 60%. <strong>Tab</strong> moves to the next column\u2019s box and <strong>Shift+Tab</strong> to the previous, so a row of widths is one pass rather than a double-click each. A column never goes below 5%.') +
         deftable(['Doing this', 'Does this'], [
           ['<strong>Dragging</strong> an edge', 'Moves that boundary. The columns are sharing a fixed total, so one growing means the others give way \u2014 they keep their proportions and the total stays at 100%.'],
           ['<strong>Typing</strong> a percentage', 'Sets that one column and leaves the others exactly where they are. This is how a set can end up totalling more, or less, than 100%.']
@@ -14957,7 +15078,7 @@
           '<strong>Page</strong> — paper size, all four margins, base font size, line spacing, and where the page number goes (or none at all).',
           '<strong>Headings</strong> — whether sections are numbered, whether a skipped level is pulled up, and per level: point size, leading, bold, italic, space before and after, and whether it starts a new page.',
           '<strong>Contents</strong> — whether to include a table of contents, and how deep.',
-          '<strong>Tables</strong> \u2014 what a <em>styled</em> header row and first column look like: bold, italic and a shade colour for each. This is the look only; which tables wear it is ticked per table.'
+          '<strong>Tables</strong> \u2014 the point size for a table\u2019s body and for its header row (blank uses the document size, so there are three sizes in all: text, table text, table headers), whether the caption is centred, and what a <em>styled</em> header row and first column look like: bold, italic and a shade colour for each. The styling is the look only; which tables wear it is ticked per table.'
         ]) +
         note('<strong>No shade</strong> beside a colour well is not the same as picking white \u2014 a colour picker has no \u201cnone\u201d, and white is a colour. Use the button to remove the shading entirely.') +
         p('The shipped <strong>Standard</strong> profile is A4, 25&nbsp;mm margins, 11&nbsp;pt, numbered sections, page numbers bottom-centre, a contents list three deep, H1 starting a new page, and a pale blue header row with a grey first column for any table that asks for styling. ' +
@@ -18529,8 +18650,10 @@
         T.assert(/Device group: GroupG/.test(html), 'group name not named in header');
         // v2.2: default/group/device are three columns rather than one arrow-joined
         // cell — it reads better in print and needs no arrow glyph from the font.
-        T.assert(/\| Key \| Dataset \| Source \| Default \| Group \| Device \|/.test(html), 'deviations table shape wrong');
-        T.assert(/\| `com\.a` \| Packages \| group \|/.test(html), 'group deviation row missing');
+        // Padded, because a six-column table crosses pandoc's --columns limit and so
+        // takes the grid form (see App.md.table). The assertion is about the columns.
+        T.assert(/\|\s*Key\s*\|\s*Dataset\s*\|\s*Source\s*\|\s*Default\s*\|\s*Group\s*\|\s*Device\s*\|/.test(html), 'deviations table shape wrong');
+        T.assert(/\|\s*`com\.a`\s*\|\s*Packages\s*\|\s*group\s*\|/.test(html), 'group deviation row missing');
         T.assert(/\| `com\.b` \| Packages \| device \|/.test(html), 'device deviation row missing');
       });
       s.test('an override-free device shows the no-deviations note', function () {
@@ -23671,11 +23794,12 @@
         T.assert(/data-rd-ds-all="android.packages"/.test(html), 'a grouped dataset needs an all-groups tick');
         T.assert(/data-rd-inc-ds="android.tactical"/.test(html), 'the ungrouped dataset tick');
         T.assert(/data-generate-action="reporting"/.test(html), 'and the workspace must be able to generate');
-        // The group and column ticks live in the Section pane, with the section they
-        // belong to, rather than in a separate list you have to mentally join back up.
-        App.ui.views.reportDesign.select('ds:android.packages');
+        // OPT-1: the group and column ticks live on the section ROW, behind the menu
+        // button, so they can be changed without leaving whichever pane is open.
+        App.ui.views.reportDesign._rd.optMenu = 'ds:android.packages';
         var pane = App.ui.views.generate.render(App.store.getProject());
         T.assert(/data-rd-dsmap="datasetSections" data-rd-ds="android.packages" data-rd-key="keep"/.test(pane), 'the packages group ticks');
+        App.ui.views.reportDesign._rd.optMenu = null;
         T.assert(/data-rd-dsmap="columns" data-rd-ds="android.packages"/.test(pane), 'the optional column ticks');
         App.ui.views.reportDesign.pane('relevance');
         T.assert(/data-rd-flag="classification"/.test(App.ui.views.generate.render(App.store.getProject())), 'the OFFICIAL: Sensitive tick');
@@ -25384,6 +25508,7 @@
       fmtId: null,           // profile being edited in the Formatting pane
       conflict: null,        // { kindKey, plan, decisions } while an import is being resolved
       refFor: null,          // part id whose "insert reference" menu is open
+      optMenu: null,         // block id whose columns/groups menu is open (OPT-1)
       preview: null          // cached { html, outline } so switching panes is not a re-generate
     };
     var _ctx = null;
@@ -25452,6 +25577,42 @@
         }).join('') + '</select>';
     }
 
+    /**
+     * OPT-1: a section's columns and groups, on the section ROW rather than in the
+     * Section pane.
+     *
+     * They were in the pane, which meant switching what a register carries cost a trip
+     * away from whatever was on the right — and the pane worth being on while doing it
+     * is the Preview, which is exactly the one you had to leave. On the row they are two
+     * clicks from anywhere, and the pane behind them does not move.
+     *
+     * @returns {string} '' when the section has nothing to choose
+     */
+    function optionsMenu(project, b) {
+      var cols = App.generate.sectionColumns(project, b, opts());
+      var optional = (cols && cols.optional) || [];
+      var groups = b.groups || [];
+      if (!optional.length && !groups.length) return '';
+      var key = b.dsId || b.kind;
+      var open = _rd.optMenu === b.id;
+      var body = '';
+      if (groups.length) {
+        body += '<div class="rd-optmenu-h">Groups</div>' + groups.map(function (g) {
+          return cb('data-rd-dsmap="datasetSections" data-rd-ds="' + esc(b.dsId) + '" data-rd-key="' + esc(g.value) + '"', g.label, g.included);
+        }).join('');
+      }
+      if (optional.length) {
+        body += '<div class="rd-optmenu-h">Columns</div>' + optional.map(function (c) {
+          return cb('data-rd-dsmap="columns" data-rd-ds="' + esc(key) + '" data-rd-key="' + esc(c.id) + '"', c.label, incMapOn('columns', key, c.id));
+        }).join('');
+      }
+      return '<span class="rd-opt">' +
+        '<button type="button" class="rd-optbtn' + (open ? ' on' : '') + '" data-rd-optmenu="' + esc(b.id) + '"' +
+          ' aria-expanded="' + (open ? 'true' : 'false') + '"' +
+          ' title="Which columns' + (groups.length ? ' and groups' : '') + ' this section carries">&#9776;</button>' +
+        (open ? '<span class="rd-optmenu">' + body + '</span>' : '') + '</span>';
+    }
+
     function renderSectionList(project, platform, view) {
       var byId = {};
       view.resolved.forEach(function (r) { if (!r.parentId) byId[r.id] = r; });
@@ -25480,9 +25641,10 @@
           '<span class="ord-num">' + esc(num) + '</span>' +
           '<label class="ord-inc" title="Include this section in the document">' + inc + '</label>' +
           '<span class="ord-body">' +
-            '<button type="button" class="rd-open" data-rd-select="' + esc(b.id) + '" title="Open this section">' + esc(b.label) + '</button>' +
+            '<button type="button" class="rd-open" data-rd-select="' + esc(b.id) + '" title="Select this section. The pane on the right stays where it is.">' + esc(b.label) + '</button>' +
             '<span class="rd-meta">' + kind + warn + '</span>' +
           '</span>' +
+          optionsMenu(project, b) +
           levelSelect(b, r) +
           '<span class="ord-move">' +
             '<button type="button" data-rd-up="' + esc(b.id) + '"' + (i === 0 ? ' disabled' : '') + ' title="Move earlier" aria-label="Move ' + esc(b.label) + ' earlier">▲</button>' +
@@ -25749,6 +25911,7 @@
         var ctx = {
           resolveRef: App.doc.refResolver(view.resolved, tables),
           tables: tables,
+          metrics: App.docFormat.tableMetrics(view.profile),
           styleFor: function (part) {
             return App.docFormat.tableStyle(view.profile, { head: part.styleHead === true, firstColumn: part.styleFirstColumn === true });
           }
@@ -25889,28 +26052,14 @@
         out.push(introField(block));
         out.push(tableStyleField(project, block));
         if (block.kind === 'meta') out.push(metaPane(project));
-        if (block.groups) {
-          out.push('<div class="rd-fieldset"><strong>Groups</strong><p class="muted">Each becomes its own numbered sub-section, so each can be linked to.</p>' +
-            block.groups.map(function (g) {
-              return cb('data-rd-dsmap="datasetSections" data-rd-ds="' + esc(block.dsId) + '" data-rd-key="' + esc(g.value) + '"', g.label, g.included);
-            }).join('') + '</div>');
-        }
-        // CCOL-1: the optional-column ticks are the same control for every generated
-        // section now, keyed by dsId for a register and by kind for a core section —
-        // which is what let Control coverage gain them without a second mechanism.
-        var colKey = block.dsId || block.kind;
+        // OPT-1: the column and group ticks are on the section ROW now, not here — see
+        // optionsMenu. What stays is the width strip, which is drawn against whatever
+        // those ticks have left switched on.
         var cols = App.generate.sectionColumns(project, block, opts());
-        var optCols = (cols && cols.optional) || [];
-        if (optCols.length) {
-          out.push('<div class="rd-fieldset"><strong>Columns</strong>' +
-            '<p class="muted">Which columns this section’s table carries. The first column is the key and is always there.</p>' +
-            optCols.map(function (c) {
-              return cb('data-rd-dsmap="columns" data-rd-ds="' + esc(colKey) + '" data-rd-key="' + esc(c.id) + '"', c.label, incMapOn('columns', colKey, c.id));
-            }).join('') + '</div>');
-        }
-        // TW-2: widths, against the columns as they are AFTER those ticks.
         if (cols && cols.all.length) out.push(widthStrip(project, block.id, cols.all, block.widths));
-        out.push('<p class="muted rd-hint">This section\'s content is generated from the register. Add a <strong>custom section</strong> if you need prose or a table of your own.</p>');
+        out.push('<p class="muted rd-hint">This section\'s content is generated from the register. Its <strong>columns</strong>' +
+          (block.groups ? ' and <strong>groups</strong>' : '') + ' are on the &#9776; button beside it in the list, so they can be changed without leaving whatever pane you are on. ' +
+          'Add a <strong>custom section</strong> if you need prose or a table of your own.</p>');
         out.push('<div class="rd-fieldset rd-secprev-wrap"><strong>Preview</strong>' +
           '<p class="muted">This section as it will appear, for the selected device.</p>' +
           sectionPreview(project, platform, block) + '</div>');
@@ -26071,6 +26220,11 @@
           '<td><button type="button" data-rd-fmt-clear="tables.' + key + '.shade" title="Remove the shading">No shade</button></td></tr>';
       }
       var tables = '<div class="rd-fieldset"><strong>Tables</strong>' +
+        // FNT-1: the third size — the document's own — is up under Page, where it was.
+        '<div class="rd-grid">' +
+          num('Table text', 'tables.fontSize', f.tables.fontSize, 'Point size for a table’s body. Blank uses the document size.') +
+          num('Table headers', 'tables.headFontSize', f.tables.headFontSize, 'Point size for a table’s header row. Blank uses the document size.') +
+        '</div>' +
         flag('Centre the table caption', 'tables.captionCentre', !!(f.tables && f.tables.captionCentre),
           'A caption shorter than its table is centred anyway; one that wraps is not. This centres both, so they match.') +
         '<p class="muted">How a <em>styled</em> header row and first column look. Bold and italic are markdown; the shading reaches the PDF as a LaTeX table colour, so it needs no filter and no extra tool.</p>' +
@@ -26400,9 +26554,19 @@
         if (_rd.pane === 'preview') dirty();
         repaint();
       });
+      /* Selecting a section does NOT change which pane is showing.
+       *
+       * It used to jump to the Section pane, which made the Preview unusable for the
+       * thing it is best at: clicking down the list and watching the document change.
+       * Every trip cost two more clicks to get back. The row still shows as selected,
+       * and the Section pane still follows the selection when it is the one on screen. */
+      dom.on(ctx.root, 'click', '[data-rd-optmenu]', function (e, el) {
+        var id = el.getAttribute('data-rd-optmenu');
+        _rd.optMenu = _rd.optMenu === id ? null : id;
+        repaint();
+      });
       dom.on(ctx.root, 'click', '[data-rd-select]', function (e, el) {
         _rd.selected = el.getAttribute('data-rd-select');
-        _rd.pane = 'section';
         repaint();
       });
 
@@ -26711,27 +26875,38 @@
        */
       function editPct(el) {
         if (el.querySelector('input')) return;
+        var target = el.getAttribute('data-rd-pct'), col = Number(el.getAttribute('data-rd-col'));
         var cur = parseFloat(el.textContent) || 0;
         el.innerHTML = '<input class="rd-pctbox" type="number" min="5" max="100" step="1" value="' + Math.round(cur) + '" aria-label="Column width, percent">';
         var box = el.querySelector('input');
         box.focus(); box.select();
         var done = false;
-        function commit(keep) {
+        /* Tab walks to the next column's box, Shift+Tab to the previous — because
+         * setting a row of widths is one job, and doing it a double-click at a time is
+         * three gestures per column. The repaint has already rebuilt the chips by the
+         * time we look for the next one, so it is found by its target and column rather
+         * than held onto across the rebuild. */
+        function move(by) {
+          var chips = Array.prototype.slice.call(document.querySelectorAll('[data-rd-pct="' + target + '"]'));
+          var next = chips.filter(function (c) { return Number(c.getAttribute('data-rd-col')) === col + by; })[0];
+          if (next) editPct(next);
+        }
+        function commit(keep, by) {
           if (done) return;
           done = true;
           var v = keep ? Number(box.value) : NaN;
           if (isFinite(v) && v > 0) {
-            quietly(function () {
-              logIssues(writeWidth(el.getAttribute('data-rd-pct'), Number(el.getAttribute('data-rd-col')), v / 100, true));
-            });
+            quietly(function () { logIssues(writeWidth(target, col, v / 100, true)); });
             dirty();
           }
           repaint();
+          if (by) move(by);
         }
         box.addEventListener('blur', function () { commit(true); });
         box.addEventListener('keydown', function (ev) {
           if (ev.key === 'Enter') { ev.preventDefault(); commit(true); }
           else if (ev.key === 'Escape') { ev.preventDefault(); commit(false); }
+          else if (ev.key === 'Tab') { ev.preventDefault(); commit(true, ev.shiftKey ? -1 : 1); }
         });
       }
       dom.on(ctx.root, 'dblclick', '[data-rd-pct]', function (e, el) { e.preventDefault(); editPct(el); });
@@ -27529,7 +27704,7 @@
         var md = reportMd();
         T.assert(/^# \d+ Deviations from Security Guidelines \{#sec-guidelines\}$/m.test(md),
           'no section heading: ' + (md.match(/^#+ .*Guidelines.*$/m) || ''));
-        T.assert(/\| Item \| Description \| How it departs, and why \|/.test(md), 'wrong columns');
+        T.assert(/\|\s*Item\s*\|\s*Description\s*\|\s*How it departs, and why\s*\|/.test(md), 'wrong columns');
         T.assert(/`com\.a`/.test(md) && /Vendor launcher/.test(md), 'the item and its description');
         T.assert(/ASD says remove; kept for 50\\% of users\./.test(md), 'the narrative, escaped');
       });
@@ -27980,6 +28155,20 @@
         T.assert(/^\|/.test(MD.table(['Section', 'Status'], [['Packages', 'Included']], {})));
       });
 
+      s.test('the pipe form is abandoned at pandoc\'s --columns limit, not at the page', function () {
+        /* Measured on 3.1.11: up to 72 columns pandoc leaves a pipe table's widths to
+         * LaTeX, which sizes them to their content. Past it, it invents them from the
+         * SEPARATOR row — and `| --- | --- |` means an equal share for every column
+         * whatever is in it. Seven equal columns, each too narrow for its own heading,
+         * is worse than anything this module would compute, so the grid form takes over
+         * there rather than at the page budget. */
+        var head = ['Action Name', 'Description', 'Action', 'Procedure', 'Control', 'Rationale', 'Rollback'];
+        var wide = MD.table(head, [['None.', '', '', '', '', '', '']], {});
+        T.assert(/^\+/.test(wide), 'a table past 72 columns must take the grid form:\n' + wide.split('\n')[0]);
+        var narrow = MD.table(['A', 'B'], [['one', 'two']], {});
+        T.assert(/^\|/.test(narrow), 'and one under it must not');
+      });
+
       s.test('the wrapper never leaves a lone asterisk on a line', function () {
         var lines = MD.wrapLine('**aaaaaaaaaaaaaaa**', 8);
         lines.forEach(function (l) {
@@ -28213,7 +28402,11 @@
         App.ui.views.reportDesign.open();
         App.ui.views.reportDesign.select('control');
         var html = App.ui.views.generate.render(App.store.getProject());
-        T.assert(/data-rd-dsmap="columns" data-rd-ds="control" data-rd-key="justification"/.test(html), 'no column tick');
+        T.assert(/data-rd-optmenu="control"/.test(html), 'no options button on the row');
+        App.ui.views.reportDesign._rd.optMenu = 'control';
+        var withMenu = App.ui.views.generate.render(App.store.getProject());
+        T.assert(/data-rd-dsmap="columns" data-rd-ds="control" data-rd-key="justification"/.test(withMenu), 'no column tick');
+        App.ui.views.reportDesign._rd.optMenu = null;
         T.assert(/rd-widthbar/.test(html), 'no width strip');
         T.assertEqual((html.match(/data-rd-colresize\b/g) || []).length, 4, 'a five-column strip has four edges');
         T.assert(/data-rd-pct="b\|control\|5" data-rd-col="0"/.test(html), 'no typed-width chip');
@@ -28418,6 +28611,168 @@
       s.test('a table that fits is left exactly as its content sizes it', function () {
         T.assertDeepEqual(MD.autoWidths([['A', 'B'], ['one', 'two']], 2), [3, 3]);
         T.assertEqual(MD.table(['A', 'B'], [['one', 'two']], {}), MD.pipeTable(['A', 'B'], [['one', 'two']], {}));
+      });
+    });
+
+    /* ===== SUITES: quality of life (FNT-1 · OPT-1 · pane stickiness · tab) ===== */
+
+    T.suite('FNT-1 three font sizes: text, table body, table header', function (s) {
+      function withSizes(body, head) {
+        return App.docFormat.normalise({ id: 'p', name: 'P', tables: { fontSize: body, headFontSize: head } });
+      }
+
+      s.test('blank means the document size, and costs nothing', function () {
+        var f = App.docFormat.standard();
+        T.assertEqual(f.tables.fontSize, '');
+        T.assertEqual(f.tables.headFontSize, '');
+        T.assert(App.docFormat.preamble(f).indexOf('chRowFont') === -1, 'an untouched profile emits no font machinery');
+      });
+
+      s.test('the two table sizes reach the preamble', function () {
+        var pre = App.docFormat.preamble(withSizes('8', '13'));
+        T.assert(/\\newcommand\{\\chTblBodyFont\}\{\\fontsize\{8pt\}\{9\.6pt\}/.test(pre), 'the body size: ' + pre);
+        T.assert(/\\newcommand\{\\chTblHeadFont\}\{\\fontsize\{13pt\}\{15\.6pt\}/.test(pre), 'the header size');
+      });
+
+      s.test('the size travels as a MACRO, because a font size cannot be made global', function () {
+        // `\global\fontsize` is an error — it uses \afterassignment. What can be flipped
+        // between rows is which macro \chRowFont names, and every cell applies it because
+        // pandoc writes \raggedright into every column spec.
+        var pre = App.docFormat.preamble(withSizes('8', '13'));
+        T.assert(pre.indexOf('\\global\\fontsize') === -1, 'never a global \\fontsize');
+        T.assert(/renewcommand\{\\raggedright\}\{\\chBaseRaggedright\\chRowFont\}/.test(pre), 'every cell applies it');
+        T.assert(/renewcommand\{\\toprule\}[\s\S]*chTblHeadFont/.test(pre), 'the header rule selects the header size');
+        T.assert(/renewcommand\{\\midrule\}[\s\S]*chTblBodyFont/.test(pre), 'and the mid rule the body size');
+      });
+
+      s.test('the font macros do not collide with the shading macro', function () {
+        // The shading macro re-lets its own saved \toprule per table. Sharing a name with
+        // the font one would capture a macro whose body names it — a loop that never ends.
+        var pre = App.docFormat.preamble(App.docFormat.normalise({ id: 'p', name: 'P',
+          tables: { fontSize: '8', head: { shade: '#d9e2f3' } } }));
+        T.assert(/\\chTblHeadShade\}\{\\let\\chOldToprule/.test(pre), 'the shading macro keeps its name');
+        T.assert(/\\let\\chBaseToprule\\toprule/.test(pre), 'and the font one has its own');
+      });
+
+      s.test('one size set is enough to switch the machinery on', function () {
+        T.assert(App.docFormat.preamble(withSizes('9', '')).indexOf('chRowFont') !== -1, 'body only');
+        T.assert(App.docFormat.preamble(withSizes('', '12')).indexOf('chRowFont') !== -1, 'header only');
+        // The one that is blank falls back to the document size rather than to nothing.
+        T.assert(/chTblBodyFont\}\{\\fontsize\{11pt\}/.test(App.docFormat.preamble(withSizes('', '12'))), 'blank = document size');
+      });
+
+      s.test('all three sizes reach the preview', function () {
+        var css = App.docFormat.previewCss(App.docFormat.normalise({ id: 'p', name: 'P',
+          page: { fontSize: '11pt' }, tables: { fontSize: '8', headFontSize: '13' } }));
+        T.assert(/\.rd-paper \{[^}]*font-size: 14\.67px/.test(css), 'the document size');
+        T.assert(/\.rd-paper \.prv-table \{ font-size: 10\.67px/.test(css), 'the table body size');
+        T.assert(/\.rd-paper \.prv-table th \{ font-size: 17\.33px/.test(css), 'the table header size');
+      });
+
+      s.test('a bigger header font is paid for in the width model', function () {
+        // Otherwise a header set one point larger overflows by exactly the ratio it was
+        // enlarged by, which is what happened the first time these sizes were emitted.
+        var head = ['**Description**', 'V'], rows = [['', new Array(80).join('word ')]];
+        var same = MD.autoWidths([head].concat(rows), 2, { pageEm: 41, head: 1, body: 1 });
+        var bigger = MD.autoWidths([head].concat(rows), 2, { pageEm: 41, head: 1.5, body: 1 });
+        T.assert(bigger[0] / (bigger[0] + bigger[1]) > same[0] / (same[0] + same[1]),
+          'a larger header must claim more of the page: ' + bigger.join('/') + ' vs ' + same.join('/'));
+      });
+
+      s.test('the metrics reach App.md from the profile, not from a guess', function () {
+        var m = App.docFormat.tableMetrics(App.docFormat.normalise({ id: 'p', name: 'P',
+          page: { fontSize: '11pt', paper: 'a4', marginLeft: '25mm', marginRight: '25mm' },
+          tables: { fontSize: '9', headFontSize: '12' } }));
+        T.assert(Math.abs(m.pageEm - 41.2) < 0.2, 'the page in ems: ' + m.pageEm);
+        T.assert(Math.abs(m.head - 12 / 11) < 1e-6 && Math.abs(m.body - 9 / 11) < 1e-6, 'the two ratios');
+        // Unset, everything is the document size and the model behaves as it did before.
+        var plain = App.docFormat.tableMetrics(App.docFormat.standard());
+        T.assertEqual(plain.head, 1);
+        T.assertEqual(plain.body, 1);
+      });
+
+      s.test('the Formatting pane offers all three', function () {
+        docProject();
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign.pane('formatting');
+        var html = App.ui.views.generate.render(App.store.getProject());
+        T.assert(/data-rd-fmt="page.fontSize"/.test(html), 'the document size');
+        T.assert(/data-rd-fmt="tables.fontSize"/.test(html), 'the table body size');
+        T.assert(/data-rd-fmt="tables.headFontSize"/.test(html), 'the table header size');
+        App.ui.views.reportDesign.pane('section');
+        App.ui.views.reportDesign.close();
+      });
+    });
+
+    T.suite('OPT-1 columns and groups live on the section row', function (s) {
+      function open(id) {
+        docProject();
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign._rd.optMenu = id;
+        var html = App.ui.views.generate.render(App.store.getProject());
+        App.ui.views.reportDesign._rd.optMenu = null;
+        App.ui.views.reportDesign.close();
+        return html;
+      }
+
+      s.test('a section with something to choose gets a menu button', function () {
+        docProject();
+        App.ui.views.reportDesign.open();
+        var html = App.ui.views.generate.render(App.store.getProject());
+        T.assert(/data-rd-optmenu="ds:android.packages"/.test(html), 'a grouped register');
+        T.assert(/data-rd-optmenu="control"/.test(html), 'and Control coverage');
+        // Nothing to choose, no button: an empty menu is worse than no menu.
+        T.assert(!/data-rd-optmenu="composition"/.test(html), 'a section with no options must not offer one');
+        App.ui.views.reportDesign.close();
+      });
+
+      s.test('the menu carries the groups and the columns', function () {
+        var html = open('ds:android.packages');
+        T.assert(/rd-optmenu/.test(html), 'the menu must render when open');
+        ['remove', 'disable', 'keep'].forEach(function (g) {
+          T.assert(html.indexOf('data-rd-dsmap="datasetSections" data-rd-ds="android.packages" data-rd-key="' + g + '"') !== -1, 'group ' + g);
+        });
+        T.assert(/data-rd-dsmap="columns" data-rd-ds="android.packages" data-rd-key="rationale"/.test(html), 'and the optional columns');
+      });
+
+      s.test('they are no longer duplicated in the Section pane', function () {
+        docProject();
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign.select('ds:android.packages');
+        var pane = App.ui.views.generate.render(App.store.getProject());
+        // The width strip stays — it is drawn against whatever the ticks leave on.
+        T.assert(/rd-widthbar/.test(pane), 'the width strip belongs to the pane');
+        T.assert(!/<strong>Groups<\/strong>/.test(pane), 'the group ticks moved out');
+        T.assert(!/<strong>Columns<\/strong>/.test(pane), 'and so did the column ticks');
+        App.ui.views.reportDesign.close();
+      });
+    });
+
+    T.suite('the workspace stops moving under you', function (s) {
+      s.test('selecting a section leaves the pane where it was', function () {
+        docProject();
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign.pane('preview');
+        // The click handler, not the programmatic select() — "open this section" still
+        // means open it, but clicking down the list while watching the preview does not.
+        var html = App.ui.views.generate.render(App.store.getProject());
+        T.assert(/data-rd-select="ds:android.packages"/.test(html), 'the row is still clickable');
+        T.assert(/Select this section/.test(html), 'and says what it will do');
+        T.assertEqual(App.ui.views.reportDesign.pane(), 'preview');
+        App.ui.views.reportDesign.close();
+      });
+
+      s.test('a width chip knows its neighbours, so Tab can walk them', function () {
+        docProject();
+        App.ui.views.reportDesign.open();
+        App.ui.views.reportDesign.select('control');
+        var html = App.ui.views.generate.render(App.store.getProject());
+        var chips = (html.match(/data-rd-pct="b\|control\|5" data-rd-col="\d"/g) || []);
+        T.assertEqual(chips.length, 5, 'every column has a chip, including the last: ' + chips.join(', '));
+        // They share one target string, which is how the Tab handler finds the next one
+        // after the repaint has thrown away the element it was editing.
+        T.assertEqual(new Set(chips.map(function (c) { return /data-rd-pct="([^"]+)"/.exec(c)[1]; })).size, 1);
+        App.ui.views.reportDesign.close();
       });
     });
 

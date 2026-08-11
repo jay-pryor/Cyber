@@ -18,6 +18,7 @@ Severity: blocker · major · minor · trivial
 | D-015 | 9 (DEV-1/VF-2) | major | FIXED | An item assigned to a second device by hand read as **undecided** on the Devices tab while the data tab showed it decided — device readiness inferred the value format from that one device's capture, which does not contain a hand-assigned key | One fleet-merged captured-value map (`registry.capturedDefaults`), used by readiness and by every table |
 | D-017 | 9 | major | FIXED | The **verification** script shipped the whole implementation half — `Apply-Package` with live `pm uninstall`/`disable-user`, and (newly, from the D-016 work) the reverse switches presented as an uncomment-me lever that did nothing. All inert, none of it obvious to a reader | Preamble/postamble assembled per command via `ctx.command`; a verify script now contains no mutating verb at all. Locked by VER-5 + an execution proof that device state is byte-identical after a verify run |
 | D-016 | 9 | blocker | FIXED | One package that refuses to uninstall **terminates the whole implementation run** — remaining packages never applied. A native `pm` failure is escalated to a terminating error on hosts that do so (Windows PowerShell 5.1 via `2>&1`+`Stop`; 7.3+ via `$PSNativeCommandUseErrorActionPreference`), and nothing caught it | `Invoke-AdbPm` relaxes the preference around the native call, guards it with try/catch/finally, and grades a caught throw as a failure; the 7.3+ escalation is pinned off. Locked by the D-016 suite + an execution harness under real pwsh 7.4.6 |
+| D-027 | 14 (FNT-1) | major | FIXED | Past pandoc's `--columns` default of 72 a pipe table's widths are read off the SEPARATOR row, so `\| --- \| --- \|` gives every column an equal share whatever is in it — seven equal columns each too narrow for its own heading. Separately, the width model measured every table at the document size, so a header set larger overflowed by the ratio it was enlarged by | The grid form takes over at 72 columns rather than at the page budget, so the widths are ours; and `App.docFormat.tableMetrics` hands App.md the page in ems plus each table font size relative to the document's |
 | D-026 | 14 (BRK-1) | major | FIXED | A space-free run (`io.sdsasolutions.tacticalsettings`) could not wrap at all — no hyphenation point, and a zero-width space is not a break opportunity in XeTeX (measured). Unmarked it was also a HARD floor, so it forced its column wide and starved the columns that genuinely cannot wrap | A run of 18+ characters shaped like an identifier is emitted as a code span, which routes through the existing `\texttt` -> `\seqsplit` hook: breakable on the page, and soft rather than hard in the width model. Preview cells gained `overflow-wrap` |
 | D-024 | 14 (AUTO-2) | major | FIXED | Column widths were proportional to source CHARACTERS but spent in POINTS. Next to a monospace key column the rate fell below what prose needs, so unbreakable words — headings especially — pushed past their column into the next one | Columns measured in ems from real Latin Modern metrics, against the page less pandoc's inter-column padding; hard floors, then soft floors, then appetite |
 | D-025 | 14 (PRV-3) | minor | FIXED | Three preview infidelities: the outline rail printed the markdown escaping (`\&`); every firewall rule in a cell ran together into one paragraph; and an unstyled table header was painted with the app's own surface colour — near-black on a white page, and indistinguishable from a shaded one | `unescapeMd` for text destinations; `parseGrid` keeps interior blank lines and the renderer treats a cell as paragraphs; the page states its own table background and the profile is the only source of a shade |
@@ -290,6 +291,34 @@ Severity: blocker · major · minor · trivial
   unchanged after the split.
 - **Lesson:** "it is never called" is an argument about behaviour; "it is not in the file" is a
   property of the artifact. For anything an operator will read as evidence, prefer the second.
+
+### D-027 — pandoc gave a wide pipe table seven equal columns
+- **Found:** adding per-table font sizes (FNT-1). With the header row at 12pt some headings
+  overflowed again — but only in some tables, which is what made it worth chasing rather than
+  tuning.
+- **Two causes, one symptom.**
+  1. The width model measured every table at the document size. A header a point larger needs a
+     ninth more room than it was allocated, so it overflowed by exactly the ratio it was enlarged by.
+  2. The table that overflowed worst had never been the model's to size at all. **Past pandoc's
+     `--columns` default of 72, a pipe table's widths stop being LaTeX's business and become
+     pandoc's, and it derives them from the SEPARATOR row** — `| --- | --- |` means an equal share
+     for every column regardless of content. A seven-column register table therefore came out as
+     seven `\real{0.1429}` columns, each too narrow for its own heading. Measured on 3.1.11 with an
+     83-character pipe table, not inferred.
+- **Why it had been invisible:** the same tables had been producing the 0.1111pt "Overfull \hbox in
+  alignment" warnings since v2.2, which had been written off as longtable rounding. They were the
+  equal-width pipe tables all along.
+- **Fix:** the grid form now takes over at 72 source columns rather than at the page budget, so a
+  table pandoc would re-width is one this module has already sized; and `App.docFormat.tableMetrics`
+  hands App.md the page in ems and each table font size relative to the document's, threaded through
+  `tableOpts`/`renderPart` — passed rather than read, since App.md has no business knowing which
+  profile is in force.
+- **Result:** the reference document now builds with **zero** overfull boxes, the 0.1111pt ones
+  included.
+- **Locked by:** AUTO-1 ("the pipe form is abandoned at pandoc's --columns limit, not at the page")
+  and FNT-1 ("a bigger header font is paid for in the width model").
+- **Lesson:** a warning dismissed as noise for three months was a real defect the whole time. It was
+  only worth re-reading once something else made the same tables fail differently.
 
 ### D-026 — a run with no space in it could not wrap, in either medium
 - **Found:** user report, after D-024 — "those unbreakable words are a problem, they still aren't
