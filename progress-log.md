@@ -42,6 +42,31 @@ checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and r
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
 
+### 2026-08-11 — v2.5a the table font size skipped the package names, in the preview — ✅ COMPLETE
+
+**Reported:** the table text size did not appear to apply to the package names, "because they are
+that different type of text".
+
+**Measured first, and the PDF was already right.** Pulling the font spans out of the built PDF: a
+package name in a 9pt table body comes out at `LMMono9-Regular` **8.97pt** — the same size as the
+`LMRoman9-Regular` prose beside it. `\texttt` changes the FAMILY and keeps the size, so the row-font
+machinery reaches an identifier like anything else. Monospace at a given size simply reads larger
+than a serif at the same size, which is a fact about the typeface, not a bug.
+
+**The preview was wrong, and it was the thing being looked at.** The app's own styling pins a code
+span to `font-size: 12px` — right for a themed panel, wrong for a page. So every package name stayed
+at one size while the prose around it followed the profile, which is exactly what "the size is not
+applying to the package names" looks like. `.rd-paper code` now inherits, so a code span takes the
+size of whatever it sits in: the table body, the header row, or the document.
+
+**Found while checking it:** the preview also drew captions at 0.92× the document size, a number
+invented when the page-shaped preview was first built. The caption is emitted before the table's
+first rule, so the row-font machinery has not started when it is set — measured at 10.91pt in an 11pt
+document beside a 9pt table. The preview matches that now.
+
+**Verification.** 2 new self-tests → **843/843 pass**, 143 suites; live-DOM 64/64; end-to-end 60/60;
+the reference PDF still builds with zero overfull boxes.
+
 ### 2026-08-11 — v2.5 quality of life: three font sizes, a workspace that stays put — ✅ COMPLETE
 
 **Four asks, all landed.**

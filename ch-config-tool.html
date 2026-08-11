@@ -8824,8 +8824,20 @@
         // is a near-black cell on a white sheet — and shows an UNSTYLED header as though
         // it were a shaded one. Emitted before the shade rules below, which override it.
         '.rd-paper .prv-table th, .rd-paper .prv-table td { border-color: #bbb; background: transparent; color: #111; }',
-        '.rd-paper code { background: #f2f2f2; color: #111; }',
-        '.rd-paper .prv-caption { color: #333; font-size: ' + px(base * 0.92) + 'px; }'
+        /* `font-size: inherit` is the whole point of this rule.
+         *
+         * The app's own preview styling pins a code span to 12px, which is fine for a
+         * themed panel and wrong for a page: it left every package name at one size
+         * while the prose around it followed the profile, so setting a table size
+         * appeared to skip the identifiers. On the page a code span is `\texttt`, which
+         * changes the FAMILY and keeps the size — so the preview does the same, and a
+         * code span takes the size of whatever it is sitting in: the table body, the
+         * header row, or the document. */
+        '.rd-paper code { background: #f2f2f2; color: #111; font-size: inherit; }',
+        // The caption is emitted before the table's first rule, so the row-font machinery
+        // has not started when it is set — it comes out at the DOCUMENT size (measured:
+        // 10.91pt in an 11pt document beside a 9pt table). The preview matches that.
+        '.rd-paper .prv-caption { color: #333; font-size: ' + px(base) + 'px; }'
       ];
       f.levels.forEach(function (lv) {
         var size = ptNum(lv.size, 12);
@@ -28667,6 +28679,24 @@
         T.assert(/\.rd-paper \{[^}]*font-size: 14\.67px/.test(css), 'the document size');
         T.assert(/\.rd-paper \.prv-table \{ font-size: 10\.67px/.test(css), 'the table body size');
         T.assert(/\.rd-paper \.prv-table th \{ font-size: 17\.33px/.test(css), 'the table header size');
+      });
+
+      s.test('a code span takes the size of whatever it sits in', function () {
+        /* On the page a code span is `\texttt`, which changes the FAMILY and keeps the
+         * size — measured: a package name in a 9pt table body comes out at 8.97pt, the
+         * same as the prose beside it. The preview pinned every code span to 12px, so a
+         * table size appeared to skip the identifiers, which is exactly what it looked
+         * like. */
+        var css = App.docFormat.previewCss(App.docFormat.standard());
+        T.assert(/\.rd-paper code \{[^}]*font-size: inherit/.test(css), 'a code span must inherit its size: ' + css);
+      });
+
+      s.test('the caption takes the DOCUMENT size, not the table\'s', function () {
+        // It is emitted before the table's first rule, so the row-font machinery has not
+        // started when it is set. Measured: 10.91pt in an 11pt document beside a 9pt table.
+        var css = App.docFormat.previewCss(App.docFormat.normalise({ id: 'p', name: 'P',
+          page: { fontSize: '11pt' }, tables: { fontSize: '8' } }));
+        T.assert(/\.rd-paper \.prv-caption \{[^}]*font-size: 14\.67px/.test(css), 'the caption follows the document: ' + css);
       });
 
       s.test('a bigger header font is paid for in the width model', function () {
