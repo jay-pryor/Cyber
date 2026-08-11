@@ -42,6 +42,43 @@ checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and r
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
 
+### 2026-08-11 — v2.4e long identifiers are marked so they can wrap (BRK-1) — ✅ COMPLETE
+
+**Reported:** "those unbreakable words are a problem, they still aren't wrapping, can we make them
+just regular text so they can wrap?"
+
+**They cannot wrap as regular text, and that was worth establishing before choosing a fix.** A run
+with no space in it — `io.sdsasolutions.tacticalsettings` — has no hyphenation point a typesetter can
+use; `\raggedright` puts a word that does not fit on the line anyway, out past the column edge; and a
+zero-width space is **not** a break opportunity in XeTeX, which was measured rather than assumed (a
+`\parbox` with one and one without overflow identically). Every way to break such a run has to be
+asked for in the markup.
+
+**So the only question was which mark**, and one already in the file works: a code span reaches LaTeX
+as `\texttt`, and the formatting profile has routed every `\texttt` through `\seqsplit` since v2.2.
+A run of 18 characters or more that is *shaped* like an identifier (a `. _ - /` or a camelCase hump)
+is now emitted from `App.md.cell` as a code span. It is markdown-native, it needs no second escaping
+path — a code span is verbatim, so nothing inside it can be mis-escaped, which matters in a file
+whose defect history is mostly escaping — and the width model already knows a code span can break.
+
+That last part is the half of the fix that is easy to miss. Unmarked, such a run is a HARD floor: the
+column has to be wide enough to hold it whole. Several of them together exceed the page, every floor
+is then cut in proportion, and the one column that genuinely cannot wrap — a one-word heading — is
+cut along with them. Marked, they are soft: asked for after the hard floors are met, and the first to
+give way. So marking them fixed both the wrapping and the starvation it was causing elsewhere.
+
+The cost is that such a run is set in monospace. For a package name, a path or a settings key that is
+the right typography anyway, and it is what the register's key column has always done. Ordinary prose
+is untouched — it wraps at its spaces and needs no help.
+
+**Also fixed:** the preview had the same defect in the other medium. A fixed-layout table with a
+colgroup does not wrap a long word by default, it lets it run out of the cell, so the editor and
+preview tables now carry `overflow-wrap: anywhere`.
+
+**Verification.** 8 new self-tests → **826/826 pass**, 140 suites; live-DOM 64/64; end-to-end 56/56.
+Rebuilt for real: the whitelist entries in the Value column now break across lines instead of forcing
+the column wide, and the only overfull boxes left are the four 0.1111pt longtable rounding artifacts.
+
 ### 2026-08-11 — v2.4d the width model learns typography; three preview fidelity fixes — ✅ COMPLETE
 
 **Reported:** escapes showing in the preview's heading rail (`\&` for `&`); firewall rules running

@@ -827,7 +827,7 @@
   .rd-table-fixed { table-layout: fixed; max-width: 100%; }
   /* TW-3: the page-width box the (possibly narrower) table is measured against. */
   .rd-tablescale { max-width: 100%; }
-  .rd-table-fixed th, .rd-table-fixed td { overflow: hidden; }
+  .rd-table-fixed th, .rd-table-fixed td { overflow: hidden; overflow-wrap: anywhere; }
   .rd-table th { position: relative; }
   .rd-colresize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 2; }
   .rd-colresize:hover, .rd-colresize:active { background: var(--c-accent, #4a7fd0); opacity: .5; }
@@ -889,7 +889,11 @@
   .rd-preview-doc p { margin: 6px 0; font-size: 13px; line-height: 1.45; }
   .rd-preview-doc .prv-tablewrap { overflow-x: auto; margin: 8px 0; }
   .rd-preview-doc .prv-table { border-collapse: collapse; font-size: 12px; }
-  .rd-preview-doc .prv-table th, .rd-preview-doc .prv-table td { border: 1px solid var(--c-border); padding: 3px 6px; text-align: left; vertical-align: top; }
+  .rd-preview-doc .prv-table th, .rd-preview-doc .prv-table td { border: 1px solid var(--c-border); padding: 3px 6px; text-align: left; vertical-align: top;
+    /* BRK-1 in the browser. A fixed-layout table with a colgroup does not wrap a long
+       word by default — it lets it run out of the cell, which is the same defect the
+       page had and the same thing the reader sees. */
+    overflow-wrap: anywhere; word-break: break-word; }
   .rd-preview-doc .prv-table th { background: var(--c-surface-alt); }
   .rd-preview-doc .prv-caption { font-size: 12px; color: var(--c-text-muted); margin-top: 3px; }
 
@@ -1860,8 +1864,54 @@
     // flat string. U+0001 cannot occur in captured device output or be typed into the
     // designer, so it can never collide with real content.
     var CELL_BREAK = '\u0001';
+
+    /* -------------------------------------------------------------------------
+     * BRK-1: a long run with no space in it has to be MARKED, or it cannot wrap.
+     *
+     * `io.sdsasolutions.tacticalsettings` in a table cell is one word as far as the
+     * typesetter is concerned, and there is no way to break it that does not have to be
+     * asked for. TeX hyphenates letter sequences and a package name is not one; a
+     * zero-width space is NOT a break opportunity in XeTeX (measured — a `\parbox` with
+     * one and one without overflow identically); and `\raggedright` puts a word that
+     * does not fit on the line anyway, out past the column edge and into its neighbour.
+     *
+     * So the only question is which mark, and one already in this file works: a CODE
+     * SPAN reaches LaTeX as `\texttt`, and the formatting profile routes every `\texttt`
+     * through `\seqsplit`, which offers a breakpoint between every character. It is
+     * markdown-native, it needs no second escaping path (a code span is verbatim by
+     * definition, so nothing inside it can be mis-escaped), and the width model already
+     * knows a code span can break — so marking these also stops them demanding a column
+     * wide enough to hold them whole, which was the other half of the problem.
+     *
+     * The cost is that such a run is set in monospace. For a package name, a path or a
+     * settings key that is the right typography anyway, and it is what the register's
+     * key column has always done.
+     *
+     * Deliberately narrow: 18 characters or more AND shaped like an identifier — a
+     * `. _ - /` or a camelCase hump. Ordinary prose wraps at its spaces and needs no help.
+     * ---------------------------------------------------------------------- */
+    var IDENT_MIN = 18;
+    var IDENT_RUN = /\S{18,}/g;
+    var IDENT_SHAPE = /[._\/-]|[a-z][A-Z]/;
+
+    /** Is this space-free run one that must be marked before it can break? */
+    function isLongIdentifier(run) {
+      return String(run).length >= IDENT_MIN && IDENT_SHAPE.test(run);
+    }
+
     function cell(s) {
-      return text(s).split('\n').join(CELL_BREAK);
+      var str = String(s == null ? '' : s);
+      var out = '', last = 0, m;
+      IDENT_RUN.lastIndex = 0;
+      while ((m = IDENT_RUN.exec(str)) !== null) {
+        if (!isLongIdentifier(m[0])) continue;
+        // Escaped text either side, the run itself verbatim. `code()` sizes its own
+        // fence, so a backtick inside the run cannot break out of it.
+        out += text(str.slice(last, m.index)) + code(m[0]);
+        last = m.index + m[0].length;
+      }
+      out += text(str.slice(last));
+      return out.split('\n').join(CELL_BREAK);
     }
 
     // ---- block builders ------------------------------------------------------
@@ -2659,6 +2709,8 @@
 
     App.md = {
       text: text, code: code, cell: cell, CELL_BREAK: CELL_BREAK,
+      // BRK-1: which space-free runs get marked so they can break on the page.
+      isLongIdentifier: isLongIdentifier, IDENT_MIN: IDENT_MIN,
       heading: heading, para: para, rule: rule, pageBreak: pageBreak, centred: centred,
       table: table, pipeTable: pipeTable, gridTable: gridTable,
       // TW-1 (column widths) / TBS-1 (header + first-column styling) / HUM-1 (values)
@@ -14882,6 +14934,7 @@
         note('Widths are saved with the project, not with the session. <strong>Reset widths</strong> hands the table back to automatic \u2014 which is how every table behaves until you set one.') +
         p('<strong>Automatic</strong> is not "all columns equal". A table narrow enough to fit is left exactly as its content sizes it. One that is not gets laid out, and the columns are measured in <em>typeset width</em> rather than in characters \u2014 an <code>i</code> is a third the width of an <code>m</code>, a monospace package name costs more than prose, and bold costs more again. Three claims are settled in order: a word with nothing to break it comes first (it is what overflows into the next column if it is short-changed), then an identifier that <em>can</em> be broken but should not be minced, then the columns that would simply rather be wider and will wrap if they are not.') +
         note('It is still a rule of thumb \u2014 set the widths yourself when a table has to be exact. The generated <code>.md</code> may also be a good deal wider than the page for such a table; that is deliberate, and only the proportions reach the PDF.') +
+        p('<strong>A run with no space in it</strong> \u2014 a package name, a path, a settings key \u2014 cannot be broken by a typesetter unless it is asked for: there is no hyphenation point in <code>io.sdsasolutions.tacticalsettings</code>, and a word that does not fit simply runs past its column into the next one. So a run of 18 characters or more that is shaped like an identifier is written into the document as a <em>code span</em>, which is what makes it breakable \u2014 and, as a side effect, stops it demanding a column wide enough to hold it whole. It is set in monospace as a result, which is the right typography for an identifier and matches what a register\u2019s key column has always done. Ordinary prose is left alone; it wraps at its spaces.') +
         p('<strong>Captions.</strong> Every table in the document is captioned and numbered, generated ones included. A hand-written table with no caption of its own ' +
           'takes its section\u2019s heading. The numbering is the same one the PDF prints, which is what lets a link read \u201cTable 4\u201d and be right. ' +
           '<strong>Centre the table caption</strong>, in the Formatting pane, settles a small inconsistency: a caption shorter than its table is centred by the typesetter anyway, one that wraps is not, and the switch centres both.') +
@@ -28365,6 +28418,81 @@
       s.test('a table that fits is left exactly as its content sizes it', function () {
         T.assertDeepEqual(MD.autoWidths([['A', 'B'], ['one', 'two']], 2), [3, 3]);
         T.assertEqual(MD.table(['A', 'B'], [['one', 'two']], {}), MD.pipeTable(['A', 'B'], [['one', 'two']], {}));
+      });
+    });
+
+    /* ===== SUITES: long runs are marked so they can break (BRK-1) ===== */
+
+    T.suite('BRK-1 a run with no space in it is marked so it can wrap', function (s) {
+      s.test('a long identifier in a cell becomes a code span', function () {
+        var out = MD.cell('io.sdsasolutions.tacticalsettings');
+        T.assertEqual(out, '`io.sdsasolutions.tacticalsettings`');
+      });
+
+      s.test('the text around it is still escaped exactly once', function () {
+        var out = MD.cell('50% of io.sdsasolutions.tacticalsettings & more_x');
+        T.assert(/^50\\% of `io\.sdsasolutions\.tacticalsettings` \\& more\\_x$/.test(out), 'got: ' + out);
+      });
+
+      s.test('ordinary prose is left alone', function () {
+        T.assertEqual(MD.cell('Bluetooth is disabled by policy on this fleet.'),
+          'Bluetooth is disabled by policy on this fleet.');
+        // Long, but it has spaces, so it wraps by itself and needs no help.
+        T.assert(MD.cell('a sentence of perfectly ordinary words that runs on').indexOf('`') === -1);
+      });
+
+      s.test('the rule is narrow: long AND identifier-shaped', function () {
+        T.assertEqual(MD.isLongIdentifier('com.example.other_app'), true);
+        T.assertEqual(MD.isLongIdentifier('appInstallWhitelistLong'), true, 'a camelCase hump counts');
+        T.assertEqual(MD.isLongIdentifier('/var/log/something/deep'), true);
+        T.assertEqual(MD.isLongIdentifier('com.a'), false, 'short is not a problem');
+        T.assertEqual(MD.isLongIdentifier('ANTIDISESTABLISHMENTARIAN'), false, 'a long WORD is not an identifier');
+      });
+
+      s.test('a backtick inside the run cannot break out of the span', function () {
+        var out = MD.cell('a`b.c_d`e/f.g_h.i.j.k.l');
+        T.assert(out.indexOf('``') === 0, 'the fence must grow past the content: ' + out);
+        T.assertEqual(App.ui.mdPreview._inline(out).replace(/<\/?code>/g, ''), 'a`b.c_d`e/f.g_h.i.j.k.l');
+      });
+
+      s.test('marking it stops it starving the columns that cannot break', function () {
+        /* The other half of the problem. Unmarked, a long identifier is an unbreakable
+         * word, so it is a HARD floor — and several of them together exceed the page,
+         * at which point every floor is cut in proportion and the one column that
+         * genuinely cannot wrap (a one-word heading) is cut with them. Marked, they are
+         * soft: they are asked for after the hard floors are met, and give way first. */
+        var a = 'io.sdsasolutions.tacticalsettings.and.more.segments.here';
+        var b = 'com.samsung.android.app.telephonyui.esimclient.extra';
+        function frac(w) { return w[0] / w.reduce(function (x, y) { return x + y; }, 0); }
+        var unmarked = MD.autoWidths([['**Rationale**', 'B', 'C'], ['', a, b]], 3);
+        var marked = MD.autoWidths([['**Rationale**', 'B', 'C'], ['', MD.cell(a), MD.cell(b)]], 3);
+        T.assert(frac(marked) > frac(unmarked),
+          'the heading should keep more of the page: ' + frac(marked).toFixed(3) + ' vs ' + frac(unmarked).toFixed(3));
+        // "Rationale" bold is 4.79em of a 39em text block — a shade over 12%.
+        T.assert(frac(marked) > 0.12, 'and enough of it to fit: ' + frac(marked).toFixed(3));
+      });
+
+      s.test('it reaches the document, and the profile can break it there', function () {
+        docProject();
+        App.store.addItem('android.custom', 'Whitelist');
+        App.store.setDecision('android.custom', 'Whitelist', { action: 'Allow io.sdsasolutions.tacticalsettings only.' });
+        var md = reportMd({});
+        T.assert(md.indexOf('`io.sdsasolutions.tacticalsettings`') !== -1, 'the run must be marked in the document');
+        // \texttt is what \seqsplit is hooked on — that pair is the whole mechanism.
+        var pre = App.docFormat.preamble(App.docFormat.standard());
+        T.assert(/\\usepackage\{seqsplit\}/.test(pre) && /renewcommand\{\\texttt\}/.test(pre),
+          'the preamble must still route \\texttt through \\seqsplit');
+      });
+
+      s.test('the preview lets a long run wrap too', function () {
+        // A fixed-layout table with a colgroup does not wrap a long word by default; it
+        // lets it run out of the cell, which is the same defect in the other medium.
+        var css = document.head ? '' : '';
+        var sheet = App.ui.tables ? '' : '';
+        var style = Array.prototype.slice.call(document.querySelectorAll('style'))
+          .map(function (e) { return e.textContent; }).join('\n');
+        T.assert(/\.prv-table th, [^{]*\.prv-table td \{[^}]*overflow-wrap: anywhere/.test(style),
+          'the preview cells must be allowed to break a long word');
       });
     });
 

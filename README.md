@@ -127,6 +127,13 @@ left and five panes on the right.
   claims are settled in order: a word with nothing to break it, then an identifier that *can* be
   broken but should not be minced, then columns that would simply rather be wider and will wrap if
   they are not. It is a rule of thumb; set the widths yourself when a table has to be exact.
+- **Long runs with no space in them** — a package name, a path, a settings key — cannot be broken by
+  a typesetter unless asked: there is no hyphenation point in `io.sdsasolutions.tacticalsettings`,
+  and a word that does not fit runs past its column into the next one. A run of 18+ characters shaped
+  like an identifier is therefore written into the document as a **code span**, which is what makes
+  it breakable and stops it demanding a column wide enough to hold it whole. It is set in monospace
+  as a result — the right typography for an identifier, and what the key column already does.
+  Ordinary prose is untouched; it wraps at its spaces.
 - **Captions and table styling.** Every table is captioned and numbered — a hand-written one with no
   caption of its own takes the section's heading, and the numbering is the one the PDF prints, so a
   link that says "Table 4" is right. A table can also wear a styled **header row** and **first

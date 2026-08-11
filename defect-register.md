@@ -18,6 +18,7 @@ Severity: blocker · major · minor · trivial
 | D-015 | 9 (DEV-1/VF-2) | major | FIXED | An item assigned to a second device by hand read as **undecided** on the Devices tab while the data tab showed it decided — device readiness inferred the value format from that one device's capture, which does not contain a hand-assigned key | One fleet-merged captured-value map (`registry.capturedDefaults`), used by readiness and by every table |
 | D-017 | 9 | major | FIXED | The **verification** script shipped the whole implementation half — `Apply-Package` with live `pm uninstall`/`disable-user`, and (newly, from the D-016 work) the reverse switches presented as an uncomment-me lever that did nothing. All inert, none of it obvious to a reader | Preamble/postamble assembled per command via `ctx.command`; a verify script now contains no mutating verb at all. Locked by VER-5 + an execution proof that device state is byte-identical after a verify run |
 | D-016 | 9 | blocker | FIXED | One package that refuses to uninstall **terminates the whole implementation run** — remaining packages never applied. A native `pm` failure is escalated to a terminating error on hosts that do so (Windows PowerShell 5.1 via `2>&1`+`Stop`; 7.3+ via `$PSNativeCommandUseErrorActionPreference`), and nothing caught it | `Invoke-AdbPm` relaxes the preference around the native call, guards it with try/catch/finally, and grades a caught throw as a failure; the 7.3+ escalation is pinned off. Locked by the D-016 suite + an execution harness under real pwsh 7.4.6 |
+| D-026 | 14 (BRK-1) | major | FIXED | A space-free run (`io.sdsasolutions.tacticalsettings`) could not wrap at all — no hyphenation point, and a zero-width space is not a break opportunity in XeTeX (measured). Unmarked it was also a HARD floor, so it forced its column wide and starved the columns that genuinely cannot wrap | A run of 18+ characters shaped like an identifier is emitted as a code span, which routes through the existing `\texttt` -> `\seqsplit` hook: breakable on the page, and soft rather than hard in the width model. Preview cells gained `overflow-wrap` |
 | D-024 | 14 (AUTO-2) | major | FIXED | Column widths were proportional to source CHARACTERS but spent in POINTS. Next to a monospace key column the rate fell below what prose needs, so unbreakable words — headings especially — pushed past their column into the next one | Columns measured in ems from real Latin Modern metrics, against the page less pandoc's inter-column padding; hard floors, then soft floors, then appetite |
 | D-025 | 14 (PRV-3) | minor | FIXED | Three preview infidelities: the outline rail printed the markdown escaping (`\&`); every firewall rule in a cell ran together into one paragraph; and an unstyled table header was painted with the app's own surface colour — near-black on a white page, and indistinguishable from a shaded one | `unescapeMd` for text destinations; `parseGrid` keeps interior blank lines and the renderer treats a cell as paragraphs; the page states its own table background and the profile is the only source of a shade |
 | D-023 | 14 (NAM-1) | minor | FIXED | The per-section preview printed the section's LIST NAME as its heading; the whole-document preview printed the heading. Correct while the two were the same string, wrong the moment NAM-1 made them different | `sectionPreview` forced `title: block.label` into `headingFor`; the resolved block already carries the heading, so the override was the whole bug |
@@ -289,6 +290,31 @@ Severity: blocker · major · minor · trivial
   unchanged after the split.
 - **Lesson:** "it is never called" is an argument about behaviour; "it is not in the file" is a
   property of the artifact. For anything an operator will read as evidence, prefer the second.
+
+### D-026 — a run with no space in it could not wrap, in either medium
+- **Found:** user report, after D-024 — "those unbreakable words are a problem, they still aren't
+  wrapping, can we make them just regular text so they can wrap?"
+- **Established first, because the answer decided the fix:** they cannot wrap as regular text. TeX
+  hyphenates letter sequences and `io.sdsasolutions.tacticalsettings` is not one; `\raggedright` puts
+  a word that does not fit on the line regardless, past the column edge; and a zero-width space is
+  **not** a break opportunity in XeTeX — measured with a `\parbox` with one and one without, which
+  overflow identically. Every mechanism that breaks such a run has to be asked for in the markup.
+- **Two symptoms, one cause.** The visible one was the run overflowing. The second was that an
+  unmarked run is an unbreakable word and therefore a HARD floor — its column must be wide enough to
+  hold it whole. Several together exceed the page, every floor is then cut in proportion, and the one
+  column that genuinely cannot wrap (a one-word heading) is cut with them. So the marking fixed the
+  starvation as well as the wrapping.
+- **Fix:** a space-free run of 18 characters or more, shaped like an identifier (a `. _ - /` or a
+  camelCase hump), is emitted from `App.md.cell` as a code span — which reaches LaTeX as `\texttt`
+  and so through the `\seqsplit` hook the profile has installed since v2.2. Chosen over a raw
+  `\seqsplit{}` span specifically because a code span is verbatim and needs no second escaping path;
+  this file's defect history is mostly escaping, and adding a LaTeX-only escaper for a cosmetic gain
+  was the wrong trade. The cost is monospace, which for an identifier is correct typography.
+- **The same defect in the browser:** a fixed-layout table with a colgroup does not wrap a long word,
+  it lets it leave the cell. Preview and editor cells gained `overflow-wrap: anywhere`.
+- **Locked by:** BRK-1 (8 tests), including that the surrounding text is still escaped exactly once,
+  that ordinary prose is untouched, that a backtick inside the run cannot break out of the span, and
+  that marking a run measurably returns page width to a column that cannot break.
 
 ### D-024 — unbreakable words overflowed into the next column
 - **Found:** user report — "the text wrapping is a bit off, it goes into the next column a bit before
