@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(python3 tools/gen-code-map.py*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | grep -q 'ch-config-tool\\.html$' && python3 \"${CLAUDE_PROJECT_DIR:-.}/tools/gen-code-map.py\" 2>/dev/null || true",
+            "statusMessage": "Refreshing the CLAUDE.md code map"
+          }
+        ]
+      }
+    ]
+  }
+}

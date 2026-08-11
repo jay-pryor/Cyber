@@ -1,0 +1,17 @@
+#!/bin/sh
+# Keep the CLAUDE.md code map honest: a commit that changes ch-config-tool.html
+# must carry the regenerated map, or the line ranges lie to the next session.
+#
+# Enable once per clone:  git config core.hooksPath .githooks
+
+if ! git diff --cached --name-only | grep -q '^ch-config-tool\.html$'; then
+  exit 0
+fi
+
+if ! python3 tools/gen-code-map.py --check >/dev/null 2>&1; then
+  python3 tools/gen-code-map.py
+  git add CLAUDE.md
+  echo "pre-commit: regenerated the CLAUDE.md code map and staged it."
+fi
+
+exit 0

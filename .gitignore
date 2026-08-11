@@ -1,0 +1,6 @@
+# Test-harness dependency only. tools/run-selftests.js and the two live-DOM passes
+# need jsdom; install it with `npm install jsdom --no-save` before running them.
+node_modules/
+
+# Per-machine Claude Code settings. The shared ones live in .claude/settings.json.
+.claude/settings.local.json

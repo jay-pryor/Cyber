@@ -24,18 +24,842 @@ Process per task (build phase): **build → review → devise tests → log defe
 | 9 | v1.1: dark mode · set-from-files · Control Manager | ✅ complete | theme UI-only; exact-set assign; controls + schema v2 |
 | 10 | v1.2: per-config decision overrides (schemaVersion 3) | ✅ complete | default→group→device resolver; groups; override UI; report deviations |
 | 11 | v1.3: generation customisation | ✅ complete | per-command options; report section/column/group + classification; Control report; impl/verify shaping |
+| 14 | v2.2: Report Design — markdown documents | ✅ complete | levels + auto-numbering; authored sections; cross-refs; formatting profiles; templates; preview; one `.md` |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**372/372 embedded self-tests pass** (verified in real Chrome from `file://`, no console errors). Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
+**666/666 embedded self-tests pass** (the first 426 verified in real Chrome from `file://` with no
+console errors; the 6 added for UNDO-1 and the 8 added for VER-1..VER-4 / IMPL-1..IMPL-4 are
+headless-verified only and still want a Chrome run. SP-4's scroll round-trip passes only in a real
+browser — jsdom implements no layout, so a headless run reads 439/440 with that one test failing).
+Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
 per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
-checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and open a generated
-`report.html` in Microsoft Word (DOD-8). Defect register: 9 defects found during review, all FIXED.
+checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and run
+`pandoc report.md -o report.pdf` on a generated document (DOD-8). Defect register: 9 defects found during review, all FIXED.
 
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
+
+### 2026-08-11 — v2.4c titles, headings, narrow tables, and a preview that shows the formatting — ✅ COMPLETE
+
+**Six asks, all landed.**
+
+- **CAP-2 — centre the table caption on its own.** A caption shorter than its table is centred by
+  LaTeX anyway; one that wraps is justified, so two captions in one document looked differently
+  aligned for no reason the reader can see. A profile switch now emits `caption` +
+  `\captionsetup{justification=centering,singlelinecheck=false}` — the second half is the one that
+  matters, and was measured rather than assumed.
+- **NAM-2 — a generated section's heading is editable.** Once NAM-1 made the name and the heading
+  two different strings, a generated section had a name box and nowhere to say what the heading
+  should read. `report.headings` holds the override, keyed by block id, with the platform's own
+  wording carried on the block as `defaultTitle` so the pane can offer it as the placeholder. Custom
+  sections are deliberately excluded: they already own their heading, and two boxes for one string is
+  how the two end up disagreeing.
+- **The Section preview was showing the NAME.** It forced `title: block.label` into `headingFor`,
+  which was right when those were the same string and wrong the moment they were not. The whole
+  document preview was already correct, which is what made it a puzzle worth stating: `resolved`
+  already carries the heading, so the override was the entire bug.
+- **TW-3 — widths that do not fill the page.** Three columns at 20% now make a table 60% of the text
+  width, centred, rather than three equal columns stretched across it. Markdown cannot express that —
+  pandoc reads a column's width as its share of the border row, so the shares always sum to the whole
+  line — but what they are measured *against* can be changed: `\setlength{\columnwidth}{0.6\columnwidth}`
+  around one table scales every `\real{}` in its column spec together. The model is now simply
+  "a percentage is a share of the page, and the shares need not fill it": **dragging** moves a
+  boundary and keeps the table the width it was, **typing** sets one column and is therefore what
+  changes the total. Over 100% is still the red flag; under 100% stopped being a warning and became
+  the feature. Both editors are drawn to scale, so an under-filled set visibly under-fills.
+- **CCOL-2 — the control type is a column.** It used to ride along in brackets after the title, which
+  made the first column two facts wide and left the type unsortable, unhideable and unwidenable. On
+  by default, so nothing is lost from an existing report by the change.
+- **TTL-1 — a title level.** `T` prints a top-level heading, takes no number, and — the part that was
+  actually asked for — does not touch the counters, so the first `H1` after a title is still 1. It is
+  outside the numbering machinery rather than a special case inside it: not numbered, not counted, and
+  not the "last heading" the automatic rule reads.
+- **PRV-2 — the previews show the formatting.** Everything a profile decides reached the PDF through
+  the YAML block and the LaTeX preamble, which the preview ignored — so it answered "what does this
+  document say" and never "what does it look like". `App.docFormat.previewCss` compiles the same
+  profile a second time, into CSS for a page-shaped box: paper width and margins, base size and line
+  spacing, each level's size, weight, style and spacing, the table shading colours, the caption
+  alignment. Both the whole-document preview and every per-section preview are drawn on it. The page
+  stays white in dark mode on purpose — a shade colour judged against a dark background is being
+  judged against the wrong thing. Every interpolated value is sanitised (sizes through a numeric
+  parse, colours through `normaliseShade`); a stylesheet built from text boxes is an injection route
+  otherwise, and there is a test that says so.
+
+**Verification.** 27 new self-tests → **805/805 pass**, 137 suites; live-DOM 64/64; the end-to-end
+pass extended to **56 checks**. Built for real: the title section prints unnumbered with `1` on the
+section after it, the reworded heading reaches both the body and the composition table, a wrapped
+caption centres, and a 20/20/20 table comes out 60% of the page and centred with its shading intact.
+
+### 2026-08-11 — v2.4b the mashed control-coverage table, and widths everywhere — ✅ COMPLETE
+
+**Reported:** the Control coverage table in the preview had its first columns crushed to the left,
+its last crushed to the right, and the Items column taking the whole width — while the register
+tables looked fine. Plus five asks: column selection for Control coverage, manual widths on the
+*generated* tables, a preview for custom sections, widths typed by value, and a flag when the typed
+totals do not add up.
+
+**The mashed table had two causes, both real.**
+
+- **AUTO-1.** Automatic widths were "each column as wide as its widest line", and pandoc reads those
+  source widths as PROPORTIONS. One column listing every package satisfying a control therefore
+  claimed almost the whole page. Automatic now means: a table that fits is left exactly as it was
+  (byte for byte — most tables), and one that does not is laid out — every column first takes the
+  width it cannot go below, its longest unbreakable word, and only the slack above that is shared out
+  in proportion to appetite. A heading also gets a safety margin, because a one-word heading is the
+  one thing that cannot absorb being squeezed and it was visibly overflowing in the PDF.
+- **The form was wrong as well.** A pipe table becomes a LaTeX `tabular` of `l` columns, which do not
+  wrap — the long justification was running off the page, not just looking wrong on screen. The
+  deciding question is no longer "does a cell contain a line break" but "will this fit on a line": a
+  table wider than the budget takes the grid form so its content can wrap at all.
+
+**Also built:**
+- **CCOL-1.** `App.generate.CONTROL_COLUMNS` declares Status / Items / Justification as optional, in
+  the same shape a dataset adapter declares its report columns — so the Section pane's existing
+  column ticks covered it with no second mechanism. `sectionColumns()` reports the columns ANY
+  generated section will have, which is also what the width strip is drawn from.
+- **TW-2.** Widths on generated tables, stored per block id in `report.tableWidths`. A generated
+  section has no editable table in the pane, so it gets a labelled **strip** that stands in for one —
+  same grips, same chips, same two docStore calls, so the two editors cannot drift. A grouped
+  register wears one set across all its groups, which is right: same columns, different rows.
+- **RD-9.** Custom sections preview like generated ones, through the real `renderParts` with the real
+  table index, reference resolver and style resolver — so a cross-reference reads its true number and
+  a styled table shows its styling.
+- **Typed widths, and the red flag.** Double-click a percentage and type one. The two gestures are
+  deliberately different and the manual says so: **dragging** moves a boundary (fixed total, the
+  others give way); **typing** sets one column and leaves the rest alone. That is what lets a 60% and
+  a 50% column coexist — flagged in red, stating that the table will be scaled down to fit so no
+  column ends up the width that was typed. Under 100% is noted more quietly. Widths are therefore
+  relative SHARES, not a partition, and `App.md.widthsFor` normalises on the way out; the schema's
+  sum-to-1 rule was dropped in favour of "each share is a share" (0 < w ≤ 1).
+
+**Defect introduced and caught in the same session (D-021).** Making the auto path wrap meant it
+could hard-break a token, and the register tables are full of code spans: `` `appInstallWhitelist` ``
+came out cut in half, which pandoc rejoins with a SPACE through the middle of the package name and
+leaves the emphasis markers around it as literal asterisks. Visible in the PDF, invisible in the
+suite. The floor now counts the whole token — measured on the source, markup and all — so the auto
+path can never cut one; `safeCut` additionally refuses to land between the two asterisks of `**`.
+
+**Verification.** 26 new self-tests → **778/778 pass**, 133 suites; live-DOM 64/64; the end-to-end
+pass extended to **48 checks** (the Control coverage ticks, the width strip, an over-committed set
+being flagged and clearing again, the custom-section preview). Rebuilt for real: the control-coverage
+table now honours the 30/20/22/28 it was given, every register heading renders in full, and the
+overfull-box warnings fell from 20 to 12.
+
+### 2026-08-11 — v2.4 table widths, styling, captions, section names, readable values, exceptions — ✅ COMPLETE
+
+**Asked for:** seven things, all landed —
+
+1. **HUM-1** — a captured value printed as a reading rather than as JSON in the documents.
+2. **EXC-1** — a third control state, *Satisfied with Exception*, reached by clicking again.
+3. **SEC-1** — a custom text box between a generated section's heading and its table.
+4. **CAP-1** — automatic table captions.
+5. **TBS-1** — a styled header row / first column, the look set in Formatting, the opt-in per table.
+6. **NAM-1** — a section NAME distinct from its heading, defaulting to the heading.
+7. **TW-1** — draggable per-column widths in the Report Designer, carried into the PDF.
+
+**Built:**
+- **`App.md.human` / `humanInline` (HUM-1).** One reading of any JSON value: `[]` → `(none)`, a
+  string list one entry per line, a record list numbered with its fields spelled out. Entries are
+  separated by a BLANK line, not a newline, because a grid-table cell folds consecutive lines into
+  one paragraph — only a blank line survives to the page as a break. Used by the Tactical report
+  column and the deviations table. The `tactical.json` a device consumes and the verification script
+  keep the canonical form: a reading is not reversible, and those are read by machines.
+- **`CONTROL_STATES` becomes three (EXC-1).** `unsatisfied → satisfied → exception → unsatisfied`,
+  cycled by one button that always names where the next click lands. An exception is a *decided*
+  state — it does not count towards "controls still unsatisfied" — and is flagged like a bare
+  Satisfied when no justification is recorded, more loudly, since the departure is the thing a reader
+  needs told. The vocabulary, its labels and the cycle live in `App.projectIo`, so the report, the
+  Devices tab and the Control Manager cannot drift.
+- **`report.names` / `report.intros` / `report.tableStyles` (NAM-1 · SEC-1 · TBS-1).** All three keyed
+  by BLOCK ID, so one shape covers a generated section and a hand-authored one with no per-kind
+  special case. `reportBlocks` now sets `title` (the heading) on every block and `label` (the name)
+  — `App.doc.headingFor` and `refResolver` already preferred `title`, so a named section still prints
+  its heading and the composition table still names sections the way a reader can find them.
+- **CAP-1, and a defect it turned up.** LaTeX numbers a captioned table itself, so the caption text
+  must not carry a number of its own — the old `Table 3 — Ports` came out as **"Table 3: Table 3 —
+  Ports"** in the PDF (D-019). Captions are now the text alone; `App.doc.tableIndex` keeps its own
+  counter purely so a cross-reference can *name* the number the page will print, and the two agree
+  because every table is captioned and both count in emitted order. Generated tables are found by
+  reading their body back (`scanTables`) — they are opaque markdown by the time the index runs.
+- **TW-1.** `App.md.gridTable` takes `opts.widths` (fractions), converts them to field widths against
+  the identity pandoc actually uses, and hard-wraps cell content to fit. `table()` routes to the grid
+  form whenever widths are set, because a pipe table carries no widths at all. `docStore.setWidth`
+  renormalises the others so one drag moves one boundary; `addColumn`/`removeColumn` keep the array
+  in step with `align`. The editor table is drawn at the formatting profile's *text width*, so what
+  is dragged is the shape the page gets. **schemaVersion 4** with an identity `migrateV3toV4`.
+- **TBS-1's shading, and why it is raw LaTeX.** Bold and italic are markdown. Shading is not
+  expressible in markdown at all, so it travels the way the page break and the centring already do —
+  as `{=latex}` fences pandoc passes through. The header row works by locally redefining `\toprule`
+  (what pandoc emits immediately before every longtable's header) inside a `\begingroup`; the first
+  column by a `\cellcolor` span at the head of each body cell, on its own source line so it costs the
+  column no width. `colortbl`, not `\usepackage[table]{xcolor}` — pandoc's template has already
+  loaded xcolor, and a second load with an option is an Option clash.
+
+**Flagged, then measured rather than assumed.** The brief warned that grid-table width emission has
+varied across pandoc releases. Verified against the version in use before any of this was written:
+pandoc **3.1.11** reads column *i* as `(dashes_i + 1) / lineLength` and emits it as
+`\real{0.5865}` in the longtable column spec. Both shading mechanisms were verified the same way,
+end to end to a rendered PDF, before being relied on — a fenced div and a cell attribute were tried
+first and both are silently dropped by the LaTeX writer.
+
+**Defect found by doing it (D-020).** `gridTable` put alignment markers on *every* border, not just
+the header separator. Pandoc 3.1.11 responds by **silently dropping every body row** — the table
+compiles to a header and nothing else. Latent since v2.2 (it needed a table that was both aligned and
+in grid form); TW-1 made every width-bearing table exactly that, so it surfaced immediately. Found by
+looking at the PDF, not by reading the markdown. The preview had the mirror-image bug: it only
+recognised `+-` borders, so every aligned grid table was rendered as prose.
+
+**Verification.** 68 new self-tests → **752/752 pass**, 129 suites; the live-DOM pass still 64/64;
+plus a new end-to-end pass that drives the real workspace, generates the document and asserts on it
+(38 checks). The pipeline was run for real: a document with a 60/20/20 table, a shaded header row and
+first column, an introduction, a renamed section, a firewall rule list and a control marked
+*Satisfied with Exception* builds to a 44KB PDF via `pandoc 3.1.11 --pdf-engine=tectonic`, exit 0 —
+and the LaTeX carries `\real{0.5981}` / `\real{0.1963}` / `\real{0.1963}`, which is the drag.
+
+**Known and left alone:** the register tables' automatic column widths are proportional to source
+*characters*, which under-serves a narrow column — "Control" can overflow its heading in the PDF.
+Pre-existing, and out of scope here: those columns are adapter-declared and have no home for a width
+setting yet. Per-dataset widths would be the fix.
+
+### 2026-08-10 — v2.3 Report Design follow-ups (RD-8 · META-1 · GUIDE-1) — ✅ COMPLETE
+
+**Asked for:** a preview of each generated section on its own tab, the ability to centre those too,
+include/exclude switches for the rows of Device Config Information (with "Generated (UTC)" removed
+outright), and a new generated section listing the items flagged as departing from the security
+guidelines, grouped by register, skipping registers with none.
+
+**Built:**
+- **RD-8 per-section preview.** `buildReport`'s per-block dispatch was extracted into
+  `App.generate.sectionContent`, so the Section pane and the finished document render a block through
+  the *same* call and cannot drift. Centring is a per-block flag (`report.centred`) applied to the
+  body, not the heading — a centred heading is a formatting-profile decision.
+- **META-1.** `metaFields()` gives every provenance row a stable id (one per snapshot, discovered from
+  the device, so a new dataset gains a row with no core edit). `Generated (UTC)` is gone; the exact
+  instant remains machine-readable as `generated-utc` in the YAML. Row choices live in the PROJECT
+  (`report.meta`), not the session, because "this house's reports don't carry hashes" is a decision
+  that belongs with the heading levels — and a report template that didn't carry it would be half a
+  template. Both new maps store only the non-default value, so a toggle flipped and flipped back
+  leaves no fingerprint (DOD-7).
+- **GUIDE-1 Deviations from Security Guidelines.** One numbered sub-section per register, each listing
+  item, description and narrative; a flag with no narrative reads *"Flagged, no narrative recorded."*
+  rather than showing an empty cell. The section's existence depends on the device AND the relevance
+  filter, so `reportBlocks` now takes `opts.deviceId`.
+
+**Judgement call worth recording:** an empty section is not an *omission*. `reportSectionDescriptor`
+skips blocks marked `empty`, so a document with nothing flagged does not list "Deviations from
+Security Guidelines — Omitted" in its composition table. Reporting it would invite the reader to
+wonder what had been hidden, when the answer is that the section never applied.
+
+**Scope boundary deliberately crossed:** the DIV-1 suite asserted the divergence narrative reached no
+generated output. That was the right call when the flag had no reader; the whole point of GUIDE-1 is
+that it now has one. The test was rewritten to assert the narrative reaches the REPORT and still
+never reaches a generated SCRIPT — a narrative is prose for a person, not an instruction for a device.
+
+**Verification.** 15 new self-tests → **683/683 pass**, 123 suites, plus the live-DOM pass extended to
+**64 checks** (flagging an item makes the section appear; its preview shows the item, the narrative
+and only the registers that have one; centring and a metadata row both round-trip through the real
+handlers). The pipeline was re-run for real: a document with a centred guidelines section and two
+switched-off metadata rows builds to a 43KB PDF via `pandoc --pdf-engine=tectonic`, exit 0, with only
+the three 0.1111pt longtable rounding artifacts.
+
+### 2026-08-10 — v2.2 Report Design: the documents become composed markdown — ✅ COMPLETE
+
+**Asked for:** heading levels with automatic sub-heading nesting and auto-numbering; hand-authored
+sections with rich text, fill-in tables, rules and page breaks in any order; a formatting panel with
+saveable profiles; saveable section and report templates; isolated import/export for all three with
+per-case conflict resolution; cross-references that survive reordering and renaming; a navigable
+preview; and markdown output rather than HTML, LaTeX-safe, as a bare `.md`.
+
+**Decisions taken with the user before building:**
+- **Escape on the way out, never at input.** The captured registers are full of characters that are
+  load-bearing in LaTeX (`wifi_sleep_policy`, `$HOME`, `50%`, `a & b`). Stripping them at input would
+  mean the register no longer matches the device and the implementation script would name a package
+  that does not exist. So the bytes are kept intact and escaped in the writer. Identifier columns are
+  emitted as code spans instead, which are verbatim and reach LaTeX as `\texttt{}`.
+- **All three documents** (Reporting, Control report, Procedure) become markdown; the two script
+  bundles keep their zip and their manifest.
+- **No `manifest.json` for documents.** The provenance it carried is written into the document's own
+  YAML metadata block, where a reader of the finished PDF can see it.
+
+**Built — seven new modules:**
+- **`App.md`** (MD-1) — the single escaping choke point, the markdown counterpart of
+  `App.util.html.esc`. Pipe *and* grid tables (the grid form is the only one that can hold a
+  multi-line cell), YAML front matter, and a small `{{…}}` token markup for rich text that is
+  extracted before escaping, so a token can never be forged by typed text and unbalanced emphasis is
+  closed at the paragraph boundary rather than bolding the rest of the document.
+- **`App.doc`** (DOC-1..4) — five levels (H1–H4 + normal text), automatic level resolution, counter-
+  stack numbering, stable ID-derived anchors, cross-reference resolution, and the renderer for an
+  authored section's parts.
+- **`App.docFormat`** (FMT-1..4) — named profiles compiled to a pandoc YAML block plus a `titlesec`/
+  `fancyhdr` preamble. Ships a `Standard` baseline that cannot be edited, only duplicated.
+- **`App.docStore`** (DS-1..6) — every designer write, with **derived** ids (`sec3`, `part7`) rather
+  than random ones, so the same edits produce the same project bytes and a cross-reference is
+  portable between two operators' copies.
+- **`App.docTemplates`** (TPL-1..4) — isolated export/import. Conflicts are detected on **name**, not
+  id (ids are per-project and would collide meaninglessly); replacing keeps the **existing** id so
+  `report.formatId` cannot be silently repointed; and a conflict with no answer defaults to keeping
+  the operator's copy.
+- **`App.ui.mdPreview`** (PRV-1) — a narrow renderer for the dialect `App.md` emits. Escapes before it
+  emits, so a captured device string can never reach the tool's own DOM as markup.
+- **`App.ui.views.reportDesign`** (RD-1..7) — the workspace: ordered section list with level pickers,
+  the section editor, relevance, formatting, templates with the conflict dialog, and the preview.
+
+`App.report` was rewritten from the Word-targeted HTML shell to markdown section builders. The
+adapters needed **zero** changes: `renderReportSection` still delegates to `App.report.buildSection`
+with its declared columns, which now returns `{body, children}` — a grouped dataset's groups become
+numbered sub-sections, which is what earns each of them an anchor to link to (DOD-11 intact).
+
+**Defects found and fixed during the build:**
+- **Load order.** `App.md` was appended before the bootstrap marker per the file convention, but
+  `App.report`/`App.generate` bind it at load time, so it was `undefined`. Moved `App.md` into the
+  util group and `App.doc`/`App.docFormat` immediately before `App.report`, per the spec §14 order.
+- **Child headings polluted the automatic level rule.** "Auto" means *sibling of the last heading*,
+  and a grouped dataset's group was setting that — so `Tactical` rendered as `3.4`, a child of
+  `Packages`. A child now advances the counters and the depth but is not the "last heading".
+- **Double wiring.** `App.ui.views.reportDesign.wire()` was called from the Generate view *and* by the
+  shell's view loop, so one click on **+ Add section** created two sections. Caught only by the
+  live-DOM pass, not by the render-only tests. The shell's loop is the single registration point.
+- **A literal `</script>` inside a test string** silently ended its script block and unregistered
+  eight suites. Written with an escaped slash now.
+- **Pretty-printed decision objects** in the deviations table forced every cell multi-line and turned
+  the table into a grid table; they render as `action=disable` on one line.
+
+**Three more defects found by actually running the pipeline** (pandoc 3.1.11 + tectonic 0.17.0),
+none of which any amount of reading would have caught:
+- **`::: {.center}` centred nothing.** Pandoc's LaTeX writer drops a fenced div and emits the
+  contents unchanged; the `data-latex` attribute is a convention of the *pandoc-latex-environment*
+  filter, not native pandoc. Centring now travels as raw `{=latex}` fences around the block, which
+  produce a real `\begin{center}` while leaving the markdown between them still markdown.
+- **A table's `{#id}` came out as literal text** — `\caption{Table 1 --- Residual risk \{\#tbl-part3\}}`.
+  Pandoc does not read an identifier on a table caption. The anchor is now an empty span *before* the
+  table, which becomes `\phantomsection\label{...}` and is reachable by `\hyperref`.
+- **Code spans were escaped**, so `{{c}}code_span{{/c}}` set as `code\_span` with a visible
+  backslash. A code span is now taken whole and emitted verbatim through `App.md.code`.
+- **64-character hashes ran 146pt past the right margin** — `\texttt` will not break an unbreakable
+  word. The preamble now routes `\texttt` through `seqsplit`, which offers a breakpoint between
+  every character that TeX uses only when it must. Overfull boxes went from 14 to 3, and the three
+  that remain are 0.1111pt (0.004mm) `longtable` column-rounding artifacts.
+
+**Verification.** 75 new self-tests → **668/668 pass**, headless (jsdom), 120 suites. The pipeline was
+run for real: a document exercising every part kind converts with
+`pandoc report.md --pdf-engine=tectonic -o report.pdf` to a 41KB PDF, exit 0, with the centring,
+cross-references, table anchor, escaping and formatting profile all correct in the LaTeX. Plus a **48-check
+live-DOM pass** driving the real wiring: mounting the app, opening the workspace, pinning a level,
+adding a section, typing prose, wrapping a selection in bold, filling a table, adding rows/columns
+and alignment, reordering parts, inserting a cross-reference, duplicating and editing a formatting
+profile, saving a report template, rendering the preview, and clicking Generate — confirming one
+`.md` download named `dev-m1-reporting-<stamp>.md`, with the bold, the escaped percent, the resolved
+cross-reference, the centred table, the rule and the profile's margin all present in the file.
+Determinism (DOD-7) is covered for a designed document, and a design round-trips byte-identically
+through save/load. Remaining: DOD-1 (three browsers) and the pandoc run (DOD-8) are manual.
+
+**Not done:** the designer's edits do not join the per-dataset undo history — that history is keyed by
+dataset and snapshots register items, which a document section is not. Destructive actions (delete a
+section, apply a report template) confirm first instead.
+
+### 2026-08-10 — Ordering and narrowing the control picker (CTLSORT-1) — ✅ COMPLETE
+
+Apply Control Mode's card list gained an **order** selector and a **tag filter**, above the text
+filter it already had.
+
+**A→Z was already the default,** which is worth recording because the request was for "default,
+alphabetical, or by tag" and the first two would have been the same button twice — the rail (and the
+Control Manager) have always sorted by title. So the second order is **By type**: sort by control
+type first, title within it, with a sticky heading per group so the cluster you are scrolling stays
+named. That is the useful thing a second order can do here — work through one framework's controls
+at a time.
+
+**Tag is a filter, not an ordering,** and that is a design decision rather than a shortcut: a control
+can carry several tags, so grouping by tag would render the same card once per tag, in a picker whose
+whole job is "choose one". As a filter the same information narrows the list and duplicates nothing.
+It offers each tag in the project plus **(untagged)**, reusing FIL-3's private-use sentinel so an
+empty value can still mean *any tag*, and it is left out entirely when nothing is tagged — an
+always-empty dropdown is worse than no dropdown.
+
+All three narrowing controls compose, none of them writes to the project, and none of them clears the
+selected control — changing how the list is arranged is not a statement about what you are applying.
+
+**Verification.** 4 new self-tests → **593/593 pass**, headless. Plus a 23-check live-DOM pass:
+default A→Z, By type clustering with headings in order, each tag filtering correctly, a two-tag
+control appearing under either and never twice, (untagged), tag composing with the text box, the
+count following the filter, the picked control surviving a re-order, and nothing leaking into the
+serialised project.
+
+### 2026-08-10 — Two more things you can set on a hundred rows at once (BULK-4) — ✅ COMPLETE
+
+The rail could bulk-attach a control and bulk-assign a device. It could not bulk-set the two fields
+people actually spend the day typing into: **Security Relevance** and the **decision** itself. Both
+now have a button, and both work exactly like the two that were already there — arm the mode, pick a
+value, tick the rows, or click the column heading to do the whole shown set.
+
+**They share one tick column, because they are one gesture.** Relevance and decision differ only in
+the field being written, so rather than two near-identical columns there is a single
+`valueApplySpec(adapter, ui)` — value list, field, and a `read(item)` that returns a row's current
+value — feeding one column, one heading, one plan helper (`valueAllShownPlan`, the third sibling of
+`applyAllShownPlan`/`assignAllShownPlan`) and one pair of handlers.
+
+**Apply Decision is offered where the adapter says it can be.** It needs an `enum` primary decision
+field, discovered from `decisionSchema` — so it appears on Packages (keep/disable/remove) and not on
+Tactical, whose decision is a typed value with nothing a picker could apply. That is the requested
+"for the packages table" without a dataset id anywhere in the UI (DOD-11).
+
+**Unticking clears.** Not a no-op: it sets relevance back to unset, or the decision back to
+undecided. A mis-tick is undone by the same gesture that made it, which matters more here than for a
+control ref because these are the fields you sweep across hundreds of rows.
+
+**Two decisions worth recording.** First, a value tick goes through the ordinary re-render rather
+than the quiet in-place patch the control and device ticks use — it changes the row's badge, its
+Status *and* its undecided styling, and three surgical patches are three chances to drift from the
+renderer; STAB-2's anchor correction keeps the row under the pointer anyway. Second, writing a
+decision *merges* onto whatever the item already carries, so an adapter that grows a second
+decision field later will not silently lose it the first time someone bulk-sets the enum one.
+
+**The modes became declarative.** Three mutually-exclusive modes wired pairwise was already the
+messiest thing in `renderToolbar`; five would have been nine "which message does this button show"
+branches. They are now `PICK_MODES` + `blockedBy(ui, id)`, generating both the buttons and the
+"Exit X first" messages — and the existing three messages come out byte-identical, which is what
+the tests pin.
+
+**Verification.** 9 new self-tests → **589/589 pass**, headless, 110 suites. Plus a 35-check
+live-DOM pass driving the real wiring: both buttons present on Packages and only relevance on
+Tactical, chips generated from the vocabulary and from the adapter enum, ticking writing and
+unticking clearing, the heading flipping Set→Clear and acting on exactly the shown set, one Undo
+taking back a whole three-row run, rows going decided and back to undecided, and every mode
+disabling the others with the right message.
+
+### 2026-08-10 — The parked view stops hiding work, and stops isolating it (REL-8) — ✅ COMPLETE
+
+Two corrections to the relevance view, both following from the previous entry: once `REPORT` became
+the tag that says *"carry this into the report"*, it stopped making sense as a reason to hide the item
+from the table.
+
+**`REPORT` is no longer parked.** `RELEVANCE_PARKED` is now `['IRRELEVANT']` and the "Report only"
+toggle is gone. Tagging an item `REPORT` is a statement about the *report*, not about whether the
+person making decisions should be able to see it — and the old behaviour meant an item you had
+deliberately looked at and classified was harder to find than one you had never opened.
+
+**The remaining toggle includes rather than isolates.** It used to be an "only" filter: ticking
+Irrelevant showed *nothing but* irrelevant items. That answers a question nobody was asking — the
+point of the toggle is "let me also see the ones I parked", and reviewing them against the rest of the
+table is the entire reason to look. So `ui.onlyRelevance` became `ui.includeRelevance`: the parked
+categories switched **on**, with an item hidden iff its category is parked and not in that list.
+Renamed rather than reinterpreted, because the semantics genuinely inverted and the old name would
+have lied. The button reads **Include irrelevant**, and the note beside it now says either which
+categories are hidden or that every item is in view.
+
+The toolbar builds one toggle per `RELEVANCE_PARKED` entry rather than listing them, so the controls
+follow the vocabulary and cannot drift from the filter — today that yields exactly one button.
+
+One line fell out on its own: `addItem` used to stand the relevance view down after creating a row, or
+the new (untagged) item would vanish into a parked-only view the instant it existed. An additive
+toggle cannot hide an untagged row, so the reset is gone.
+
+**Verification.** The five affected assertions were rewritten to the new semantics rather than
+deleted, including the composition cases (search, Incomplete only, column filters, the bulk-apply
+"everything shown" plan) — **580/580 pass**, headless. Plus a 16-check live-DOM pass on a real data
+table: a REPORT row visible by default and an IRRELEVANT one not, exactly one Include toggle with no
+Report button and no `data-only-rel` left anywhere, ticking it taking the table from three rows to
+four (rather than to one), the chip and note following, unticking restoring, and search still
+narrowing an included parked row.
+
+### 2026-08-10 — What the report is about, and in what order (REL-7 · RPT-2/3/4) — ✅ COMPLETE
+
+**The problem:** the report reported on everything. An item left exactly as captured, satisfying no
+control, still took a row — so the document said, at length, that keeping Android installed
+corresponds to no control. Of course it doesn't. The tempting filter is "has a control ref", and it
+is the wrong one: it hides the single row worth reading, an item that *was* changed with nothing
+stated behind it. What makes "keep Android installed" boring is that it is a no-op, not that it is
+uncontrolled — and the register already had a field for exactly this judgement.
+
+**REL-7 — `REPORTING` becomes `REPORT`.** The category never meant "this is a reporting activity"; it
+means *"not a hardening decision, but carry it into the report anyway"*. The vocabulary is closed, so
+the rename went in the way `CONTEXT` → `LOW` did: a load-time translation in
+`RELEVANCE_RENAMES`, not a new option. An older project or CSV still opens and imports, is
+translated, and says so with a warning; `REPORTING` is no longer settable. No `schemaVersion` bump —
+only a value's spelling changed. (The spec's §18.8 had never recorded the `CONTEXT` → `LOW` rename
+either; both are now stated there.)
+
+**RPT-2 — Security Relevance is the report's scope control.** `buildReport` takes
+`opts.relevance`, an include-map over the vocabulary plus `_unset` for a blank column, with the
+usual "missing key ⇒ included" rule. An *absent* map means no filtering at all, so a caller that
+asks for a report without options still gets everything — the filter is the operator's choice, never
+something the engine applies behind them. It narrows the dataset sections **and** Control coverage:
+it is the scope of the document, not of one table. `IRRELEVANT` is off by default in the UI.
+
+A filtered report has to own up to it, on the same principle as the "Sections included" table: a
+*Security Relevance filter* note names the categories carried, names the ones dropped, and states how
+many applicable items that cost. `App.generate.relevanceCounts()` feeds both that note and the panel,
+so the number shown before generating is the number the document states afterwards.
+
+**RPT-3 — the sections re-order, and it sticks.** `App.generate.reportBlocks()` is now the one
+ordered list the "Sections included" table, the emitted body and the UI are all built from, each
+block carrying a stable id (`meta`, `ds:<datasetId>`, `control`, `deviations`) derived from the
+platform — so a new dataset is orderable with no core edit (DOD-11). A grouped dataset stays one
+block: the adapter renders its own groups, so those are inclusion toggles inside the row rather than
+separately orderable sections. The order lives in the project as `report.order`, for the reason
+`procedure.order` does — an arrangement is a decision, and re-making it every session would make the
+feature not worth using. Unlisted ids append rather than vanish; stale ids are ignored, so deleting a
+dataset cannot invalidate an arrangement.
+
+**RPT-4 — the Reporting options became a workspace.** A full-screen modal instead of the card
+dropdown, because the section list is now draggable, because inclusion and ordering are one list and
+have to be seen together, and because this panel is meant to grow. Left: the ordered section list —
+drag or ▲/▼, a tick to include, each row holding its own group and column ticks, and numbering that
+counts only what is in. Right: a stack of panes declared as a list (`SIDE_PANES`), so a later
+addition is one entry — Security Relevance with live per-category counts, and Document. Footer:
+sections included, items dropped, readiness, plus Reset order and Generate. Every control the inline
+panel had is still there. A change inside repaints only the workspace and keeps its scroll position
+(PRO-3's reasoning) — the page behind it hasn't changed.
+
+**Verification.** 23 new self-tests → **580/580 pass**, headless (jsdom), 109 suites. Plus a 29-check
+live-DOM pass driving the real wiring: opening the workspace, moving a section and confirming both
+the DOM re-ordered *and* the project recorded it, Reset order clearing the key, the relevance ticks
+changing the footer's omission count, the all-groups tick on a grouped dataset, and generating from
+the footer button. The eight assertions that pinned the old vocabulary were updated rather than
+deleted, and the near-miss case they guarded (`REPORT` was junk) now guards `REPORTABLE`.
+
+**Not done, deliberately:** `buildControlReport` does not take the relevance filter. It could in
+three lines, but nothing in the UI would set it, and dead options are worse than absent ones. The
+control-coverage section *inside* the Reporting document does honour the filter, which is the
+coherent scope.
+
+### 2026-08-05 — One captured-value map for the whole fleet (D-015) — ✅ COMPLETE
+
+**Reported:** Tactical decisions made against one device were assigned to a second device by hand
+(DEV-1); the Devices tab then called those items undecided, and the device not ready, while the
+Tactical tab showed the same items decided.
+
+**The decision was never in doubt — the *value format* was.** VF-2 infers an item's format from its
+captured leaf type, and there were two implementations of "the captured values for this dataset":
+`ui.tables.buildCapturedMap` merged every latest device's capture, so the data tab saw `wifiOn` as a
+`bool` and validated the boolean happily; `completeness.deviceReadiness` read only *that device's*
+snapshot. A hand-assigned key is by definition absent from it, so there was no captured type,
+`inferId(undefined)` fell back to `string`, and `validate` rejected a perfectly good `true` with
+"Value must be text." Incomplete item, un-ready device. It bit the non-text values — booleans,
+numbers, lists, i.e. most of a Knox capture — which is why it read as arbitrary.
+
+**Fix:** one implementation, `App.registry.capturedDefaults(project, dsId, preferDeviceId)`, beside
+the applicability choke point it belongs with. It merges the fleet's latest captures with the named
+device's own capture first: where a device did report a key its own evidence stays the authority on
+that key's type, and the rest of the fleet only fills the gaps. Readiness, `buildCapturedMap` and the
+Devices-tab format resolver all delegate to it, so the two tabs can no longer reach different
+verdicts from different evidence. `registry.latestConfigs` came along as the shared version filter.
+
+**Verification.** 6 new self-tests (D-015) → **529/529 pass**, headless (jsdom). The readiness
+assertion was run against the pre-fix code and fails there, so it locks the defect rather than
+describing it. Also checked end to end: the assigned key is written into the second device's
+generated `tactical.json`, not merely counted in its badge.
+
+**Note:** `store.recomputeStatus` still computes `item.status` without the format fold, so a stored
+*invalid* value shows `decided` in the data tab while readiness (correctly) refuses it. Separate,
+pre-existing, and untouched here.
+
+### 2026-08-05 — Editing where you are reading, and applicability you can correct (EDIT-1 · DEV-1) — ✅ COMPLETE
+
+**EDIT-1 — a cell is the way into editing what it shows.** The prose a row carries (Description,
+Control Refs, the name of an authored action) was displayed in the table and edited in the row
+expander, and the only way in was the `▸` button at the far left of a table that can be 2000px wide.
+Nothing about a cell of text said it was editable at all. Now **Ctrl+click** (the gesture asked for)
+or **double-click** on a text cell opens that row with the matching field focused *and selected*, so
+you land in the box you were reading and can type straight over it. A plain click is deliberately
+untouched — selecting text still works, which matters when you are reading 400 rows.
+
+Which cell opens what is decided in one place (`tables.cellEditTarget`), not per column at the call
+site: Description → its textarea, Control Refs → the checklist's filter box, an authored action's
+name → the rename box. Cells that are *already* an editor (the value cell, the Status badge, the
+Relevance dropdown, the tick columns) are never hijacked — Ctrl+click on the value cell just puts
+the caret in it. A captured key opens the row and focuses nothing, because the key is evidence and
+there is nothing there to type over. The affordance is a hover outline rather than a permanent
+marker: nearly every text cell has it, so a badge on all of them would be noise.
+
+**DEV-1 — assigning register items to a device by hand.** Applicability was evidence and only
+evidence: a Packages/Tactical item applies to the devices whose capture contained the key, and a
+Custom Security Action applies to every device. That is right for what a capture *proves* and wrong
+for what an operator *knows* — a package can be worth deciding on a device that never reported it,
+and a hand-written action is not always wanted on every device in the fleet. There was no way to say
+either without editing the capture, which would have destroyed the evidence to record an opinion.
+
+So a DeviceConfig may now carry a **`scope`** adjustment per dataset — `{add, remove}` — folded in at
+`App.registry.applicableKeys`, the one choke point every consumer of "does this apply?" already goes
+through. Readiness, generation, overrides, the tables, the filters and the report all followed with
+no further edits; that is the payoff of the CUS-1 refactor that made the choke point exist. The
+snapshot is never touched.
+
+The UI is the **third bulk mode**, deliberately identical in shape to Apply Control Mode — pick a
+device in the tools rail, tick which rows apply to it — because there should be one gesture to learn,
+not two. Its column heading is the bulk action (`✓ Assign all N` / `✕ Remove all N`), planned by the
+same helper that labels it, as BULK-1/BULK-3. The three modes are mutually exclusive and each says
+which one to leave. A device with no capture for the register is listed but not selectable, with the
+reason on its card: a tick that could change nothing downstream is not offered.
+
+Three decisions worth recording:
+
+- **Canonical or absent.** An adjustment that merely restates the capture is not recorded, so a
+  tick-then-untick is byte-identical to never having ticked (DOD-7). Sorted lists, empties dropped.
+- **Un-assigning does not delete work.** The override prune deliberately judges against *capture ∪
+  add* and not minus `remove`, so taking an item off a device leaves its recorded device override
+  dormant rather than destroying it on the next load. A mis-click must not be able to eat a decision.
+- **Undo is universal here too.** `datasetSnapshot` carries the scopes, consecutive ticks fold into
+  one entry keyed by device (the run-folding was generalised from control-only to a `runKey`), and a
+  bulk heading click is one entry.
+
+**Verification.** 30 new self-tests (EDIT-1, DEV-1) → **523/523 pass**, headless (jsdom). Plus a
+25-check live-DOM pass driving the real mounted app: Ctrl+click focusing the right box and the edit
+reaching the register, double-click, plain-click doing nothing, the tick column's state, the
+in-place `Applies to` repaint, the heading flipping to its removing form, the bulk run, and three
+Undo steps unwinding to a project with no `scope` at all. No console errors. Two STAB-1 assertions
+were relaxed from `<td>` to `<td[^>]*>`: the Control Refs cell now carries EDIT-1's attributes, and
+the test's subject is the clamp inside it.
+
+**Not done, and deliberately:** the Devices tab does not yet *list* a device's manual adjustments
+(the data tabs' `Applies to` column and the mode are the surface), and the adjustments are not
+called out in the generated report.
+
+### 2026-08-04 — Firewall rules stop counting, and four smaller corrections (FW-1 · USB-1 · COL-2 · RPT-1 · PRO-3) — ✅ COMPLETE
+
+**FW-1 — a firewall rule list is one decision, not one per rule per field.** The tactical flattener
+walked an array of objects positionally, so two firewall rules became eighteen register keys —
+`firewallRules[0].addressType`, `firewallRules[0].direction`, … Three things were wrong with that,
+and the reported symptom (the rule count mattering) was the least of them:
+
+- the element's **index became its identity**, so inserting a rule at the top silently renamed every
+  rule after it, carrying the old decisions onto the wrong rules;
+- the **key set depended on the rule count**, so two devices captured with different rule counts had
+  different applicable keys and a decisions import between them was refused;
+- **no single field of a rule is a decision anyone makes.** You decide the rule *set*.
+
+So any array containing objects is now ONE leaf holding the whole list, typed `json` — and
+`firewallRules` is typed `json` even when empty, so a device with no rules edits the same shape as
+one with nine. Rebuild writes the list back wholesale, so the emitted Knox document is byte-identical
+to what was decided. `validateDecision` refuses a non-array on that key: a string there is not a
+small mistake, it is a firewall that does not load.
+
+Two follow-ons the change exposed. `App.valueFormats.inferId` had no case for a captured type of
+`json`, so it fell through to `string` — the cell would have offered a text box and stored the rule
+list back as a *string*, from an editor that looked fine. And the JSON editor was a one-row textarea;
+a nine-field rule object needs room, so it is now sized to its value and monospaced, like a string
+list.
+
+**Migration.** `completeSnapshot` grew a second direction. It used to only ADD keys a capture
+predates (`imsSettings`); its rule is now simply *the stored key list is what the parser produces
+from the retained template*, which adds and removes in one pass. It may return `{added, removed}` as
+well as the old plain array. A removed key that survives in no snapshot takes its register item with
+it — those rows are unreachable (not applicable anywhere, never generated, impossible to re-create)
+and would otherwise sit undecided for ever inflating every count. Loudly, with the keys named in the
+Activity drawer. Verified against the real reference capture: 0, 2 and 5 rules produce identical key
+sets, and a project rewritten to look like an old one migrates with 18 dead rows removed and the one
+new row seeded.
+
+**USB-1 — `usbInterfaces` is exhaustive.** Wherever the block appears, any of the nine host interface
+classes it omits is added as `false`: "absent" and "listed as false" are the same posture and must
+not be two different registers, and a half-written deny-list is silent in the dangerous direction. A
+document with **no** block is left alone — inventing a USB policy Knox never exported would be
+putting words in the device's mouth. (Say if that should also be filled in; it is a one-line change,
+but it is not mine to assume.)
+
+**COL-2 — column defaults.** Security Relevance and Diverges from Guidelines now start hidden: both
+are occasional, and shown by default they cost two columns of width on every row for a value that is
+usually empty. One tick in the Columns bar brings either back, and the picker reads "6 of 8 shown" so
+the choice is visible rather than a mystery. Diverges also moved to sit immediately BEFORE Status —
+it is an attribute of the decision, and Status is the verdict, which reads last.
+
+**RPT-1 — Control coverage lists controls only.** The section carried a `(no control)` row gathering
+every decided item that referenced nothing, which is by definition everything that did not change —
+it buried the controls the section exists to evidence. Gone. The standalone Control report keeps its
+explicit *Include items with no control* opt-in, which is off by default and is a different question.
+
+**PRO-3 — the running order stopped throwing the page to the top.** Reordering went through the
+ordinary store-change re-render, which rebuilds the page and puts the scroll offset back. Fine for a
+table cell, wrong for an editor near the bottom of a long tab: every drop bounced the view to the
+top, so re-sequencing twenty steps meant scrolling back down twenty times. The list is now its own
+host and repaints in place (same reasoning as STAB-3), for drag, ▲/▼, the include ticks and the step
+notes alike.
+
+**Verification.** 23 new self-tests across two suites (FW-1/USB-1, COL-2/RPT-1/PRO-3) → **493/493**,
+headless. Plus a 17-check live-DOM pass in jsdom: a data tab opening without the two columns and
+bringing them back on a tick, the firewall row rendering as a single JSON-edited row with all nine
+USB rows beside it, and a reorder proven to leave `#main`, the card and the list host as the *same
+DOM nodes* — which is what "the page does not move" actually means. Two existing tests were updated
+rather than weakened: the tactical flatten test now asserts the collapse it used to assert the
+absence of, and the column-order assertion follows COL-2.
+
+### 2026-08-04 — Knowledge, procedure and the order of the work (NOTE-1 · PRO-1/PRO-2 · CMF-1 · REL-1) — ✅ COMPLETE
+
+Five requests from the same session, four of them additive and one a rename.
+
+**NOTE-1 — General Platform Notes.** Everything in the tool was structured: a key, a value, a
+control, a status. That is right for the decisions and wrong for what surrounds them — "this
+firmware silently re-enables the package on reboot", "seal the tray before setting the passcode",
+"ask the vendor about X next time". None of it fitted anywhere, so it lived in a notebook and left
+with whoever wrote it.
+
+- A **Notes** button beside **View** on every row of the Devices tab opens a full page: the device's
+  facts at the top (model, firmware, version, onboarded, group, assigned controls, decided counts),
+  then an open rich-text box — bold, italics, underline, bulleted and numbered lists, headings.
+- Stored per device **baseId**, like a control's satisfaction state, so re-onboarding keeps them.
+  New top-level `deviceNotes` key; optional and additive, so no schemaVersion bump (as `controlTags`).
+- Rich text means storing HTML, so it is sanitised on the way in **and on the way out** — a project
+  file can be hand-edited between the two. `scrubNotes` parses through `DOMParser` (an inert
+  document, so an `<img onerror>` never starts a load), keeps an allowlist of structural tags,
+  unwraps anything else so the words survive, and strips **every** attribute.
+- Saves on a 700ms pause and again on blur, through `quietEdit` — a full re-render would replace the
+  element being typed into and take the caret with it.
+
+**PRO-1 — a Procedure box per manual action.** Custom Security Actions now carry `procedure`, an
+ordinary optional prose field, edited in the row's ▸ panel and carried into the runbook (indented
+under its action) and the report. It appears only for datasets declaring `hasProcedure` — a package
+removal's procedure *is* the generated adb line, and an empty box inviting someone to re-describe it
+would be noise.
+
+**PRO-2 — the Procedure report.** The other four outputs are organised by structure: by dataset, by
+control, by deviation. None answers the question someone standing in front of a device has, which is
+*what do I do first*. This one is organised by sequence:
+
+- A step is either a whole captured register (**Configure Packages**) or a single manual action —
+  and which one is decided by the **adapter** (`procedureStepPerItem`, `procedureStepLabel`,
+  `procedureStepIntent`), never by core. 400 packages as 400 steps would bury the six manual actions
+  that need their own place.
+- The order is set on the Generate tab by **dragging** a step or using ▲/▼, and is saved **in the
+  project** (`procedure.order`) rather than in session state — re-sequencing twenty steps every
+  session would make the feature not worth using. Steps can be unticked out of a given report, and
+  a register step takes a note of its own.
+- Ordering is **self-healing by construction**: the saved order is a *ranking*, not the list. A
+  deleted action ranks nothing; a new one falls to the end. So deleting an action can never
+  invalidate the project and no pruning pass is needed on load.
+
+**CMF-1 — Control Manager filters.** A filter row under the headings for **Type**, **Tags** and
+**Applies to**, the same shape and the same classes as the data tabs' FIL-1 row. `(untagged)` and
+`(unassigned)` are real answers. They compose with each other and with the search box, and because
+they run inside `shownControls` everything acting on "what is shown" — the device column headings,
+**Tag all N shown** — honours them for free. Matched on the **baseId** a control stores, not the
+device name the cell renders, so renaming a device cannot orphan a filter.
+
+**REL-1 — Security Relevance "Context" becomes "Low".** The vocabulary is closed, so this could not
+be a simple edit: every project already saved carries the old word, and an unknown value is a hard
+schema error — every existing project would have refused to open. So it is a load-time
+**translation** (`renameLegacyRelevance`, run beside `dropRetiredDatasets` and before the schema
+check), reported as a warning rather than done silently, and applied to CSV decision imports too. The
+badge keeps its blue; `rel-context` became `rel-low`; the severity sort is unchanged in meaning.
+
+**Verification.** 30 new self-tests across four suites (REL-1, NOTE-1, PRO-1/PRO-2, CMF-1) →
+**470/470**, headless. Plus a 23-check live-DOM pass in jsdom driving the real wiring: mounting the
+app, opening the Notes page, typing into the contenteditable and confirming it saved sanitised
+*without* re-rendering under the caret, filtering the Control Manager and clearing it, moving a
+procedure step and confirming the new order reached the project file, and typing a Procedure into a
+Custom Security Action's expander.
+
+One existing test needed amending, not weakening: the v2.0 guard asserting the manual never says
+"Settings" now also excludes the literal "Tactical Settings" (the PRO-2 step label), the same way it
+already excluded the `imsSettings` tactical leaf. Neither is the retired Settings *dataset*, which is
+what that guard is about.
+
+**Still manual:** open the file in Chrome/Edge/Firefox (DOD-1) and a generated `report.html` in Word
+(DOD-8) — and, new here, confirm the rich-text toolbar in a real browser: `document.execCommand` is
+the only way to drive a contenteditable offline, and jsdom does not implement it (the click path is
+proven not to throw, but the formatting itself is unproven headlessly).
+
+### 2026-08-03 — Implementation scripts converge and grade themselves (IMPL-1..IMPL-4) — ✅ COMPLETE
+
+**Problem (found reviewing the impl side after the verification work).** Three faults, one of them
+severe:
+
+1. **A totally failed run exited 0.** Proven by running the generated `packages.impl.ps1` against a
+   mock `adb` where every command fails: two lines of noise scrolled past and the script reported
+   success. `$ErrorActionPreference = "Stop"` does **not** trap native-command exit codes — that is
+   a PowerShell rule, it governs cmdlet errors only. On a real hardening run "it completed" and "it
+   did nothing" were indistinguishable.
+2. **The script asserted a property it did not have.** Its header read `# Idempotent: each action
+   guards on current package state.` while `Test-PackagePresent` returned `$true` unconditionally.
+3. **`keep` could not converge.** It emitted a comment only, and no `pm enable` existed anywhere in
+   the codebase, so implementation was one-directional — it could strip a device, never restore it.
+
+**Built.**
+- **Real state read.** `Apply-Package` reuses the inventory built for verification. Idempotency is
+  now an actual skip (item already in its decided state ⇒ **no device command**), not a fake guard.
+  `Test-PackagePresent` is deleted, and the false header claim with it.
+- **`keep` converges** (approved behaviour change, spec §10.1 + Appendix B updated): disabled ⇒
+  `pm enable --user 0`; uninstalled-for-user ⇒ `pm install-existing --user 0` then enable, since
+  install-existing can restore a package disabled. Absent from the build ⇒ cannot be restored,
+  reported MISSING so the operator is told.
+- **Failures are detected**, by exit code *and* output text — adb does not reliably propagate the
+  remote code on older hosts, so `Failure|Error|Exception|not installed|denied` in the output counts
+  as failure too.
+- **Verdicts describe the device, not the command.** The inventory is refreshed after the run and
+  every item graded APPLIED / ALREADY / FAILED / MISSING / REVIEW. This is what catches a pm command
+  that prints `Success` and changes nothing.
+- **REVIEW** is a deliberate non-action: a device found *more* restricted than decided (a `disable`
+  item already uninstalled) is reported, not "fixed", because restoring it would exceed the decision.
+- **Summary matches the verification layout** exactly — counts, `N1` percentages, `--- FAILURES /
+  MISSING / NEEDS REVIEW ---` detail blocks with reasons, `RESULT:` line. Plus `Changes attempted`.
+  **Exit 0** = every decision met; **1** = at least one FAILED.
+
+**Verification.** Built a **stateful** mock `adb` (real state file, genuinely mutated by
+enable/disable-user/uninstall/install-existing) and ran the generated script under PowerShell 7.4.6
+over a 12-item fixture covering every action × state, including a `.protected` package that rejects
+writes and a `.silent` one that reports `Success` and changes nothing. All 12 verdicts correct:
+4 APPLIED / 3 ALREADY / 3 FAILED / 1 MISSING / 1 REVIEW, exit 1. The silent no-op was correctly
+graded FAILED — **only** the post-run re-read catches that class.
+- **Idempotency proven by re-run:** changes attempted fell 7 → 3 (only the genuinely-failing
+  packages retried), 7 ALREADY, 0 APPLIED, exit still 1.
+- **Cross-checked against verification** on the same device and decisions: impl 7 ALREADY = ver
+  7 PASS; impl 3 FAILED + 1 REVIEW = ver 4 FAIL; MISSING 1 = MISSING 1. The two commands agree, and
+  the REVIEW/FAIL split is intended — verification grades strictly against the decision, while
+  implementation declines to act beyond it.
+
+**Result:** 4 new self-tests (IMPL-1..IMPL-4), VER-4 rewritten, and 6 assertions across the
+injection-safety, T10.4 override and HELD-1 suites updated to the new emitted form (`Apply-Package
+'<pkg>' '<action>'`) — the pm commands live in the preamble helper now, so those tests had to move
+to the call site. **440/440**, headless. Item 5 from the review (tactical `template || {}` emitting
+`{}` when a snapshot is missing) was explicitly deferred by the user and is NOT addressed.
+
+### 2026-08-03 — Package verification actually verifies (VER-1..VER-4) — ✅ COMPLETE
+
+**Problem.** `Verify-Package` in the Android preamble was a stub — `Write-Output "CHECK package
+$pkg expect $action"`. It never called adb, never compared anything, and never emitted a verdict.
+`packages.verify.ps1` was therefore a checklist, not a verification, and spec §10.2 / Appendix B
+(`pm list packages -d`/`-e` read-back → PASS/FAIL/MISSING) was unimplemented. Consequence:
+**S-2 of `validation-testing-plan.md` was unsatisfiable by running the bundle** — Phase 2 would
+have fallen back entirely to the CSV scaffold plus Analyst C's manual spot-check.
+
+**Built.**
+- **Real read-back.** The device is queried **once, lazily**, on the first `Verify-Package` call:
+  three `pm list packages` reads (`--user 0`, `-d --user 0`, `-u --user 0`) build a hashtable
+  inventory; every item is then an O(1) lookup. An implementation script makes no `Verify-Package`
+  call, so it never pays the cost. Four device states are distinguished: `enabled`, `disabled`,
+  `uninstalled-for-user`, `absent`.
+- **Verdicts.** All 12 (action × state) combinations are graded. Notably `remove` +
+  `uninstalled-for-user` is a **PASS** — that is exactly what `pm uninstall --user 0` leaves behind
+  on a system package — and `absent` for `keep`/`disable` is **MISSING**, not FAIL.
+- **Summary.** End-of-run tally: count and percentage for PASS / FAIL / MISSING, then every
+  difference listed with expected, actual, and a **reason** (over-applied, under-applied, reverted
+  by reboot/OTA/MDM, not in this build), including the remediating adb command where one exists.
+- **Exit semantics** (spec §10.2, previously unspecified): `0` = no FAIL, `1` = at least one FAIL.
+  MISSING does not fail the run. Documented in the emitted script header.
+- **False-all-clear guard.** If adb answers but `pm` lists zero packages (locked / unauthorised
+  device), the script **throws** rather than scoring every `remove` as PASS.
+
+**Defects found in review (both FIXED before ship):**
+- **D-010 stream pollution.** `Get-PackageState` called `Initialize-PackageInventory`, whose
+  `Write-Output` progress lines joined its success stream — the first item's state came back as
+  `System.Object[]`, not a string. It graded correctly only by accident (`-eq` against an array
+  filters rather than compares). Fixed: `Verify-Package` initialises; `Get-PackageState` is a pure
+  lookup that throws if used uninitialised. Locked by VER-3.
+- **D-011.** A `""` sequence inside a JS double-quoted preamble line terminated the string early —
+  caught immediately by the suite (324 failures), fixed before any further work.
+
+**Verification.** Rebuilt the headless Node/jsdom runner (`scratchpad/run-selftests.js`, lost with
+an old scratchpad). Beyond the embedded suite, the **generated script was executed for real** under
+PowerShell 7.4.6 against a mock `adb` serving a fixture that covers all 12 combinations:
+all 12 verdicts correct, summary counts 4 PASS / 6 FAIL / 2 MISSING with correct percentages,
+exit 1. Also confirmed: all-correct fixture → exit 0; implementation script under the shared
+postamble → no summary, exit 0; empty inventory → guard throws, exit 1.
+
+**Result:** 4 new self-tests (VER-1..VER-4) → **436/436**, headless. `Test-PackagePresent` is
+**still a v1 placeholder** returning `$true` — deliberately out of scope here, since changing it
+alters implementation-script behaviour. It is the obvious next candidate now the inventory exists.
 
 ### 2026-06-30 — Phase 9 (v1.1): dark mode · set-from-files · Control Manager — ✅ COMPLETE
 
@@ -847,6 +1671,389 @@ enable_sa, disable."*, and survives save/load with its option descriptions intac
 
 **Defects:** 2 found during build (numeric leaves inferring as text; override editors inferring from
 the empty override value instead of the capture), both FIXED before commit.
+
+---
+
+### 2026-07-29 — CUS-1…CUS-4: Custom Security Actions, a register you write rather than capture — ✅ COMPLETE
+
+**The ask.** A tab after Packages and Tactical for the security actions that fit in neither —
+implementing a Knox tactical passcode was the example given. Name it, describe it, write the action
+as free text, keep rationale and rollback in the row's dropdown, keep every universal aspect
+(Control Refs, Applies To, Status, Diverges from Guidelines, …), work it into report generation,
+and give it exactly the same tools panel as the Packages page.
+
+**The one genuinely new idea: applicability without a snapshot.** Everywhere in this tool,
+"applicable to this device" has meant `key ∈ dc.snapshots[dsId].keys`. A custom action has no
+capture and therefore no snapshot, so that question needed a different — but equally definite —
+answer: an action you wrote by hand applies to **every** device in the project. The temptation was
+to synthesise a fake snapshot per device and keep the existing code untouched; that was rejected.
+It would have meant fabricating evidence (a `sha256` of nothing), and a maintenance invariant that
+breaks silently — Delete-Mode's undo restores the items array but could not restore the snapshots,
+so an undone deletion would leave rows that exist in the register and are applicable to nobody,
+i.e. invisible in every report. Instead the rule itself was named: `App.registry.applicableKeys` /
+`applicableKeySet` / `deviceHasDataset`, one place, asked by all nine consumers (Applies-to,
+readiness, generation, overrides, `selfHealV3` pruning, the device panels, the store's applicable
+set, the group union, the filter vocabularies). A null-check repeated at eight call sites is a rule
+that will be forgotten at the ninth.
+
+**What the tab is.** `android.custom`, registered after the two captured datasets, declaring
+`virtual: true` (no Onboard slot, no snapshot), `userCreatable: true` (an add bar above the table)
+and `noValueFormats: true` (the Action box stays a plain textbox — this dataset exists for what
+nobody could enumerate in advance, so offering to constrain it to "Boolean" would defeat it).
+Everything else came for free from the data-driven core, which is the point: the columns, the
+filters, the column picker, the tools rail, Apply Control Mode, Delete Mode, Undo/Redo, CSV export,
+the device panels, the per-device override editor, Control coverage and the control report all
+reached the new dataset with **no edit of their own**. That is DOD-11, re-proved.
+
+**Decisions worth recording:**
+- **The name is the key.** It identifies the row in the overrides, the manifest and the report,
+  exactly as a package name does — so renaming is a real operation, not a field edit.
+  `store.renameItem` moves the item *and* every device and group override keyed by the old name;
+  without that the rename orphans them and the next load prunes them as "not applicable", taking a
+  real per-device decision with it. A captured row gets **no** rename box at all rather than a
+  disabled one — its key is evidence, not something locked for now.
+- **An empty Action is not a decision.** A blank Tactical value is a real value to push ("set this
+  key to blank", review-16 #1); there is no step in "do nothing", so a blank action keeps the row
+  undecided with a located reason. The value is still stored (DOD-10) — it just does not count.
+- **The add bar is above the table, not in the rail.** The ask was for the tools panel to be
+  *exactly* the same as Packages, and it is; creating a row is something you do to this table, not
+  a mode you enter, so it does not belong in the bulk-edit surface.
+- **What is generated is a runbook, not a script.** `custom-actions.txt` (name, description, the
+  step, rationale, rollback, controls, any divergence) and `custom-actions.verify.txt`
+  (`EVIDENCED` per action). Neither carries the platform `scriptExtension`, so neither is wrapped
+  in the ADB preamble — the tool cannot know how to perform an action it did not define, and
+  pretending otherwise is worse than saying so.
+- **With no custom actions, neither file is emitted.** Packages and Tactical always emit theirs
+  because a device always has packages and a tactical document; an empty runbook in the ZIP reads
+  as a step someone forgot to write rather than a step that does not exist.
+- **Rollback is a report column here and nowhere else.** A manual action is the one kind whose undo
+  nobody can reconstruct from the tool.
+- **One label everywhere.** The tab, the Generate section tick, the report `<h2>` and the readiness
+  message all read *Custom Security Actions* — a tick named one thing producing a heading named
+  another is a mismatch you meet exactly when deciding whether to include the section.
+
+**Compatibility.** A project saved before the tab existed has no `items["android.custom"]`. Reads
+tolerated that; the mutation paths did not, so the tab would have appeared and then refused the
+first edit made in it. `selfHealV3` now seeds an empty register for every dataset the platform
+declares — the same pre-seeding `store.empty()` already does, not a warning-worthy repair. Onboard
+excludes virtual datasets from the identity check and the override carry-forward, so a re-capture
+of identical files is still a no-op and a genuine re-capture keeps custom overrides.
+
+**Verification.** 17 new self-tests (CUS-1/CUS-2 suite) → **426/426 pass**, headlessly and in-page.
+Covered: registration order and virtuality; no Onboard slot; add/trim/duplicate/blank refusals; a
+captured dataset refusing hand-added items; applies-to across two devices; blank action ≠ decided;
+an undecided action blocking generation; the rail being the same control set as Packages plus the
+add bar; every universal column and the rationale/rollback/control-ref boxes in the expander; no
+format picker; no rename box on a captured row; rename carrying decision + device + group
+overrides; unwrapped runbook and verify note; no file when there is nothing to do; the report
+section, its droppable columns, its omittable section, Control coverage, the control report and the
+manifest decision snapshot; a byte-stable round-trip with a device override; the re-onboard no-op
+and carry-forward; and an older project opening and being immediately editable. Also a new Help
+section ("Custom actions") with the same worked example.
+
+**Defects:** none found.
+
+---
+
+### 2026-07-29 — CMD-1 + COL-1 + DIV-1/2/3: readable device names, hidable columns, recorded divergence — ✅ COMPLETE
+
+Three asks from use, in the order they were reported.
+
+**CMD-1 — the Control Manager's "Applies to" names read one character per row.** `.detail-form`
+sets `input { width: 100% }` for its text boxes, and that also matched the device **checkboxes** in
+the row expander. A checkbox stretched to 100% of its own inline-flex label leaves the label's text
+no width at all, so the name wrapped at every character: `TA5` came out as a three-row column of
+letters. Precisely the failure the control multiselect had already been fixed for (review-9 #2), in
+a place nobody re-checked. The options now carry a real class (`.ctl-dev-opt`) with the box pinned
+to its natural size and the name on one line, flowing across and wrapping — the layout has to live
+in the stylesheet, because an inline style on the *label* cannot beat a rule that targets the
+*input*. Measured in a real browser: the `TA5` option is now **41 × 21px** with its text 22 × 17px,
+i.e. one line.
+
+**COL-1 — every column is hidable except the key.** A **Columns** bar above each data table: one
+tick per column plus All / None. Unticking removes the column from the **heading, the filter row
+and every cell** — the three used to be built by three different bits of code appending in the same
+order, which is why they were merged into one visible-column list that all three now walk. The one
+column not offered is the dataset's **first** (Package on Packages, Path on Tactical): it is the
+row's identity and what the generated output acts on, so it appears as a "always shown" chip rather
+than a box you may not untick. It is read off `adapter.columns[0]`, so a new dataset locks its own
+key column with no core edit, and an explicit `hiddenCols.key` is refused rather than obeyed.
+
+Hiding a column also **clears that column's filter**: FIL-1's whole promise is that the table is
+never mysteriously short, and a filter whose dropdown has just been hidden is exactly that. The
+choice is per dataset, session-only, and never written to the project — but **Export CSV follows
+it**, because that export already promises the same columns, filters and order as the table.
+Ticking a box does *not* rebuild the bar (that would take focus off the box you just clicked, and
+hiding three columns is three clicks in a row): only the table and the bar's count repaint.
+
+**DIV-1/2/3 — divergence from the guidelines is recorded, not implied.** A new core column,
+**Diverges from Guidelines**, on every dataset (it is a property of a decision, not of a dataset —
+the same reason Security Relevance lives there). Ticking it makes a **Divergence Narrative** box
+appear in that row's expander, prompting for the three things that matter: how it departs, *which*
+guideline it departs from, and why. The box exists **only** while the flag is set; an absent box is
+what "does not diverge" looks like.
+
+A flag with nothing behind it is a gap, not a record, so the cell is tinted and its hover says so —
+the same treatment JUS-3 gives a control satisfied without a justification. A ticked cell's hover
+carries the narrative, so the reasoning is readable without opening the row. **Unticking does not
+delete what was written**: losing a paragraph to a mis-click is far worse than carrying a few unused
+characters, and re-ticking brings it straight back; emptying the box is the erasure. On disk,
+`diverges` is only ever `true` when present (no `false`, as with HELD-1's `held`), `divergenceNarrative`
+is an ordinary optional string, and a `false` is refused on load.
+
+The tick is a **quiet edit** (STAB-3): it repaints exactly the cell's hover/tint and the one open
+detail row, addressed by a new `data-detail-key`. Re-rendering the table would have replaced the
+checkbox under the pointer. Verified in a real browser: ticking a box in an expanded row moves the
+row **0px** and the narrative box appears.
+
+**Scope, as asked:** divergence is recorded and shown, and goes into **no** generated artefact yet —
+not the report, not the control report, not the CSV. A self-test asserts that boundary by putting a
+marker string in a narrative and proving it appears in none of the four generators, so "not yet" is
+enforced rather than remembered. The Help manual documents the boundary explicitly.
+
+**Help:** the Columns table gains the new column, a *Recording a divergence* section explains the
+three-part narrative and the keep-on-untick rule, *Finding things* documents the column picker
+(including why the key column cannot be hidden and that hiding clears the filter), the glossary
+gains **Divergence**, and *If something looks wrong* gains "a column vanished".
+
+**Tests:** +23 across three new suites (`CMD-1`, `COL-1`, `DIV-1/DIV-2`) — the classed label and the
+two CSS rules that make it read horizontally, including an assertion on the `width:100%` rule that
+*caused* the bug so the override cannot be tidied away; the locked key column of both datasets;
+every other column hidable; hide-the-key refused; a hidden column leaving header, filter row and
+cells together with a header/cell count check; the expander's colspan following the visible set; the
+picker's boxes, chip, All/None and count; hiding clearing the filter; visibility never reaching the
+project file; the Diverges column on both datasets; the tick reflecting the item; the
+missing-narrative flag appearing and clearing; the narrative box existing only when flagged;
+unticking keeping the text and emptying unsetting it; the canonical no-`false` form; a
+byte-identical round-trip; `diverges:false` and a non-string narrative refused; an older project
+loading untouched; `detailRowHtml` addressing one row; nothing leaking into generation; and the Help
+coverage. **409/409 pass**, headless Chrome from `file://`, no console errors.
+
+**Verified in a real browser** (CDP, three devices incl. `TA5` and a long name): the expander's
+device names read across; unticking **Security Relevance** removes its heading, its cells and its
+active `HIGH` filter in one go and the count reads *7 of 8 shown*; **None** leaves exactly `Path` on
+Tactical and **All** restores all eight; ticking Diverges on an expanded row produces the narrative
+box, tints the cell, stores `diverges: true` and moves the row 0px.
+
+**Defects:** none found in this change.
+
+---
+
+### 2026-08-03 — UNDO-1/2/3: the Undo button becomes what its label already claimed — ✅ COMPLETE
+
+**Reported:** *"I want an undo button that undoes whatever the last action was in any of the table
+tabs. We currently have one only for the apply control and delete modes. If I set a decision to
+remove on the Packages tab, I want to press undo and have it revert."*
+
+**The problem was scope, not the mechanism.** Undo shipped attached to Delete Mode and Apply Control
+Mode and never grew past them, so the button sat in every data tab's toolbar wearing a general label
+over a specialist tool. The commonest edit in the whole tool — set a package to `remove`, change
+your mind — had nothing to press, while a bulk apply did. Nobody can be expected to carry a mental
+list of which edits are recoverable, and the one time it matters is the one time they will be wrong
+about it.
+
+**Built:**
+- **`withUndo(dsId, label, fn)`** — one wrapper that owns the pre-change snapshot, and the *only*
+  route a mutating handler takes. Making it structural was the point: the way to write a new handler
+  that forgets to be undoable is now to write one that does not go through the wrapper at all,
+  rather than one that forgot a `pushUndo` line.
+- **Every data-tab mutation now runs inside it** — a decision, a return to undecided, a Status flip
+  in either direction (adopt / hold / release), Security Relevance, Diverges, the divergence
+  narrative, Description, Rationale, Rollback, a control-ref tick, the per-item value format, a
+  rename, an add, a delete run, a per-row control tick and a bulk apply-to-all-shown.
+- **One action is one click, whatever it touched.** The snapshot is of the whole dataset, so
+  "however many rows" costs the wrapper nothing to support: applying a control to ten shown rows is
+  one entry and one Undo restores all ten, and so is a Delete-Mode run over ten ticked rows.
+  Consecutive Apply-Control-Mode ticks of the same control still fold into one entry (review-13 #2),
+  and that run is now closed by any other edit as well.
+- **No-ops never reach the stack.** The wrapper compares the dataset before and after and discards
+  its own entry if they are byte-identical — a rejected rename, a re-picked enum, a blur that
+  re-committed the value already in force. An Undo click that visibly does nothing is worse than a
+  greyed-out button. Discarding also puts back the redo branch `pushUndo` had cleared, since a no-op
+  is not a new action and must not strand a redo.
+- **Quiet-edit paths re-sync the button by hand.** Ticking Diverges, clearing a decision, flipping
+  Status and committing a cell all deliberately re-render only the table (STAB-3 keeps the element
+  under the pointer still), and the toolbar the Undo button lives in is *not* inside that region —
+  so each of those calls `refreshUndoButton` explicitly. This is exactly the bug that would have
+  shipped as "Undo works but the button stays grey until you touch something else".
+- **Wording** — the greyed-out tooltip no longer claims Undo is only for the two bulk modes, the
+  Help manual entry lists what is covered and states the 20-step cap and the per-table scope, and
+  the troubleshooting entry now says plainly that Control Manager / Devices / Onboard are *not*
+  covered rather than leaving that to be discovered.
+
+**Cost, measured rather than assumed:** two dataset clones and two stringifies per edit — ~6ms on
+top of an ~8ms store commit for a **1500-package** dataset, and ~6MB for a full 20-deep history.
+Both sit well inside what a click absorbs, which is why the no-op check runs unconditionally.
+
+**Tests:** 6 new self-tests (`UNDO-1 universal undo`) covering an ordinary decision, a mixed
+sequence stepping back newest-first one click at a time, a many-row action costing one entry, a
+no-op pushing nothing and preserving the redo branch, an ordinary edit closing an open apply run,
+and the 20-entry cap plus per-dataset isolation. All 6 pass, taking the suite to **432**; a headless
+run reads **431/432** because SP-4's scroll round-trip needs real layout, which jsdom does not
+implement — that one is unrelated to this change and passes in Chrome.
+
+**Verified by driving the real DOM** (not just the wrapper): decision select → Undo reverts;
+`✓ Apply all 3` → one Undo clears all three and the button greys out; rationale box in the expander
+→ Undo reverts; Status badge both directions; Security Relevance; the Diverges checkbox (the quiet
+path); a two-row Delete-Mode run restored by one click; and adding then undoing a Custom Security
+Action. Tooltips read back correctly throughout (*Undo the decision change on "com.a"*).
+
+**Not in scope:** Control Manager, Devices and Onboard keep no history — the buttons live in the
+data tabs' toolbars and their snapshots are dataset-scoped. Said so in Help rather than implying
+otherwise.
+
+**Defects:** none found in this change.
+
+---
+
+### 2026-07-28 — FIL-2 + REV-2 + CTLM-1: filter by control, and two read-first fixes — ✅ COMPLETE
+
+Three more reported from use.
+
+**FIL-2 — filter the register by Control Refs.** The column filters (FIL-1) now cover **Control
+Refs**, so "show me every action assigned to this control" is answered in the register itself
+rather than by counting rows in the Control Manager — which is how a control's coverage actually
+gets reviewed, next to the decisions that implement it. The options list the project's controls by
+**title** (what the cell renders) but carry the control **id** as the value (what the item stores),
+so renaming a control cannot orphan the filter. Every control is offered, not just the ones already
+used in that dataset — "nothing here is assigned to it" is a useful answer — and **(none assigned)**
+gives the gap list. Dataset-agnostic like the rest, and it composes with search, Action, Applies to,
+Status and the parked toggles.
+
+**CTLM-1 — the control modal's Packages panel was hidden behind Tactical.** The two panels sit in
+a grid, and a grid item's `min-width` is `auto`, i.e. its **min-content** width — a package key is
+one long unbreakable token, so the track could not shrink and the panel ran out under its
+neighbour, hiding the list the modal exists to show. `min-width: 0` on the panels lets the track
+shrink; the table is `table-layout: fixed` with wrapping cells so a long key wraps rather than
+overflowing. The lists are now **Key and Decision only**: Status was redundant here anyway, since
+an undecided item shows an empty Decision.
+
+**REV-2 — the justification no longer sits beside the control button.** It is free prose in a flex
+row, so the button lost width in proportion to how much had been written: no two rows lined up, and
+the target got smaller the more you justified. The row keeps the state badge and the
+**no justification** flag (a warning about something *missing*, not content), and the freed space
+goes **back to the button** rather than being reserved — a fixed-width holder would have made every
+button equal by making them all narrower, which is the opposite of the ask. The text is one click
+away, with the evidence, where JUS-2 puts it.
+
+**Tests:** +6 (the Control Refs filter's vocabulary/id-valued options, the filter itself including
+`(none assigned)`, composition with the other filters and the search, the rendered select; the
+modal's two-column list with no status badges; and the summary row proving the justification text
+is absent from the row and still present in the modal). **386/386 pass**, headless Chrome from
+`file://`, no console errors.
+
+**Verified in a real browser** against the reference captures: filtering Packages by *No Bluetooth*
+narrows 438 → the 3 bluetooth packages; the modal's Packages table now ends inside its own panel
+(743px vs the panel's 744px right edge) instead of running under Tactical; and the control rows
+carry no justification text, with the button ~100px wider than the peek used to leave it.
+
+**Defects:** 3, all user-reported, all FIXED.
+
+---
+
+### 2026-07-28 — BULK-3 + SP-7: the tick column heading IS the bulk apply; a re-render keeps both scroll offsets — ✅ COMPLETE
+
+Two more reported from use, both in Packages → Apply Control Mode.
+
+**BULK-3 — the bulk apply moved onto the ✓ Apply column heading.** The tools rail carried an
+**Apply to all N shown** button; the column it filled sat on the other side of the table. Clicking
+the **heading of the tick column itself** now does that job: it reads **✓ Apply all N** (or
+**✕ Remove all N**, in the danger style, when every shown row already carries the control — the
+RV9-1 toggle is unchanged), and one click acts on exactly what the table is showing. Nothing about
+the *plan* changed: the heading and the click handler both call `applyAllShownPlan`, so the count
+promised and the set acted on still cannot drift.
+
+Moving it into the table fixed a staleness bug on the way. The toolbar is deliberately **not**
+re-rendered while you type in the search box (that would steal focus), so the old rail button went
+on offering "Apply to all 438 shown" after a search had narrowed the table to three. The heading is
+part of the table, so it is re-rendered with the rows it counts. The rail keeps the explanation — a
+clickable column heading is not self-evident — but carries **no number**, so there is nothing left
+to go stale. The heading is emitted by one shared `applyHeadButton`, because a row tick suppresses
+the full re-render to keep the page still: the tick handler repaints just that one `<th>`, so
+ticking three rows by hand flips the heading to **✕ Remove all 3** instead of leaving it promising
+an Apply that would in fact remove. The `apply-col` column is widened to 132px to hold the label.
+
+**SP-7 — a re-render put the view back vertically only.** SP-6 made `.main` scroll **sideways** as
+well as down, and the columns you reach by scrolling right are the ones you act on: Status, and the
+tick column itself. `captureScroll`/`restoreScroll` only ever knew about `scrollTop`, so every edit
+that goes through the store — changing a package action from `keep` to `remove`, flipping a status
+badge, setting relevance — snapped the view back to the left-hand edge: you scroll right to set an
+action, and setting it throws the column away. Both offsets are now captured and restored, and the
+STAB-2 anchor correction applies on both axes. The offset is also written *after* a forced measure,
+since after a full `render()` `#main` is a brand-new element whose content has not been laid out.
+
+**Tests:** +3 and 4 amended (the heading label/count and its Remove flip, the shared-unit invariant
+that stops the in-place refresh drifting, the rail no longer duplicating the button, and a **real
+DOM** SP-7 round-trip: scroll a live scrollport both ways, replace the element as `render()` does,
+restore, assert both offsets — the same reason the SP-4 suite asserts CSS invariants, since no
+render-to-string test can see a layout behaviour). **380/380 pass** (86 suites), headless Chrome
+from `file://`, no console errors.
+
+**Verified in a real browser** against the reference captures (438 packages, tools rail open):
+clicking the heading tags all 438 / all 3 under a `bluetooth` search and flips to Remove; Undo
+takes one click to reverse the whole run; and scroll position (top **and** left) is held exactly
+across decision edits, status flips, relevance edits and row ticks.
+
+**Defects:** 2, both user-reported, both FIXED.
+
+---
+
+### 2026-07-28 — REV-1 + SP-6 + STAB-3 + TAG-4: four user-reported UI defects — ✅ COMPLETE
+
+Four things reported from use, all in the Devices → Controls list and the Control Manager.
+
+**REV-1 — one button too many.** The per-device control row carried both the control button and
+a **Review…** button beside it, going to exactly the same place. The control button was always
+the larger, more obvious target and it reads better ("click the control to open the control"), so
+**Review…** is gone. JUS-2's contract is untouched — the state toggle and the justification box
+still live in the pop-up, and the row still shows the badge and the one-line justification peek.
+The JUS-2 test now asserts the row routes into the modal *via the control button* and that the
+second button is not there to come back.
+
+**SP-6 — the rail stuck to the right of the *table*, not the right of the *screen*.** With a few
+device columns the Control Manager table is wider than the viewport, so `.main` scrolls sideways
+— and the rail went with it. `position:sticky` was never the problem; its **containing block**
+was. A block-level flex container is only ever as wide as *its* containing block, so the wide
+table overflowed `.table-wrap` and the rail sat outside it — and sticky cannot move a box beyond
+its containing block, which left `right:` nothing to bite on. Sizing `.table-wrap` to
+`width: max-content` makes it span the whole scrollable width (both tables are `table-layout:
+fixed` with explicit column widths, so that width is the sum of the columns, not a text-driven
+blow-out), `min-width: 100%` keeps it full-width when the table is narrower than the screen, and
+`right: var(--sp-4)` — `.main`'s own padding — pins the rail so it lines up exactly with where it
+comes to rest at the end of the scroll, rather than stepping sideways at the end of the range.
+Pinned in the SP-4 CSS-invariant suite alongside the other four properties this behaviour rests
+on, for the same reason: sticky fails **silently**.
+
+**STAB-3 — the page still moved when ticking a Control Manager checkbox.** STAB-1/2 fixed the
+*content* (rows no longer change height, and the anchor corrects for what does), but the
+Control Manager's two checkbox handlers still went through `store.onChange`, which re-renders the
+**whole shell and tab**. Scroll offsets are put back afterwards — but only after the browser has
+already painted the rebuilt page from the top, and the checkbox the pointer was over is by then a
+different element. The data tabs already had the answer (`_suppressRender`, used by Apply Control
+Mode); it is now a first-class `ctx.quietEdit` on the shared controller context, and the device
+and tag handlers use it and repaint only what their tick changed:
+
+- the row's **Tags** and **Applies to** cells (rows carry a `data-ctl-row` handle for this),
+- the mirrored device box in the row's dropdown, so both views of one assignment agree,
+- the device **column heading** (its assign/remove state reads off the shown set),
+- and the rail, whose tag counts and *Tag all N shown* button read the whole table.
+
+Verified headlessly by ticking through a mounted app and checking **node identity**: the `<tr>`
+before the tick is the same object after it, so there is nothing for the page to move. The
+unsaved marker, which is part of the shell we decline to re-render, is nudged by hand — the draft
+autosave was never affected (it runs outside the render branch).
+
+**TAG-4 — the tag badges were clipped along the bottom.** A badge is an `inline-block` carrying
+1px of padding *and* a 1px border, so it stands ~4px taller than the text line the shared
+`.cell-clamp` height (`1.45em`) was sized for; `overflow:hidden` then cut its bottom border off.
+The Tags cell gets its own clamp height, still **fixed** so STAB-1 holds — the row height stays
+independent of how many tags a control carries — just tall enough to hold a whole badge.
+
+**Tests:** +5 (Tags-clamp height with the badge arithmetic spelled out, the `data-ctl-row` handle
+the surgical repaint addresses rows by, the `quietEdit` hook, and two SP-6 CSS invariants), plus
+the amended JUS-2 assertion. **377/377 pass** (86 suites), headless with no console errors.
+
+**Defects:** 4, all user-reported, all FIXED.
 
 ---
 
