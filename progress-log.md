@@ -42,6 +42,56 @@ checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and r
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
 
+### 2026-08-11 — v2.4d the width model learns typography; three preview fidelity fixes — ✅ COMPLETE
+
+**Reported:** escapes showing in the preview's heading rail (`\&` for `&`); firewall rules running
+together instead of one per line; the preview's header shading dark even with no shade set; and text
+wrapping "a bit off — it goes into the next column a bit before wrapping around".
+
+**AUTO-2: the columns are measured in ems now, not in characters.** The wrapping report was the
+interesting one. A column got a share of the page proportional to its CHARACTER count and then spent
+that share in POINTS — and a character is not a fixed number of points. `i` is a third of `m`; a
+monospace package name costs more than prose; bold costs 15% more again. In a register table (one
+`\texttt` key column beside four of prose) the rate that fell out was well under what prose needed,
+so everything was squeezed. Prose absorbed it by wrapping; a single unbreakable word could not, and
+pushed into the next column. That was the symptom exactly.
+
+The em figures are **measured**, not guessed — `\savebox`/`\the\wd` over representative strings in
+Latin Modern at 11pt. The first cut of the model had bold at 1.06 and monospace at 0.6 and made the
+overflow *worse*; the measurement says 1.15 and 0.53. The budget is the page in ems less the
+inter-column padding pandoc writes the fractions against (`\columnwidth - 2(n-1)\tabcolsep`), which
+is not the columns' to share.
+
+Three claims are settled in order of how badly they fail: **hard floors** (a word with nothing to
+break it — met first, always), **soft floors** (an identifier `\seqsplit` can break on the page but
+which should not be minced six characters to a line), then **appetite**. Two earlier attempts are
+recorded in the code because both were wrong in instructive ways: excluding code spans from the
+floor entirely starved the key column to 7% and stacked it into unreadable chunks, and taking the
+larger of the source and page floors per column let the SOURCE floor set the page FRACTION — which
+is what had been squeezing the prose headings all along. The resolution is that ems decide the
+proportions and the whole table is scaled up uniformly until the widest source floor fits, so both
+hold at once and neither distorts the other.
+
+**Result, measured on the real document:** every genuine overfull box is gone — the only ones left
+are the four 0.1111pt longtable rounding artifacts that have been there since v2.2. The widest line
+of the generated `.md` went from 365 characters (the naive scale) to 196.
+
+**Three preview fidelity fixes:**
+- **The outline rail** showed the markdown escaping (`Firmware \& build`). It is written as text and
+  HTML-escaped there, never parsed as markdown, so the escaping has to come off first —
+  `mdPreview.unescapeMd`.
+- **Firewall rules ran together.** A grid cell is a run of PARAGRAPHS: pandoc folds consecutive lines
+  into one and a blank line starts a new one. `parseGrid` was dropping every blank line as padding
+  (only the trailing ones are), and the renderer emitted the lines verbatim, so the whole cell
+  collapsed into a blob. Both halves are read back the way the page reads them now.
+- **The header shading was dark with no shade set.** The preview page inherited the app's own table
+  styling, whose `--c-surface-alt` is a near-black in dark mode — painting a black header onto a
+  white sheet, and showing an *unstyled* header as though it had been given a shade. The page now
+  states its own table background, and the profile's shade rule is emitted after it. The static
+  stand-in colours are gone: the profile is the single authority, so no shade means no shade.
+
+**Verification.** 13 new self-tests → **818/818 pass**, 139 suites; live-DOM 64/64; end-to-end 56/56.
+
 ### 2026-08-11 — v2.4c titles, headings, narrow tables, and a preview that shows the formatting — ✅ COMPLETE
 
 **Six asks, all landed.**

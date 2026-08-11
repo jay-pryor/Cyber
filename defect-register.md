@@ -18,6 +18,8 @@ Severity: blocker · major · minor · trivial
 | D-015 | 9 (DEV-1/VF-2) | major | FIXED | An item assigned to a second device by hand read as **undecided** on the Devices tab while the data tab showed it decided — device readiness inferred the value format from that one device's capture, which does not contain a hand-assigned key | One fleet-merged captured-value map (`registry.capturedDefaults`), used by readiness and by every table |
 | D-017 | 9 | major | FIXED | The **verification** script shipped the whole implementation half — `Apply-Package` with live `pm uninstall`/`disable-user`, and (newly, from the D-016 work) the reverse switches presented as an uncomment-me lever that did nothing. All inert, none of it obvious to a reader | Preamble/postamble assembled per command via `ctx.command`; a verify script now contains no mutating verb at all. Locked by VER-5 + an execution proof that device state is byte-identical after a verify run |
 | D-016 | 9 | blocker | FIXED | One package that refuses to uninstall **terminates the whole implementation run** — remaining packages never applied. A native `pm` failure is escalated to a terminating error on hosts that do so (Windows PowerShell 5.1 via `2>&1`+`Stop`; 7.3+ via `$PSNativeCommandUseErrorActionPreference`), and nothing caught it | `Invoke-AdbPm` relaxes the preference around the native call, guards it with try/catch/finally, and grades a caught throw as a failure; the 7.3+ escalation is pinned off. Locked by the D-016 suite + an execution harness under real pwsh 7.4.6 |
+| D-024 | 14 (AUTO-2) | major | FIXED | Column widths were proportional to source CHARACTERS but spent in POINTS. Next to a monospace key column the rate fell below what prose needs, so unbreakable words — headings especially — pushed past their column into the next one | Columns measured in ems from real Latin Modern metrics, against the page less pandoc's inter-column padding; hard floors, then soft floors, then appetite |
+| D-025 | 14 (PRV-3) | minor | FIXED | Three preview infidelities: the outline rail printed the markdown escaping (`\&`); every firewall rule in a cell ran together into one paragraph; and an unstyled table header was painted with the app's own surface colour — near-black on a white page, and indistinguishable from a shaded one | `unescapeMd` for text destinations; `parseGrid` keeps interior blank lines and the renderer treats a cell as paragraphs; the page states its own table background and the profile is the only source of a shade |
 | D-023 | 14 (NAM-1) | minor | FIXED | The per-section preview printed the section's LIST NAME as its heading; the whole-document preview printed the heading. Correct while the two were the same string, wrong the moment NAM-1 made them different | `sectionPreview` forced `title: block.label` into `headingFor`; the resolved block already carries the heading, so the override was the whole bug |
 | D-021 | 14 (AUTO-1) | major | FIXED | Making the automatic width path wrap let it hard-break a token. A register key came out as `` `appInstall `` / `` Whitelist` `` — pandoc rejoins the halves with a SPACE through the package name and renders the surrounding `**` as literal asterisks | The width floor counts the whole space-free token, measured on the source with its markup, so the auto path can never cut one; `safeCut` also refuses to land inside a `**` marker |
 | D-022 | 14 (AUTO-1) | major | FIXED | The Control coverage table was mashed — three columns crushed to a few characters, one taking the page — and its long cells ran off the right of the PDF. Two causes: widths proportional to source characters, and the pipe form, whose LaTeX `l` columns do not wrap at all | Automatic widths lay a too-wide table out (floors first, then slack by appetite); the grid form is chosen whenever a table is wider than the budget, not only when a cell holds a line break |
@@ -287,6 +289,51 @@ Severity: blocker · major · minor · trivial
   unchanged after the split.
 - **Lesson:** "it is never called" is an argument about behaviour; "it is not in the file" is a
   property of the artifact. For anything an operator will read as evidence, prefer the second.
+
+### D-024 — unbreakable words overflowed into the next column
+- **Found:** user report — "the text wrapping is a bit off, it goes into the next column a bit before
+  wrapping around". Confirmed in the TeX log: `Overfull \hbox (4.59pt too wide)` on the bold heading
+  `Description`, in the register tables.
+- **Root cause:** a column was allocated a share of the page proportional to its CHARACTER count and
+  then spent that share in POINTS. A character is not a fixed number of points — `i` is a third the
+  width of `m`, `\texttt` is 0.53em flat, bold is 15% more than regular. A register table puts one
+  monospace key column beside four of prose, which drags the points-per-character rate down for
+  everyone; prose absorbs that by wrapping, and a single unbreakable word cannot.
+- **Measured, not assumed:** `\savebox`/`\the\wd` over representative strings in Latin Modern at
+  11pt. Bold `Description` is 63.36pt where the column had 57.9pt. The first attempt at the model
+  guessed bold at 1.06 and monospace at 0.6 and made the overflow *worse* (7.8pt) — which is what
+  prompted measuring rather than tuning.
+- **Two wrong turns worth recording**, both left as comments where they were made:
+  1. Excluding code spans from the floor (they can `\seqsplit` on the page) starved the key column
+     to 7% and stacked identifiers six characters to a line.
+  2. Taking the larger of the source floor and the page floor per column let the SOURCE floor decide
+     the page FRACTION — giving the key column a third of the page, which was the original squeeze.
+- **Fix:** ems decide the proportions; three tiers of claim (hard floor, soft floor, appetite) are
+  settled in order; and the whole table is scaled up uniformly until the widest source floor fits, so
+  the source and page floors both hold without either distorting the other. Locked by AUTO-2.
+- **Result:** every genuine overfull box in the reference document is gone; only the four 0.1111pt
+  longtable rounding artifacts remain. The widest `.md` line fell from 365 characters to 196.
+- **Lesson:** when a model converts between two currencies, the exchange rate is a measurement, not a
+  constant to be tuned until the symptom goes away.
+
+### D-025 — three things the preview showed that the page does not
+- **Found:** user report, all three in one pass.
+- **The outline rail printed the escaping** (`Firmware \& build`). It is written into the rail as
+  text and HTML-escaped there, never parsed as markdown, so the markdown escaping had nothing to
+  undo it. Fixed with `mdPreview.unescapeMd`, used for text destinations only — the heading itself
+  still goes through `inline()`.
+- **Every firewall rule in a cell ran together.** A grid-table cell is a run of PARAGRAPHS: pandoc
+  folds consecutive lines into one and a blank line starts a new one. `parseGrid` dropped every blank
+  line as padding (only the trailing ones are padding) and the renderer emitted the lines verbatim,
+  so the separation HUM-1 had deliberately encoded was thrown away twice over. The PDF was correct
+  throughout; only the preview was wrong.
+- **An unstyled header was painted dark.** The page inherited `.rd-preview-doc .prv-table th`, whose
+  `--c-surface-alt` is a near-black in dark mode — a black header on a white sheet, and an unstyled
+  table that looked shaded. The page now states its own table background and the profile's shade rule
+  follows it; the static stand-in colours are gone, so no shade in the profile means no shade in the
+  preview.
+- **Locked by:** PRV-3 (7 tests), including one that asserts the shade rule is emitted *after* the
+  background reset — order is load-bearing at equal specificity.
 
 ### D-023 — the section preview showed the name where the page shows the heading
 - **Found:** user report. Setting a section NAME (for the designer's list) changed what the Section

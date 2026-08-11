@@ -899,8 +899,12 @@
      stays white in dark mode on purpose: the page will be white, and a shade colour
      judged against a dark background is judged against the wrong thing. */
   .rd-paper { box-shadow: 0 1px 6px rgba(0,0,0,.18); padding: 20px 22px 28px; border-radius: 2px; }
-  .rd-paper .prv-shade-head thead th { background: #eef2fa; }
-  .rd-paper .prv-shade-col tbody td:first-child { background: #f2f2f2; }
+  /* The shading colours come from the PROFILE (App.docFormat.previewCss). There is no
+     fallback here on purpose: a stand-in shade would show a table as styled when the
+     profile has no shade set, and the app's own surface colour — dark, in dark mode —
+     would paint a black header onto a white page. */
+  .rd-paper .prv-cp { margin: 0 0 4px; }
+  .rd-paper .prv-cp:last-child { margin-bottom: 0; }
   .rd-paper .prv-pagebreak span { background: #fff; color: #777; }
   .rd-paper .prv-pagebreak { border-top-color: #bbb; }
   .rd-paper .prv-rule { border-top-color: #bbb; }
@@ -2007,53 +2011,197 @@
       return w;
     }
 
-    /* A heading gets more floor than its character count.
+    /* -------------------------------------------------------------------------
+     * AUTO-2: the columns are measured in EMS, not in characters.
      *
-     * The source counts characters; the page spends points, and a proportional character
-     * costs more of them than the flat allocation buys — the register tables sit next to
-     * a monospace key column, which drags the rate down for everyone. Body prose absorbs
-     * that by wrapping. A one-word HEADING cannot, so it is the thing that visibly
-     * overflows, and it is the thing given the margin. The factor is a fudge and is
-     * named as one: it makes the common headings survive, and the honest fix for a table
-     * that must be exact is to set its widths (TW-2). */
-    var HEAD_SAFETY = 1.7;
+     * Counting characters is the wrong currency, and it fails in one specific,
+     * visible way: a column gets a share of the page proportional to its character
+     * count, but spends that share in POINTS, and a character does not cost a fixed
+     * number of points. `i` is a third of the width of `m`; a monospace package name
+     * costs 0.6em a character while prose averages half that; bold costs another few
+     * per cent. In a register table — one monospace key column beside four of prose —
+     * the rate that falls out is well under what prose actually needs, so everything is
+     * squeezed. Prose absorbs it by wrapping. A single unbreakable word cannot, and
+     * pushes past its column into the next one, which is exactly the symptom.
+     *
+     * So each column is measured in ems: what it WANTS (its widest line) and what it
+     * cannot go below (its longest unbreakable run). The budget is the page in ems, less
+     * what pandoc spends on inter-column padding — it writes the fractions against
+     * `(\columnwidth - 2(n-1)\tabcolsep)`, so that padding is not the columns' to share
+     * and counting it would over-promise every one of them.
+     *
+     * The result is converted back to source characters at the end, because that is what
+     * a grid table is drawn in. The conversion is uniform, so it cannot reintroduce the
+     * bias — and the character floor is applied on top of the em floor, so a run of
+     * narrow letters is still never cut in half.
+     * ---------------------------------------------------------------------- */
+
+    /* Advance widths in ems, MEASURED from Latin Modern at 11pt rather than guessed —
+     * `\savebox`/`\the\wd` over representative strings, which is the only way to get
+     * these right and cheap to redo if the shipped font ever changes:
+     *
+     *   a-z 12.70em/26 = 0.489    A-Z 18.54em/26 = 0.713    0-9 4.98em/10 = 0.498
+     *   i 0.277   m 0.829   e 0.442   . 0.277   space 0.331   ttfamily 0.523
+     *   bold/regular over the whole lowercase alphabet = 1.151
+     *
+     * The first guess at these had bold at 1.06 and monospace at 0.6, and it put
+     * "Description" 8pt past its column — which is how the numbers came to be measured.
+     */
+    var EM_NARROW = 'iljtfrI().,;:\'"!|[]-';
+    var EM_WIDE = 'mwMW@%';
+    var EM_UPPER = 'ABCDEFGHJKLNOPQRSTUVXYZ';
+    var EM_MONO = 0.53;         // \texttt advance, fixed by definition
+    var EM_BOLD = 1.15;         // bold over regular, across the lowercase alphabet
+    var EM_PER_CHAR = 0.5;      // the rate used to turn ems back into source characters
+    // The measurements are within about 6% either way on a short word, and being short
+    // is the direction that shows: a floor a little too generous costs a wrappable
+    // column a few points, one a little too mean puts a heading through its border.
+    var FLOOR_SAFETY = 1.08;
+    // Pandoc writes the column fractions against `\columnwidth - 2(n-1)\tabcolsep`, and
+    // \tabcolsep is 6pt against an 11pt em — that padding is not the columns' to share.
+    var EM_GUTTER = 2 * 6 / 11;
+    // The text block of the shipped profile — A4 less 25mm each side — in ems at 11pt.
+    var PAGE_EM = 160 / 25.4 * 72 / 11;
+
+    function charEm(c) {
+      if (EM_NARROW.indexOf(c) !== -1) return 0.3;
+      if (EM_WIDE.indexOf(c) !== -1) return 0.85;
+      if (EM_UPPER.indexOf(c) !== -1) return 0.66;
+      return 0.5;
+    }
+
+    /**
+     * The typeset width of one already-escaped source line, in ems.
+     *
+     * Walks it rather than measuring it flat, because the markup is not printed and the
+     * characters inside it are not all charged at the same rate: a backslash escape
+     * costs only the character it escapes, a code fence costs nothing and puts what it
+     * contains on the monospace rate, and `**` costs nothing but makes what it contains
+     * bold.
+     */
+    function lineEm(s) {
+      var str = String(s == null ? '' : s), out = 0, mono = false, bold = false;
+      for (var i = 0; i < str.length; i++) {
+        var c = str.charAt(i);
+        if (c === '\\' && i + 1 < str.length) { out += charEm(str.charAt(++i)); continue; }
+        if (c === '`') { mono = !mono; continue; }
+        if (c === '*' && !mono) {
+          if (str.charAt(i + 1) === '*') { i++; bold = !bold; } // ** toggles bold
+          continue;                                             // a single * is emphasis
+        }
+        out += mono ? EM_MONO : charEm(c) * (bold ? EM_BOLD : 1);
+      }
+      return out;
+    }
+
+    /**
+     * The widest run with no space in it, in ems — what the PAGE cannot go below.
+     *
+     * A code span is skipped, and this is the one place that distinction belongs: the
+     * formatting profile routes every `\texttt` through `\seqsplit`, so a 40-character
+     * package name has a breakpoint between every character once it reaches the page and
+     * is not a floor at all. In the SOURCE it still is one (a cut fence stops being a
+     * fence — D-021), which is why that floor is counted separately, in characters.
+     * Charging the page for both is what made the floors exceed the page and left every
+     * column, including the prose ones that genuinely could not wrap, below its need.
+     */
+    function longestWordEm(s, includeCode) {
+      var w = 0;
+      String(s == null ? '' : s).split(CELL_BREAK).forEach(function (line) {
+        var text = includeCode ? line : line.replace(/`+[^`]*`+/g, ' ');
+        text.split(/\s+/).forEach(function (t) { w = Math.max(w, lineEm(t)); });
+      });
+      return w;
+    }
 
     /** Auto widths for `n` columns of `all` rows: natural where they fit, shared out
-     *  against WIDTH_BUDGET where they do not. */
+     *  against the page where they do not. Returned in SOURCE CHARACTERS. */
     function autoWidths(all, n) {
-      var want = [], floor = [], i;
-      var header = all[0] || [];
+      var wantEm = [], floorEm = [], softEm = [], floorChars = [], natural = [], i;
       for (i = 0; i < n; i++) {
-        var maxLine = MIN_COL, maxWord = MIN_COL;
+        var line = 0, word = 0, soft = 0, chars = MIN_COL, cols = MIN_COL;
         all.forEach(function (r) {
-          splitCell(r && r[i]).forEach(function (l) { maxLine = Math.max(maxLine, l.length); });
-          maxWord = Math.max(maxWord, longestWord(r && r[i]));
+          splitCell(r && r[i]).forEach(function (l) { line = Math.max(line, lineEm(l)); cols = Math.max(cols, l.length); });
+          word = Math.max(word, longestWordEm(r && r[i], false));
+          soft = Math.max(soft, longestWordEm(r && r[i], true));
+          chars = Math.max(chars, longestWord(r && r[i]));
         });
-        maxWord = Math.max(maxWord, Math.ceil(longestWord(header[i]) * HEAD_SAFETY));
-        want.push(Math.max(maxLine, maxWord));
-        floor.push(maxWord);
+        natural.push(cols);
+        wantEm.push(Math.max(line, soft, MIN_COL * EM_PER_CHAR));
+        // The safety margin is about FLOORS — the widths below which something visibly
+        // breaks — not about how wide a column would like to be.
+        word = word * FLOOR_SAFETY;
+        soft = soft * FLOOR_SAFETY;
+        floorEm.push(Math.max(word, MIN_COL * EM_PER_CHAR));
+        /* The SOFT floor is what an identifier would like: a code span can be broken on
+         * the page (`\seqsplit`), so it is not a floor — but broken every six characters
+         * it stops being readable, and "it can be broken" is not the same as "break it
+         * as far as you like". So it is asked for after the hard floors are met and
+         * before anything is spent on the columns that merely want to be wider. */
+        softEm.push(Math.max(soft, floorEm[i]));
+        // The em floors govern the PAGE; this one governs the SOURCE, and both have to
+        // hold or a narrow-lettered token would still be cut in half (D-021).
+        floorChars.push(chars);
       }
-      var wantTotal = want.reduce(function (a, w) { return a + w; }, 0);
-      if (wantTotal <= WIDTH_BUDGET) return want;               // it fits: nothing to decide
 
-      var floorTotal = floor.reduce(function (a, w) { return a + w; }, 0);
-      /* The budget GROWS to hold the floors rather than the floors being cut to fit it.
+      /* Ems decide the PROPORTIONS; characters only decide how the .md is drawn.
        *
-       * A register table is five columns of Android identifiers: `appInstallWhitelist`
-       * and `io.sdsasolutions.tacticalsettings` are single unbreakable words, and their
-       * floors alone can exceed 96 characters. Cutting them to fit produced the exact
-       * damage this function exists to prevent — a heading broken mid-word across two
-       * lines. The budget only decides how wide the .md looks; the FRACTIONS are what
-       * reach the page, and they are scale-invariant. So the source table is allowed to
-       * be wide, and the half-budget of slack on top keeps the proportions from
-       * collapsing to "everyone gets exactly their longest word". */
-      var budget = Math.max(WIDTH_BUDGET, floorTotal + Math.round(WIDTH_BUDGET / 2));
-      var slack = budget - floorTotal;
-      var appetite = want.map(function (w, j) { return Math.max(0, w - floor[j]); });
-      var appetiteTotal = appetite.reduce(function (a, w) { return a + w; }, 0);
-      return floor.map(function (w, j) {
-        return w + (appetiteTotal > 0 ? Math.round(appetite[j] / appetiteTotal * slack) : 0);
-      });
+       * Both floors have to hold at once and they pull opposite ways: the source floor
+       * includes code spans (a cut fence corrupts the identifier — D-021) while the page
+       * floor excludes them (`\seqsplit` breaks them on the page). Taking the larger of
+       * the two per column would let the source floor set the FRACTION, which is what
+       * gave the key column a third of the page and squeezed the prose headings through
+       * their borders.
+       *
+       * Since only ratios reach the PDF, the whole table can be scaled up instead —
+       * uniformly, by just enough that the widest source floor fits. Every fraction is
+       * preserved exactly and every token stays whole. The cost is a wide .md, which is
+       * cosmetic.
+       */
+      function toChars(ems) {
+        var scale = 1;
+        ems.forEach(function (em, j) {
+          if (em > 0) scale = Math.max(scale, floorChars[j] * EM_PER_CHAR / em);
+        });
+        return ems.map(function (em, j) {
+          return Math.max(MIN_COL, floorChars[j], Math.round(em * scale / EM_PER_CHAR));
+        });
+      }
+
+      var wantTotal = wantEm.reduce(function (a, w) { return a + w; }, 0);
+      var budget = PAGE_EM - EM_GUTTER * (n - 1);
+      // It fits: every column takes its widest line and there is nothing to decide. The
+      // measured widths are the natural ones, in characters — the em model exists to
+      // settle a competition, and there is no competition here. It also keeps a small
+      // table's markdown exactly as tidy as it always was.
+      if (wantTotal <= budget) return natural;
+
+      /* Three claims on the page, settled in order of how badly they fail:
+       *   1. the HARD floors — a word with nothing to break it, which overflows into the
+       *      next column if it is short-changed. Met first, always.
+       *   2. the SOFT floors — an identifier that can be broken but should not be minced.
+       *   3. APPETITE — a column that would simply rather be wider, and wraps if it is not.
+       * Anything left after the hard floors goes to 2, then to 3. */
+      var floorTotal = floorEm.reduce(function (a, w) { return a + w; }, 0);
+      // Even the unbreakable words do not fit. Nothing can be honoured, so they share
+      // the page in proportion and something will overflow — there is no layout that
+      // avoids it, and pretending otherwise would only hide which one.
+      if (floorTotal >= budget) {
+        return toChars(floorEm.map(function (w) { return w / floorTotal * budget; }));
+      }
+      var out = floorEm.slice();
+      var room = budget - floorTotal;
+
+      function share(need) {
+        var total = need.reduce(function (a, w) { return a + w; }, 0);
+        if (total <= 0 || room <= 0) return;
+        var spend = Math.min(room, total);
+        need.forEach(function (w, j) { out[j] += w / total * spend; });
+        room -= spend;
+      }
+      share(softEm.map(function (w, j) { return Math.max(0, w - floorEm[j]); }));
+      share(wantEm.map(function (w, j) { return Math.max(0, w - out[j]); }));
+      return toChars(out);
     }
 
     /**
@@ -8505,7 +8653,11 @@
           ' background: #fff; color: #111; font-size: ' + px(base) + 'px; line-height: ' + (Math.round(spacing * 100) / 100) + '; }',
         '.rd-paper p, .rd-paper li { font-size: ' + px(base) + 'px; line-height: ' + (Math.round(spacing * 100) / 100) + '; }',
         '.rd-paper .prv-table { font-size: ' + px(base * 0.92) + 'px; }',
-        '.rd-paper .prv-table th, .rd-paper .prv-table td { border-color: #bbb; }',
+        // The page's own defaults, and they must be stated rather than inherited: the
+        // app's table styling paints a header with `--c-surface-alt`, which in dark mode
+        // is a near-black cell on a white sheet — and shows an UNSTYLED header as though
+        // it were a shaded one. Emitted before the shade rules below, which override it.
+        '.rd-paper .prv-table th, .rd-paper .prv-table td { border-color: #bbb; background: transparent; color: #111; }',
         '.rd-paper code { background: #f2f2f2; color: #111; }',
         '.rd-paper .prv-caption { color: #333; font-size: ' + px(base * 0.92) + 'px; }'
       ];
@@ -14728,7 +14880,8 @@
         p('A percentage is a share of <strong>the page\u2019s text width</strong>, and the shares need not fill it. Three columns at 20% each make a table 60% of the page, centred \u2014 which is how you get a small table that looks like one instead of three columns of white space. Both editors are drawn to scale, so a set that does not fill the strip visibly does not fill it.') +
         note('<strong>Over</strong> 100% \u2014 a 60% column beside a 50% one \u2014 is flagged in red: the table still renders, capped at full width with the columns scaled to fit, so none ends up the width you typed. <strong>Under</strong> 100% is not a fault; it is the narrower table you asked for, and the note says how wide it will be.') +
         note('Widths are saved with the project, not with the session. <strong>Reset widths</strong> hands the table back to automatic \u2014 which is how every table behaves until you set one.') +
-        p('<strong>Automatic</strong> is not "all columns equal". A table narrow enough to fit is left exactly as its content sizes it. One that is not gets laid out: every column first takes the width it cannot go below \u2014 its longest unbreakable word, since wrapping cannot break one \u2014 and only the slack above that is shared out, in proportion to how much each column actually wants. That is what stops a column of long prose claiming the page and squeezing the rest into the margin. It is still a rule of thumb; set the widths yourself when a table has to be exact.') +
+        p('<strong>Automatic</strong> is not "all columns equal". A table narrow enough to fit is left exactly as its content sizes it. One that is not gets laid out, and the columns are measured in <em>typeset width</em> rather than in characters \u2014 an <code>i</code> is a third the width of an <code>m</code>, a monospace package name costs more than prose, and bold costs more again. Three claims are settled in order: a word with nothing to break it comes first (it is what overflows into the next column if it is short-changed), then an identifier that <em>can</em> be broken but should not be minced, then the columns that would simply rather be wider and will wrap if they are not.') +
+        note('It is still a rule of thumb \u2014 set the widths yourself when a table has to be exact. The generated <code>.md</code> may also be a good deal wider than the page for such a table; that is deliberate, and only the proportions reach the PDF.') +
         p('<strong>Captions.</strong> Every table in the document is captioned and numbered, generated ones included. A hand-written table with no caption of its own ' +
           'takes its section\u2019s heading. The numbering is the same one the PDF prints, which is what lets a link read \u201cTable 4\u201d and be right. ' +
           '<strong>Centre the table caption</strong>, in the Formatting pane, settles a small inconsistency: a caption shorter than its table is centred by the typesetter anyway, one that wraps is not, and the switch centres both.') +
@@ -17509,7 +17662,12 @@
           T.assert(bare.indexOf(ch) === -1 || bare.indexOf('\\' + ch) !== -1,
             'hostile character ' + ch + ' appears unescaped outside a code span');
         });
-        T.assert(/50\\% \\& needs \\\$HOME plus a\\_b \\\{x\\\} \\#1 \\~y \\\^z/.test(body), 'rationale not escaped as expected');
+        // The cell WRAPS, so the escaped run is spread over several source lines. The
+        // preview reassembles a cell column-aware, which is what makes it the right
+        // thing to assert a whole phrase against.
+        var shownB = App.ui.mdPreview.toHtml(body).html;
+        T.assert(/50%\s+&amp;\s+needs\s+\$HOME\s+plus\s+a_b\s+\{x\}\s+#1\s+~y\s+\^z/.test(shownB),
+          'rationale not escaped as expected: ' + shownB.slice(shownB.indexOf('50%'), shownB.indexOf('50%') + 120));
       });
     });
 
@@ -21602,17 +21760,18 @@
         T.assert(/^# \d+ Custom Security Actions \{#sec-ds-android-custom\}$/m.test(html), 'no Custom Security Actions section');
         // Padded rather than tight: the table is wide enough to need the grid form now,
         // so the assertion is about the CELLS, not about which form carries them.
-        T.assert(/\|\s*Action Name\s*\|/.test(html) && /\|\s*Rollback\s*\|/.test(html),
+        var headRow = App.ui.mdPreview.toHtml(html).html;
+        T.assert(/<th>Action\s+Name<\/th>/.test(headRow) && /<th>Rollback<\/th>/.test(headRow),
           'the section is keyed by the action name and carries Rollback');
         // A grid-table cell WRAPS, so a phrase can straddle two source lines. The preview
         // reassembles a cell column-aware (which is what it is for), so the assertion is
         // made against that rather than against the raw markdown.
         var shown = App.ui.mdPreview.toHtml(html).html;
-        T.assert(/Knox tactical\s+passcode/.test(shown), 'the action key must appear as an identifier');
+        T.assert(/Knox\s+tactical\s+passcode/.test(shown), 'the action key must appear as an identifier');
         T.assert(/Clear it in\s+Knox\./.test(shown), 'the rollback text must be carried');
         T.assert(/\|\s*Custom Security Actions\s*\|\s*Included\s*\|/.test(html),
           'the Sections-included table must list it under the SAME label as the tab');
-        T.assert(/Device authentication/.test(html), 'Control coverage must pick it up');
+        T.assert(/Device\s+authentication/.test(App.ui.mdPreview.toHtml(html).html), 'Control coverage must pick it up');
 
         var dropped = fileNamed(App.generate.buildReport(p, 'dev-m1',
           { columns: { 'android.custom': { rollback: false } } }).files, 'report.md').content;
@@ -21626,7 +21785,8 @@
           [{ key: 'Knox tactical passcode', decision: { action: 'Set a 6-digit tactical passcode in Knox.' }, source: 'default' }]);
 
         var ctlReport = App.generate.buildControlReport(p, 'dev-m1').files[0].content;
-        T.assert(/Knox tactical passcode/.test(ctlReport), 'the control report must list it beside the other datasets');
+        T.assert(/Knox\s+tactical\s+passcode/.test(App.ui.mdPreview.toHtml(ctlReport).html),
+          'the control report must list it beside the other datasets');
       });
 
       s.test('a device override on an action survives save/load and a re-onboard', function () {
@@ -24838,6 +24998,18 @@
       return out.replace(new RegExp(NUL + 'S(\\d+)' + NUL, 'g'), function (m, i) { return store[Number(i)]; });
     }
 
+    /**
+     * The plain-text reading of a markdown fragment: escapes undone, code fences and
+     * emphasis markers removed. For anywhere the text is shown as text rather than
+     * rendered as markup — the outline rail, a tooltip, a title attribute.
+     */
+    function unescapeMd(s) {
+      return String(s == null ? '' : s)
+        .replace(/`+( ?)([\s\S]*?)\1`+/g, '$2')                       // code spans -> their content
+        .replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1')
+        .replace(/\\([\\`*_{}\[\]<>#|$&^~%+\-=.!()])/g, '$1');
+    }
+
     /** Split a cell row on unescaped pipes, dropping the leading/trailing delimiters. */
     function cells(line) {
       var parts = [], cur = '';
@@ -24870,6 +25042,26 @@
      */
     var COL_SHADE_RE = /^`\\chTblColShade`\{=latex\}\s*/;
 
+    /**
+     * One table cell, rendered the way the PAGE will render it.
+     *
+     * A grid-table cell is not a run of lines, it is a run of PARAGRAPHS: pandoc folds
+     * consecutive lines into one (so a wrapped sentence is one sentence) and a blank
+     * line between them starts a new one. Rendering the lines verbatim collapsed the
+     * whole cell into a single blob, which is what ran a firewall rule list together —
+     * each rule is a paragraph, and the blank lines that separate them were the only
+     * thing saying so.
+     */
+    function cellHtml(s) {
+      var parts = String(s == null ? '' : s).split(/\n{2,}/)
+        .map(function (p) { return inline(p.split('\n').join(' ')).trim(); })
+        .filter(function (p) { return p.length; });
+      // One paragraph is the overwhelming case and gets no wrapper — a cell holding a
+      // single value should be a cell holding a single value, in the markup as well.
+      if (parts.length < 2) return parts[0] || '';
+      return '<div class="prv-cp">' + parts.join('</div><div class="prv-cp">') + '</div>';
+    }
+
     function tableHtml(head, rows, opts) {
       opts = opts || {};
       var shadeCol = false;
@@ -24889,9 +25081,9 @@
       var group = (opts.widths && opts.widths.length === head.length)
         ? '<colgroup>' + opts.widths.map(function (w) { return '<col style="width:' + (Math.round(w * 10000) / 100) + '%">'; }).join('') + '</colgroup>'
         : '';
-      var h = '<tr>' + head.map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') + '</tr>';
+      var h = '<tr>' + head.map(function (c) { return '<th>' + cellHtml(c) + '</th>'; }).join('') + '</tr>';
       var b = body.map(function (r) {
-        return '<tr>' + r.map(function (c) { return '<td>' + inline(c) + '</td>'; }).join('') + '</tr>';
+        return '<tr>' + r.map(function (c) { return '<td>' + cellHtml(c) + '</td>'; }).join('') + '</tr>';
       }).join('');
       var cap = opts.caption
         ? '<div class="prv-caption"><strong>Table ' + (opts.number || '') + ':</strong> ' + inline(opts.caption) + '</div>'
@@ -24956,7 +25148,11 @@
         if (h) {
           var lvl = h[1].length, raw = h[2], anchor = h[3] || '';
           var num = (/^([\d.]+)\s+/.exec(raw) || [])[1] || '';
-          outline.push({ level: lvl, number: num, title: raw.replace(/^[\d.]+\s+/, ''), anchor: anchor });
+          // The outline is plain TEXT — it goes into the navigation rail, where it is
+          // HTML-escaped and never parsed as markdown. So the markdown escaping has to
+          // come off first, or a section called "Firmware & build" is listed as
+          // "Firmware \& build". The heading itself still goes through inline().
+          outline.push({ level: lvl, number: num, title: unescapeMd(raw.replace(/^[\d.]+\s+/, '')), anchor: anchor });
           out.push('<h' + lvl + (anchor ? ' id="' + esc(anchor) + '"' : '') + ' class="prv-h prv-h' + lvl + '">' + inline(raw) + '</h' + lvl + '>');
           i++; continue;
         }
@@ -25044,8 +25240,13 @@
         if (/^\+/.test(l)) {
           if (cur.length) {
             var merged = cur[0].map(function (_, c) {
-              return cur.map(function (r) { return (r[c] || '').replace(/\s+$/, ''); })
-                .filter(function (x, idx) { return x.length || idx === 0; }).join('\n');
+              var lines = cur.map(function (r) { return (r[c] || '').replace(/\s+$/, ''); });
+              // Only the TRAILING blanks are padding — a cell is as tall as the tallest
+              // in its row. An INTERIOR blank is a paragraph break the author or the
+              // value formatter put there, and dropping it ran a list of firewall rules
+              // together into one paragraph.
+              while (lines.length && !lines[lines.length - 1].length) lines.pop();
+              return lines.join('\n');
             });
             if (/^\+:?=/.test(l) && !head) head = merged; else rows.push(merged);
             cur = [];
@@ -25078,7 +25279,8 @@
     }
 
     App.ui = App.ui || {};
-    App.ui.mdPreview = { toHtml: toHtml, splitFrontMatter: splitFrontMatter, _inline: inline, _cells: cells, gridWidths: gridWidths };
+    App.ui.mdPreview = { toHtml: toHtml, splitFrontMatter: splitFrontMatter, _inline: inline, _cells: cells,
+      gridWidths: gridWidths, unescapeMd: unescapeMd, _cellHtml: cellHtml };
   })(App);
   </script>
 
@@ -28100,6 +28302,131 @@
       });
     });
 
+    /* ===== SUITES: the width model measures ems (AUTO-2) ===== */
+
+    T.suite('AUTO-2 columns are measured in ems, not in characters', function (s) {
+      // The em widths were measured out of Latin Modern at 11pt with \savebox/\the\wd,
+      // which is why these can be asserted at all rather than eyeballed.
+      s.test('a character is not a fixed width', function () {
+        // Long enough to exceed the page, or nothing has to be decided and each column
+        // simply takes its content — which is the right answer when it fits.
+        var run = function (c) { return new Array(41).join(c); };
+        var w = MD.autoWidths([['A', 'B'], [run('i'), run('m')]], 2);
+        T.assert(w[1] > w[0] * 2, 'forty m must want far more room than forty i: ' + w.join('/'));
+        T.assertDeepEqual(MD.autoWidths([['A', 'B'], ['iiii', 'mmmm']], 2), [4, 4], 'and a table that fits is untouched');
+      });
+
+      s.test('a bold heading is charged for being bold', function () {
+        // The first cut of this model had bold at 1.06 and put "Description" 8pt past
+        // its column; the measurement says 1.15 across the lowercase alphabet.
+        var plain = MD.autoWidths([['Description', 'x'], ['a', new Array(200).join('word ')]], 2);
+        var bold = MD.autoWidths([['**Description**', 'x'], ['a', new Array(200).join('word ')]], 2);
+        T.assert(bold[0] > plain[0], 'bold must claim more than regular: ' + bold[0] + ' vs ' + plain[0]);
+      });
+
+      s.test('a heading is never short-changed by a monospace neighbour', function () {
+        // The register shape: one column of `\texttt` identifiers beside four of prose.
+        // Charging the page for an identifier that \seqsplit can break is what starved
+        // the prose headings.
+        var w = MD.autoWidths([
+          ['**Path**', '**Description**', '**Value**', '**Control**', '**Rationale**'],
+          ['`com.samsung.android.app.telephonyui`', '', new Array(40).join('word '), '', '']
+        ], 5);
+        var total = w.reduce(function (a, x) { return a + x; }, 0);
+        // "Description" bold is 5.76em of a 36.8em text block: a shade under 16%.
+        T.assert(w[1] / total > 0.15, 'the Description column should get its heading: ' + (w[1] / total).toFixed(3));
+        T.assert(w[4] / total > 0.12, 'and so should Rationale: ' + (w[4] / total).toFixed(3));
+      });
+
+      s.test('an identifier is not minced just because it CAN be broken', function () {
+        // \seqsplit means a code span is breakable on the page, so it is not a floor —
+        // but six characters to a line is not a layout either, so it is asked for after
+        // the hard floors and before anyone who merely wants to be wider.
+        var w = MD.autoWidths([
+          ['**Path**', '**Value**'],
+          ['`com.samsung.android.app.telephonyui.esimclient`', new Array(60).join('word ')]
+        ], 2);
+        var total = w[0] + w[1];
+        T.assert(w[0] / total > 0.2, 'the key column must stay readable: ' + (w[0] / total).toFixed(3));
+      });
+
+      s.test('the source is scaled up rather than letting a token set the proportions', function () {
+        // Both floors have to hold: the source one includes code spans (a cut fence
+        // corrupts), the page one does not. Taking the larger per column would let the
+        // source floor decide the FRACTION, which is the bug this replaced.
+        var w = MD.autoWidths([
+          ['**Path**', '**Description**'],
+          ['`com.samsung.android.app.telephonyui.esimclient`', new Array(40).join('word ')]
+        ], 2);
+        T.assert(w[0] >= '`com.samsung.android.app.telephonyui.esimclient`'.length,
+          'the source column must still hold the whole token: ' + w[0]);
+      });
+
+      s.test('a table that fits is left exactly as its content sizes it', function () {
+        T.assertDeepEqual(MD.autoWidths([['A', 'B'], ['one', 'two']], 2), [3, 3]);
+        T.assertEqual(MD.table(['A', 'B'], [['one', 'two']], {}), MD.pipeTable(['A', 'B'], [['one', 'two']], {}));
+      });
+    });
+
+    /* ===== SUITES: what the preview shows (PRV-3) ===== */
+
+    T.suite('PRV-3 the preview reads the document back the way the page will', function (s) {
+      s.test('the outline rail is plain text, with the escaping undone', function () {
+        // It is written into the rail as text and HTML-escaped there, never parsed as
+        // markdown — so a section called "Firmware & build" was listed as "Firmware \&".
+        var o = App.ui.mdPreview.toHtml('# 1 Firmware \\& build 50\\% {#sec-x}\n').outline;
+        T.assertEqual(o[0].title, 'Firmware & build 50%');
+        T.assertEqual(o[0].number, '1');
+      });
+
+      s.test('unescapeMd undoes the writer, including code spans and emphasis', function () {
+        var U = App.ui.mdPreview.unescapeMd;
+        T.assertEqual(U('a\\_b \\$HOME \\{x\\}'), 'a_b $HOME {x}');
+        T.assertEqual(U('**bold** and `code`'), 'bold and code');
+      });
+
+      s.test('each firewall rule is its own line in a cell', function () {
+        var rules = [{ ruleType: 'DENY', portNumber: '443' }, { ruleType: 'ALLOW', portNumber: '80' }];
+        var md = MD.table(['Path', 'Value'], [[MD.code('firewallRules'), MD.cell(MD.human(rules))]], {});
+        var html = App.ui.mdPreview.toHtml(md).html;
+        T.assertEqual((html.match(/class="prv-cp"/g) || []).length, 2, 'one block per rule: ' + html);
+        T.assert(/1\. portNumber: 443; ruleType: DENY<\/div>/.test(html), 'and the rules must not run together');
+      });
+
+      s.test('a wrapped sentence is still one sentence', function () {
+        // Consecutive lines in a cell are ONE paragraph on the page; only a blank line
+        // starts a new one. Both halves of that have to be read back the same way.
+        var md = MD.table(['A'], [['a very long\nsentence wrapped']], {});
+        var html = App.ui.mdPreview.toHtml(md).html;
+        T.assert(/a very long sentence wrapped/.test(html), 'wrapped lines must rejoin with a space: ' + html);
+        T.assert(html.indexOf('prv-cp') === -1, 'and stay one block');
+      });
+
+      s.test('an interior blank line in a cell is not mistaken for padding', function () {
+        var grid = MD.gridTable(['A', 'B'], [['one' + MD.CELL_BREAK + MD.CELL_BREAK + 'two', 'x']], {});
+        var html = App.ui.mdPreview.toHtml(grid).html;
+        T.assert(/>one<\/div>/.test(html) && /<div class="prv-cp">two</.test(html), 'both paragraphs must survive: ' + html);
+      });
+
+      s.test('an unstyled table is not painted with the app\'s own colours', function () {
+        // `--c-surface-alt` is a near-black in dark mode, and the page is white. It also
+        // showed an unstyled header as though it had been given a shade.
+        var css = App.docFormat.previewCss(App.docFormat.standard());
+        T.assert(/\.rd-paper \.prv-table th[^{]*\{[^}]*background: transparent/.test(css),
+          'the page must state its own table background: ' + css);
+        var idx = css.indexOf('background: transparent');
+        T.assert(css.indexOf('prv-shade-head thead th { background:') > idx,
+          'and the shade rule must come after it, or it would be overridden');
+      });
+
+      s.test('no shade in the profile means no shade in the preview', function () {
+        var none = App.docFormat.normalise({ id: 'p', name: 'P', tables: { head: { shade: '' }, firstColumn: { shade: '' } } });
+        var css = App.docFormat.previewCss(none);
+        T.assert(!/prv-shade-head thead th \{ background:/.test(css), 'an unshaded profile must paint nothing: ' + css);
+        T.assert(/prv-shade-head thead th \{ font-weight/.test(css), 'while bold and italic still apply');
+      });
+    });
+
     /* ===== SUITES: a table narrower than the page (TW-3) ===== */
 
     T.suite('TW-3 widths that do not fill the page make a narrower table', function (s) {
@@ -28640,7 +28967,9 @@
           App.store.setDecision('android.tactical', it.key, { value: c ? c.value : '', type: c ? c.type : 'string' });
         });
         var md = reportMd({ columns: { 'android.tactical': { value: true } } });
-        T.assert(/1\\\. portNumber: 443; ruleType: DENY/.test(md), 'the rule should read as a record: ' + md.slice(md.indexOf('firewall'), md.indexOf('firewall') + 300));
+        var shownH = App.ui.mdPreview.toHtml(md).html;
+        T.assert(/1\.\s+portNumber:\s+443;\s+ruleType:\s+DENY/.test(shownH),
+          'the rule should read as a record: ' + md.slice(md.indexOf('firewall'), md.indexOf('firewall') + 300));
         T.assert(md.indexOf('"ruleType"') === -1, 'no JSON quoting should reach the report');
         // The tactical.json a device consumes is untouched — it is not prose.
         var impl = App.generate.buildImplementation(App.store.getProject(), 'dev-m1');
@@ -28714,10 +29043,12 @@
       s.test('the report names it, and flags a missing justification', function () {
         var c = withControl('exception');
         var md = reportMd({});
-        T.assert(md.indexOf('Satisfied with Exception') !== -1, 'the state must reach the report');
-        T.assert(/No justification recorded/.test(md), 'an unexplained exception is the worst kind to leave blank');
+        T.assert(/Satisfied\s+with\s+Exception/.test(App.ui.mdPreview.toHtml(md).html), 'the state must reach the report');
+        T.assert(/No\s+justification\s+recorded/.test(App.ui.mdPreview.toHtml(md).html),
+          'an unexplained exception is the worst kind to leave blank');
         App.store.setControlDeviceJustification(c.id, c.base, 'Disabled in firmware instead.');
-        T.assert(reportMd({}).indexOf('Disabled in firmware instead.') !== -1, 'the justification must be carried');
+        T.assert(/Disabled\s+in\s+firmware\s+instead\./.test(App.ui.mdPreview.toHtml(reportMd({})).html),
+          'the justification must be carried');
       });
 
       s.test('the control report names it too', function () {
@@ -28725,7 +29056,7 @@
         App.util.clock.setClock(FIX);
         try {
           var md = App.generate.buildControlReport(App.store.getProject(), 'dev-m1', {}).text;
-          T.assert(md.indexOf('Satisfied with Exception') !== -1, 'the control report must agree with the report');
+          T.assert(/Satisfied\s+with\s+Exception/.test(App.ui.mdPreview.toHtml(md).html), 'the control report must agree with the report');
         } finally { App.util.clock.resetClock(); }
       });
 

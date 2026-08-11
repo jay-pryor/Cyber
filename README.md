@@ -121,10 +121,12 @@ left and five panes on the right.
   widths** returns the table to automatic. Both editors are drawn to scale at the page's text width,
   so the drag is honest.
 - **Automatic widths** are not "all columns equal". A table that fits is left as its content sizes
-  it; one that does not is laid out — every column first takes the width it cannot go below (its
-  longest unbreakable word), and only the slack above that is shared out in proportion to what each
-  column wants. That is what stops one column of long prose claiming the page. It is a rule of thumb;
-  set the widths yourself when a table has to be exact.
+  it; one that does not is laid out, with the columns measured in **typeset width** rather than in
+  characters — an `i` is a third the width of an `m`, a monospace package name costs more than prose,
+  and bold costs more again (the em figures are measured out of Latin Modern, not guessed). Three
+  claims are settled in order: a word with nothing to break it, then an identifier that *can* be
+  broken but should not be minced, then columns that would simply rather be wider and will wrap if
+  they are not. It is a rule of thumb; set the widths yourself when a table has to be exact.
 - **Captions and table styling.** Every table is captioned and numbered — a hand-written one with no
   caption of its own takes the section's heading, and the numbering is the one the PDF prints, so a
   link that says "Table 4" is right. A table can also wear a styled **header row** and **first
