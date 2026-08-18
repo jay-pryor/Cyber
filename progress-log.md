@@ -25,22 +25,706 @@ Process per task (build phase): **build → review → devise tests → log defe
 | 10 | v1.2: per-config decision overrides (schemaVersion 3) | ✅ complete | default→group→device resolver; groups; override UI; report deviations |
 | 11 | v1.3: generation customisation | ✅ complete | per-command options; report section/column/group + classification; Control report; impl/verify shaping |
 | 14 | v2.2: Report Design — markdown documents | ✅ complete | levels + auto-numbering; authored sections; cross-refs; formatting profiles; templates; preview; one `.md` |
+| 15 | v3.0: links, table wording, header/footer, generation | ✅ complete | references resolve to real PDF links; controls auto-link; per-table title rows and column headings; header/footer pane; `/[Tag]` placeholders; paged preview |
+| 16 | v3.1: the box shows what it holds | ✅ complete | rich-text boxes with reference chips, in paragraphs and table cells; the report's composition saved with the project; optional captions; first-column styling visible and document-wide; a title row no longer shrinks its table |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
 **v1.0 PHASES 0–8 COMPLETE** + **v1.1 PHASE 9 COMPLETE** + **v1.2 PHASE 10 COMPLETE** + **v1.3 PHASE 11
 COMPLETE** + **v2.0 PHASE 12 COMPLETE** + **v2.1 PHASE 13 COMPLETE** + reviews 1–17 + report-gen.
-**666/666 embedded self-tests pass** (the first 426 verified in real Chrome from `file://` with no
+**1017/1017 embedded self-tests pass** (the first 426 verified in real Chrome from `file://` with no
 console errors; the 6 added for UNDO-1 and the 8 added for VER-1..VER-4 / IMPL-1..IMPL-4 are
 headless-verified only and still want a Chrome run. SP-4's scroll round-trip passes only in a real
 browser — jsdom implements no layout, so a headless run reads 439/440 with that one test failing).
 Validated end-to-end against the real reference captures (incl. v1→v2→v3 migration,
-per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: two manual
-checks only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1), and run
-`pandoc report.md -o report.pdf` on a generated document (DOD-8). Defect register: 9 defects found during review, all FIXED.
+per-config/group overrides, and the v1.x→v2.0 retired-dataset upgrade path). Remaining: one manual
+check only — open `ch-config-tool.html` in Chrome/Edge/Firefox (DOD-1). **DOD-8 is now automated**:
+`tools/build-pdf.sh` fetches pandoc + tectonic and builds a generated document, and the pages are
+inspected (see the v3.0c log entry). Defect register: 9 defects found during review, all FIXED.
 
 **Current normative documents:** `android-ch-config-tool-build-spec-v2.0.md` and
 `android-ch-config-tool-task-breakdown-v2.0.md`. The v1.0 pair is superseded and lives in `Archive/`.
+
+### 2026-08-18 — v3.6 the classification banner is a property of the document (CLS-1 · D-064) — ✅ COMPLETE
+
+Reported as "the check state of the classification banner is not persistent in the save file". It
+was session state, deliberately, and the deliberation was wrong: it sat beside the file name and the
+`/[Tag]` values, which genuinely are answers for one run. How sensitive a report's contents are is
+not. It meant re-ticking the box every time the tool was opened, and — the half that matters — a
+document generated from a fresh session went out **unmarked**, which is the wrong failure direction
+for a switch that says whether something is sensitive.
+
+It lives in the project's `report` bag now, beside `titleBlock` and on the same presence rule: on is
+written, off leaves no trace (DOD-7), and it survives a save and load.
+
+**One answer, not three.** The report, the control report and the procedure each carried their own
+session flag for the same banner. They read one project-level switch now, so three ticks that always
+had to agree can no longer disagree — tick it anywhere and every copy of it shows ticked.
+
+**Verified:** 1057/1057 self-tests (one new: the project write, the round trip, off leaving no
+trace, and the session blocks no longer carrying the field at all), both live-DOM harnesses, and a
+probe that ticks it on one card and finds it ticked on the others, in the generated report, in the
+saved file and after a reload. The reference document still builds marked, and clean.
+
+### 2026-08-17 — v3.5 a section left out of the contents was listed anyway (D-063) — ✅ COMPLETE
+
+Reported as "the *leave this section out of the contents list* checkbox is not working for my Title
+level title block". It was not working at any level; a Title block is simply where it cannot be
+missed, because the thing being listed is the cover page.
+
+The heading carried pandoc's `.unlisted` on its own. Pandoc reads `unlisted` **only** alongside
+`unnumbered` — `pandoc -t latex` on `# X {.unlisted}` gives a plain `\section{X}`, and `\section`
+writes itself into the `.toc` whatever class it was handed. The pair gives `\section*{X}` with no
+`\addcontentsline`, which is the one thing that keeps it out.
+
+The pair had been avoided on the reasoning that a section out of the contents "keeps its number".
+True, and nothing to do with the class: `numbersections` is false for this whole document — the
+numbering App.doc produces is not one LaTeX can express, so every number is already in the heading
+*text*. `.unnumbered` takes nothing away here but the `\addcontentsline`.
+
+Nobody noticed because the preview builds its own contents list from the outline and honoured the
+flag correctly. The switch worked everywhere it was cheap to check and failed in the only medium
+that ships.
+
+**Verified:** 1056/1056 self-tests (one new for the Title level; the existing SEC-4 test had
+asserted `.unlisted` *without* `.unnumbered` and so encoded the defect — it now asserts the pair,
+and separately that the number still prints). On a built page: the reference document's Approval
+section is `noToc` at a page-breaking level with a 70mm gap, and it still reads "6 Approval", still
+starts its own page, still comes down its 70mm, still carries its `\label` — and is not in the
+contents, where the cover page no longer appears either.
+
+### 2026-08-17 — v3.4 empty space you can measure (SPC-1 · D-062) + the conversion command — ✅ COMPLETE
+
+**The conversion command, in full, on the Generate pane.** It used to read `pandoc report.md -o
+report.pdf`, which is not the command that builds this document: no engine, and no `--lua-filter`,
+without which every table in the file comes out wrong. It now carries the real command, the
+full-path form, why the filter is not optional, the three things that go wrong on Windows (both
+binaries on `PATH`, tectonic's first run needing the network, Acrobat's file lock), and how to read
+the log for an overfull box. The in-app manual's copy of the same command was wrong in the same way
+and is fixed with it.
+
+**D-062 — "line breaks only ever show up as one additional empty line".** True, and it is not the
+break that is wrong. Written as `{{br}}` tokens they do stack — five measure four blank lines on a
+built page — but what a person types is Enter, and every run of two or more newlines is one
+paragraph break in markdown. LaTeX gives that one `\parskip`. Making it stack would mean a blank
+line no longer means a paragraph break, which every prose box in the designer relies on, and it
+would still be the wrong tool for a signature block. So: WONTFIX, answered by a unit.
+
+**SPC-1 — space is asked for in millimetres.** Three places, one measurement:
+
+- a **Space** part, placed and moved like any other part in a hand-written section, drawn in the
+  editor at the size it will print;
+- **extra row height** on a hand-written table — millimetres of empty space *under* a body row's
+  content, so a cell reading "Signed:" keeps its label at the top and the room underneath. It
+  travels as a `\rule[-h]{0pt}{0pt}` at the end of the row's first cell: a strut with depth and no
+  height or width, on a line of its own so it costs the column nothing (the mechanism the shaded
+  first column and the row anchor already use). **Which rows take it is ticked per row**: setting a
+  height puts a tick against every row, all on, and unticking one is what gets stored (`tallRows`,
+  a boolean per row, absent meaning all of them — so a table written before the ticks renders
+  exactly as it did, and one fiddled with and put back serialises as one that never was). The list
+  travels with the rows through add and delete, the way the widths travel with the columns;
+- **space above a section's heading**, which is the one gap no part can make — every part a section
+  has is already below its heading. Offered on generated sections too.
+
+**The last one is where the work was.** A `\vspace*` written before a heading is contributed to the
+page the heading is *leaving*: when the level starts a new page (`\sectionbreak` is `\clearpage`,
+fired *by* the heading, after our glue) the gap was spent at the foot of the previous page and the
+heading came out flush with the top margin — measured on a built page, which is the only reason it
+was caught. This is D-038's trap from the other side. The way out is this file's standing division
+of labour: the document calls `\chGapOne{70mm}` by name and **App.docFormat** decides what the name
+means — a level that breaks clears the page itself and then eats the break titlesec is about to
+fire (a one-shot `\gdef` that puts the real break straight back); a level that does not simply
+leaves the glue. `\titlespacing`'s own beforeskip cannot be used for this: LaTeX discards vertical
+glue at the top of a page, which is the only place it would ever matter. The gap is emitted
+*between* the styling declarations and the heading, because `\chTitleStyle` sets `\sectionbreak`
+and would otherwise overwrite the one-shot before titlesec ever called it.
+
+Every millimetre figure is sanitised where a text box hands it over (`App.docStore.mmValue`),
+checked again by the schema, and clamped and rounded once more on the way into LaTeX
+(`App.md.mmLen`) — it lands inside a length, which is past the last of this file's escaping. Zero
+is stored as absence throughout, so a gap set and cleared leaves the project as it found it (DOD-7).
+
+**Verified:** 1055/1055 self-tests pass (16 new, one suite), both live-DOM harnesses (129 and 65),
+and a live-DOM pass (31 checks) driving the real millimetre boxes and the real row ticks through the
+real handlers. Built pages, not reasoned about: a signature page whose heading sits 70mm down its
+own page, a 25mm gap under its paragraph, and an approval table whose two signing rows are 22mm
+taller than their content with the content at the top — while its third row, "Prepared by /
+signed electronically", is unticked and stays an ordinary single-line row. The reference document
+(`tools/make-reference-doc.js`, which now composes that page) still builds with **no overfull box
+over 1pt**.
+
+### 2026-08-17 — v3.3 a sort you can turn off (SORT-1) — ✅ COMPLETE
+
+**SORT-1 — a column heading cycles ascending, descending, off.** A two-state toggle can only ever
+leave a table sorted by *something*: sort the packages by Action to gather the removals, and there
+was then no way back to the order the register holds — only a different sort. The third click now
+takes the rule away rather than picking another one.
+
+Off is a real absence, not one more sort. `filterSortRows` skips the comparator entirely, so the
+tiebreak on key goes with it — otherwise "off" would quietly be a sort by key wearing a different
+name — and the rows come back in the order the register holds them, which is the order they were
+captured in. The distinction between "nothing said" and "nothing sorted" is carried by
+`App.ui.model.sortKeyOf`: an absent key still means the historical default (sort by key), an empty
+key means no rule, so no existing caller changes behaviour. Worth knowing: a *saved* project stores
+its items key-ordered (the canonical form, §8.6), so on a freshly loaded project "off" and "key
+ascending" show the same order — the difference appears once a session has added items, which append.
+
+The transition itself is `App.ui.model.nextSort`, pure and shared by the click handler and the
+heading's tooltip, so what the heading promises is by construction what the click does. That
+tooltip is the whole discoverability story for the third state: an arrow can say ascending or
+descending, and nothing on screen could otherwise announce that clicking again clears the rule.
+With no rule in force, no heading carries an arrow.
+
+**Verified:** 1038/1038 self-tests pass (6 new, in one suite), plus a live-DOM pass driving real
+clicks on a real heading through all four steps of the cycle — arrow, row order, tooltip and the
+"another column restarts at ascending" rule at each one. The CSV export needed no change: it reads
+the same `filterSortRows`, so an unsorted table exports unsorted.
+
+### 2026-08-17 — v3.2 a break in a cell, and a first column with a size (D-061 · FNT-6) — ✅ COMPLETE
+
+Four things from use, two of them the same defect seen from two sides.
+
+**D-061 — a line break in a table cell, in both mediums.** Reported as "we still aren't getting line
+breaks rendering properly in the preview" plus "backslashes showing up in empty boxes", and the two
+are one fault. `cellHtml` folded a cell's lines with a space *before* the inline pass — correct about
+pandoc folding a cell's lines into one paragraph (D-025), wrong in that a cell's hard break is a
+trailing backslash and a newline (RTX-2/D-060), so folding first turned the pair into `\` + space,
+which no rule recognises. The fold now happens after. The empty box was the same thing one layer
+down: a trailing break lands on a non-breaking space (BR-1), and both `cells()` and `parseGrid`
+stripped it as padding, leaving the break's backslash as the cell's last character with nothing to
+break onto. Padding is spaces and tabs; U+00A0 is content — D-059's rule, applied in the cell path
+it had not reached.
+
+**And the PDF was wrong too, which the report did not say.** Building the page (the standing lesson
+of D-010/D-016/D-046) showed the break failing there as well — but only through this repo's own
+`pdfGenLuaConfig.lua`. Pandoc's writer wraps a multi-line cell in a `minipage`, where its `\\` is a
+line break; the filter writes the cell inline instead, which is what lets a merged title row and a
+row colour work at all, and in a longtable row a bare `\\` **ends the row**. Measured: a cell reading
+`one\ two` put "one" in the cell, "two" in the first column of a new row, and shunted the rest of the
+table a column to the left. The filter writes a cell's `LineBreak` as `\newline\strut` now — the
+`p{}` cell's own break, which its paragraph join already used; the `\strut` is what makes two breaks
+in a row legal instead of "there's no line here to end".
+
+**FNT-6 — the table's first column takes a size of its own.** FNT-5 had given it a weight and a
+slope and stated plainly that it could have no size, because its emphasis travels as markdown on the
+cell and markdown cannot say "and set this column two points smaller". That was true of markdown and
+not of the document: the shade has reached the first column through a raw-LaTeX span at the head of
+each body cell since TBS-1, and a size travels the same way. `\chTblColFont` is defined by the
+profile (empty when nothing is set, like the shading macros), emitted by `App.md` on every table's
+first column whether or not the section opted into shading, stripped by the preview and stated there
+as a stylesheet rule instead — and **paid for in the width model**, which is what D-027 was about:
+`tableMetrics` now carries a `firstCol` ratio beside `head` and `body`.
+
+**The Tables fieldset loses its Bold and Italic columns.** They had been empty since FNT-4 and FNT-5
+moved both weights to the Fonts table, carrying a "set in Fonts, above" note — two dead columns
+explaining themselves in every profile anybody opens. The sentence under the table says it once; the
+fieldset is the shade and nothing else now.
+
+**Verified:** 1032/1032 self-tests pass (11 new, in two suites). Built pages, not reasoned about:
+a document with the first column at 7pt in a 10pt table renders at 7pt in both a shaded and an
+unshaded table; a hand-authored table with a break in the middle of a cell, at the end of one, and
+in a cell holding nothing else renders all three correctly and keeps every cell in its own column.
+The reference document still builds with **no overfull box over 1pt**.
+
+### 2026-08-17 — v3.1 the box shows what it holds (RTX-1/2 · OPT-2 · COL-3 · CAP-4 · FNT-5 · TBL-2 · BR-1) — ✅ COMPLETE
+
+Nine things from the third round of use. Six were defects with a single cause each; three were the
+features that make the designer usable rather than survivable.
+
+**RTX-1 — a text box renders what it holds.** Every place the designer wrote prose was a `<textarea>`
+holding the raw token markup, so a cross-reference to the packages register read
+`{{ref:ds:android.packages}}` while you were writing the sentence around it — the one part of a
+sentence you cannot check by reading it. The boxes are `contenteditable` now and show what the page
+will: bold as bold, a code span as code, a break as a break, and a reference as **the name of what it
+points at**, as an uneditable chip. A reference over the author's own words is underlined instead and
+the words stay editable; one pointing at something that has gone is red, here as well as in the PDF.
+
+The storage is unchanged — the `{{…}}` tokens are still the truth, and a project written by an older
+build opens in this one untouched. The new `App.ui.richText` is a **lens** over them: `toHtml` one
+way, `fromNode` the other, and one shared walk answering all three of "what tokens does this box
+hold", "where in them is the caret" and "where in the box is a given offset". A toolbar button acts
+on the token STRING rather than on the DOM, which is what lets a selection survive the workspace
+repainting when the reference menu opens — a pair of numbers into a string does, a DOM range does not.
+
+**RTX-2 — a table cell takes the same formatting.** A cell held the same token markup a paragraph did
+and was the one place none of it worked: `MD.cell` escaped and marked long identifiers and did nothing
+else. `App.md.richCell` is the same writer with two things changed — what escaping the literal text
+takes, and what a line break is written as — so bold, code, breaks and cross-references all work in a
+cell, and the toolbar above a table acts on whichever cell was last written in. A break inside a cell
+now carries the trailing backslash it needs: without it pandoc folds a grid cell's consecutive lines
+into one paragraph, so a line break typed into a cell had never done anything on the page.
+
+**OPT-2 — the report's composition travels with the project.** Which sections are in, which groups of
+a register, which optional columns each carries and which Security Relevance categories are reported
+were session state, on the same footing as "make the scripts .txt". They are decisions about the
+DOCUMENT: lost on reload, they had to be re-made on every run and never reached the operator on the
+other end of the file. They live in `project.report.options` now, stored as DEVIATIONS from the
+default so an untouched project carries none of it and a column switched on and off again leaves no
+fingerprint (DOD-7). The file name, the `/[Tag]` values and the classification banner stay per-run,
+deliberately — the point of a tag is that the same design produces a different document each time.
+
+**COL-3 — an optional column carries its own default.** The include-map's "missing means included" is
+not true of every column. Rationale and Rollback are working notes; Type in a coverage table is one
+repeated word; Items is the widest cell in it. A column may now declare `defaultOff`, declared by the
+adapter (DOD-11), and one predicate — `App.report.columnOn` — answers "is this column showing?" for
+the section builder, the coverage builder and the designer's tick alike.
+
+**CAP-4 — a table can be left uncaptioned.** For a table that names itself in its own title row, or
+one that is really a layout. An uncaptioned table takes no number either, so the numbers a reader
+counts stay the numbers a cross-reference names — D-019's rule, still holding. It cannot then be
+cross-referenced, which is the trade and is said in the UI.
+
+**FNT-5 / the first-column styling that appeared to do nothing.** Ticking "style the first column"
+DID reach the .md, the PDF and the preview — verified by building pages. It was invisible: the shipped
+shade was `#F2F2F2`, under 5% away from white, and the weight that went with it only reached the
+sections that had opted in. The shade is `#E7E6E6` now, and the weight and slope moved to the Fonts
+table as a document-wide row beside the header row's — the same move FNT-4 made, for the same reason.
+A profile saved before this keeps the weight it asked for.
+
+**TBL-2 — a title row no longer shrinks the table.** Pandoc reads a grid table's column fractions
+against `max(line length, --columns)`, so a table drawn narrower than 72 characters lands on the page
+at that fraction of it: three columns at 0.14/0.13/0.17, a table 43% of the width of the page with
+every column squeezed to match. Adding a title row forces the grid form, so it was doing exactly that
+to ordinary tables. Automatic grid widths are now drawn to the same source budget an explicit set is;
+the ratios are untouched and only the `.md` gets wider. The preview had a matching bug — it read the
+title's own border as the width row and lost the widths altogether.
+
+**BR-1 — a line break renders wherever it is written.** D-037 dropped a TRAILING break because `\`
+with nothing after it is a literal backslash to pandoc. Dropping it also threw away the blank line the
+writer asked for, which is why a spacer at the foot of a title page did nothing. The break is kept and
+given an empty line to land on — one non-breaking space, which pandoc writes as `~`. The preview had
+to stop reading that line as blank: `String.trim()` strips U+00A0 and pandoc's blank-line rule does not.
+
+**REF-2 in the preview.** The empty span that anchors each control-coverage row printed literally —
+`[]{#ctl-ahg-001} AHG-001` — because nothing in the preview knew what it was. It renders as what it is
+on the page: an anchor of no width.
+
+**Verification:** 1017/1017 embedded self-tests pass (45 new across RTX-1, RTX-2, OPT-2, COL-3, CAP-4,
+FNT-5, TBL-2 and BR-1). Both live-DOM passes pass (129 and 65), updated to drive the new surface.
+Every claim about the page was checked by building one: `tools/build-pdf.sh`'s pipeline, with and
+without the repo's Lua filter, and the pages read at 130–200 dpi rather than at 110, which is where
+the "first column is not shaded" reading came from in the first place.
+
+### 2026-08-12 — v3.0f the preamble gets its own escaper (D-055) — ✅ COMPLETE
+
+A header reading `<---- Security classification` stopped the build with `Undefined control sequence`
+at `\<`. Reproduced in four lines.
+
+Every string in a generated document goes through `App.md.text`, which escapes for **markdown** —
+correct, because everything in the document is markdown and pandoc produces the LaTeX from it. A
+header or footer slot is the exception: it reaches the page through `header-includes`, which pandoc
+passes to LaTeX **verbatim**. `\<`, `\>`, `\[`, `\|`, `\+` are ordinary markdown escapes and are
+not commands LaTeX has; `\~`, `\^`, `\.`, `\=` are accents rather than characters. The two escapes
+overlap enough — `\%`, `\&`, `\#`, `\$`, `\_` are right in both — that the wrong one looked right
+until a character outside the overlap turned up.
+
+`App.md.latex` is the other escaper: one pass from a table, because several of its replacements
+carry braces of their own and a second pass would print `\textbackslash\{\}`. The slots and the
+classification banner use it; those are the only two data-derived strings that reach the preamble,
+which is now audited rather than assumed.
+
+**GEN-TAB followed:** a placeholder in a slot is filled on the RAW slot text before the profile is
+compiled, so its value is escaped once, for LaTeX, with the words around it. The document-wide pass
+escapes for markdown and would have reintroduced the same fault through a tag value.
+
+**Verified on a built page** with a deliberately hostile header —
+`<---- Security classification & 100% {safe}_x #1 ~ \` — every character of which now prints as
+itself. That string is in `tools/make-reference-doc.js`, so the build keeps proving it.
+**972/972 embedded**, 129 + 64 live-DOM.
+
+### 2026-08-12 — v3.0e both header rows carry the shade (D-053 · D-054) — ✅ COMPLETE
+
+Making the title row a real merged header row (v3.0d) took the shading off the row beneath it.
+`\chTblHeadShade` works by redefining `\toprule`, and pandoc emits exactly one of those, before the
+FIRST header row — so the single `\rowcolor` it can carry went to the title and the column headings
+came out white. `\rowcolor` cannot be reached for the second row at all: it has to sit at the start
+of a row, and everything markdown can put there is inside a cell.
+
+`\cellcolor` can be inside a cell, and — measured, because that was the whole question — it works
+from inside the `minipage` pandoc wraps a header cell in. So the headings row is coloured cell by
+cell, which is the mechanism the first column has used since TBS-1, and it is emitted only when a
+title row has taken the row colour (a table without one is byte-identical to before).
+`\chTblHeadRow` is the row-level equivalent for a writer that can reach a row start, and the Lua
+filter emits it on every header row after the first.
+
+**D-054, found while measuring the result:** the merged title row was about 4pt wider than the row
+beneath it, because its `\multicolumn` width was written as "the whole table" and the columns do not
+always add up to that — `fitscale` shrinks them when they would overflow, and the shares are rounded
+besides. The filter now sums the covered columns' own shares and adds the furniture between them.
+At 300dpi both rows span exactly 307..2172; before, 2181 against 2164.
+
+**970/970 embedded**, 129 + 64 live-DOM, verified on the built page.
+
+### 2026-08-12 — v3.0d the title row becomes a row (D-050 · D-051 · D-052) — ✅ COMPLETE
+
+**D-050 — the title row is a real merged row now.** Third attempt, and the first two were a
+paragraph dressed up as a row — which can never work, because a paragraph has to be given a width
+and a table's is not known until it is typeset. Pandoc *does* support the real thing: a grid-table
+row whose internal `|` are omitted is read as a spanning cell and written as `\multicolumn`
+(checked with `-t native`, then on a built page). So the title is the first of two header rows. It
+merges, it takes the header shading, the preview reads it back as the same row, and every macro the
+previous two attempts needed is gone from the preamble.
+
+**D-051 — two page breaks, and a blank page between them.** A section whose LEVEL already starts a
+page (the shipped profile does at H1) and which also had "Start this section on a new page" ticked
+got both. The per-level break is titlesec's `\sectionbreak` and App.doc cannot see it, so
+`App.docFormat.levelBreaks` states it as data: App.doc suppresses the redundant break, and the
+designer greys the switch out and says which level is already doing it.
+
+**D-052 — the paged preview ignored per-level breaks**, for the same reason: there is no `\newpage`
+in the markdown to find. The profile's answer is handed to the preview, which marks those headings
+and breaks on them.
+
+**968/968 embedded**, 129 + 64 live-DOM, all three verified on built pages.
+
+**`pdfGenLuaConfig.lua` was patched to match, at the user's request.** It rendered a spanning cell by
+padding the columns it covers with empty ones — the right number of `&`, and every vertical rule
+still drawn straight through the merged cell — so the title row came out crammed into the first
+column with the grid showing across it. `row_latex` now emits a `\multicolumn` for a cell whose
+`col_span` is greater than one, sized to the columns it swallows plus the furniture between them
+(two `\tabcolsep` and one `\arrayrulewidth` per join covered, the same accounting `textwidth()`
+already does for the table). Verified on a built page: the row merges, spans the full table and
+takes the header shade, and the tables with no title row are byte-identical to before.
+
+### 2026-08-12 — v3.0c the PDF gets built (D-046 · D-047 · D-048) — ✅ COMPLETE
+
+**DOD-8 is no longer a manual check.** This environment turned out to have a network. pandoc 3.1.11
+and tectonic 0.15 are two downloadable binaries, and the user's own `pdfGenLuaConfig.lua` runs
+against them — so the reference document now gets built and looked at. Three defects fell out of the
+first build, two of which no amount of reading the LaTeX would have found:
+
+* **D-046 — the table title row.** Reported wrong twice and reasoned about twice. A shaded band has
+  to be given a width; a longtable's width is decided from its content when it is typeset, and is
+  routinely narrower than the text block. The band was therefore wider than its table, and wider by
+  a *different* amount for each of a grouped register's three tables. Nothing in the preamble can
+  know that number. It is a centred line in the header row's type now, sitting directly on the
+  table — a line has no width to get wrong — and the preview draws the same line instead of the
+  spanning row it was drawing, which the page cannot produce.
+* **D-047 — "Page 1of 7".** TeX eats the space after a control word. Proven in isolation: two
+  `\fancyfoot`s in one document, `Page \thepage of 7` and `Page {\thepage} of 7`, render "1of" and
+  "1 of". The slot macros are braced now.
+* **D-048 — "different first page" did nothing.** Page one is not a `plain` page (with the title
+  block off there is no `\maketitle`), so redefining `plain` never reached it; it has a style of its
+  own now, which the document body asks for by name. And pandoc's `latex_macros` extension *applies*
+  a `\renewcommand` it reads, so the second `\renewcommand{\headrulewidth}{0pt}` arrived as
+  `\renewcommand{0pt}{0pt}` and errored, taking the page style with it. Emitted once now.
+
+**Confirmed on the built page:** a centred title page that is centred and not justified, with no
+blank page in front of it; `/[Date]` substituted throughout; line breaks with no stray backslash;
+the first-page header and the running header each on the right pages; "Page 2 of 7"; 32 real `/Link`
+annotations with every `\label` resolving, control mentions included. **968/968 embedded**, 129 + 64 live-DOM.
+
+**Also found by measuring (D-049):** the width model was charging a column for a control link's
+SOURCE — 23 characters written, seven printed — and a row anchor was widening its own column, which
+re-proportions the page for a `\hypertarget` that is zero-width. Both corrected; the Control
+coverage table's worst overfull box fell from 10.2pt to 6.0pt.
+
+**Known residue:** ~3.2pt of overfull box on the Control coverage header row without the Lua filter,
+and ~6pt with it. Isolated to the header row of a six-column table (the filter roughly doubles it
+through its own `\tabcolsep`/`\arrayrulewidth` arithmetic), and confirmed NOT to be the row
+anchors — stripping them changes nothing. Pre-existing, and left alone rather than tuned against a
+filter the tool does not ship.
+
+**New tooling:** `tools/build-pdf.sh` (fetches the two binaries, generates, converts, renders the
+pages, reports overfull boxes) and `tools/make-reference-doc.js` (the document it converts).
+
+### 2026-08-12 — v3.0b two symptoms, one walker (D-044 · D-045) — ✅ COMPLETE
+
+**D-044 — centring one section centred the document, and stopped the page view.** Two reports that
+read as unrelated and were the same defect. `App.md.centred` reaches the preview as pandoc's fenced
+div, and the walker that reads those was not depth-aware. A centred paragraph inside a centred
+section — a title page with both ticks — emits nested `center` environments; the walker closed the
+outer div on the inner fence, and the outer closing `:::` was then matched by `/^:::/` as an
+*opening* fence, which swallowed every remaining line of the document into a centred block.
+
+That is also why the paged preview stopped after two sheets: the paginator places top-level blocks,
+and everything after the title page had become one of them. The pagination code was right the whole
+time — it was being handed a single block. Fixed by counting depth, treating an unmatched close as
+the machinery it is, and no longer centring a part that is already inside a centred section (nested
+`center` environments also contribute their vertical space twice).
+
+**D-045 — the title row as a big grey box, detached from its table.** Also two faults in one
+construct. A longtable contributes `\LTpre` — about 12pt — above itself, and that glue was the gap
+between the band and the table it names; it is cancelled now by exactly itself, for exactly the
+table that follows, so nothing else's spacing moves. And the closing macro carried a second
+`\strut`: the paragraph inside the minipage has already ended by then, so it began a *second line*,
+and a one-line title came out in a box two lines tall.
+
+**Verified:** a 300-row table now spans 8 sheets in the page view with every row placed, each part
+repeating its header, and no sheet holding more than a page. **965/965 embedded** (166 suites), 129
++ 64 live-DOM.
+
+### 2026-08-12 — v3.0a the second look at v3.0 (D-036 … D-043) — ✅ COMPLETE
+
+Nine things found by using v3.0 properly. Eight are defects; two of them are older defects that
+v3.0 made reachable.
+
+**Cross-references cut in half (D-036).** A control link in a table cell printed as
+`[AHG-002](#ctl-ahg- 002)` and arrived in the PDF as text. Reproduced before touching anything,
+which is what found the condition: it needs HAND-SET column widths. The automatic width path has
+refused to cut an unbreakable run since D-021; the explicit path had no floor at all and wrapped to
+whatever was dragged. Pandoc rejoins a cell's lines with a space, so a cut anywhere inside a link
+puts one in the destination. `gridTable` now applies the same floor to both paths — scaling the
+table up uniformly, so the dragged fractions survive and only the width of the `.md` changes. The
+same floor closes D-021 in the explicit path, where a package name could have been cut identically.
+
+**A centred title, justified, with a blank page in front of it (D-038).** Wrapping a heading in a
+`center` environment does neither thing it looks like: titlesec sets the heading's text in a box
+`\centering` does not reach, and the environment's glue is contributed before `\sectionbreak` fires
+— so a level asking for a page break got the glue on a page of its own. Centring is now `\centering`
+inside the `\titleformat`, as a per-level macro pair, which is the shape TTL-3 already used.
+**Found while fixing it (D-039):** a hand-authored section's centring reached the per-section
+preview and never reached the document — and a title page is always hand-authored.
+
+**The rest.** A trailing `{{br}}` printed a literal backslash, because at the end of a block there
+is no next line for a hard break to start (D-037). The link menu offered every section and no
+generated table, because it outlined the unfilled blocks and a generated table exists only inside
+the markdown its register produced (D-040). Pressing a formatting or Link button dropped the
+selection, twice over — the button took focus, and opening the menu repainted the box away (D-041).
+In page view the navigator jumped nowhere, because `offsetTop` is relative to the sheet (D-042), and
+a table stopped at the page edge with the rest of its rows absent from the preview — it now splits
+across sheets and repeats its header, as a longtable does (D-043). Placeholders now substitute in
+the per-section previews as well as the whole-document one. The table title row is measured against
+`\columnwidth` rather than `\linewidth`, so a narrowed table's title matches its table.
+
+**Tests:** **960/960 embedded** (165 suites), **129** live-DOM in `live-dom-report-design.js`,
+**64** in `live-dom-report-output.js`. The pagination tests supply jsdom with a synthetic layout —
+every row 20px — because where a page ends is a measurement and jsdom makes none; they assert that
+no sheet holds more than a page, that every row of a long table survives the split, and that each
+continued part repeats its header.
+
+**Still unbuilt:** DOD-8, as before. The title-row band (`lrbox`/`minipage`/`\colorbox`) and the new
+`\titleformat` centring macros are asserted as shape only.
+
+### 2026-08-12 — v3.0 references that work, a document that names itself (REF-1/2 · FNT-4 · CTR-1 · TBL-1 · SEC-4 · HDR-1 · GEN-TAB · PRV-4) — ✅ COMPLETE
+
+Nine pieces of work, all in the Report Design half of the tool. Two of them are defect fixes that
+turned out to need the feature rebuilt around them.
+
+**REF-1 — cross-references reach the PDF as links.** The reported symptom was a reference printing
+as `{{ref:ds:android.packages}}` on the page. The cause was one character: the token pattern's id
+charset had no `.`, so the id of every *register* section never matched and was escaped through as
+literal text (D-030). Fixing that alone would have left the feature thin, so the mechanism was
+rebuilt around it:
+
+* **three readings per reference** — `{{ref:}}` full ("Table 4: Packages removed"), `{{refn:}}`
+  number ("Table 4"), `{{reft:}}` title — chosen per insertion, all derived at render time, so a
+  renumber or a rename moves what every existing reference *says* without touching any of them;
+* **a wrapped form**, `{{ref:ID}}…{{/ref}}` — select text before pressing the button and those
+  words become the link, which is what someone who highlighted them meant;
+* **paragraphs are targets**, each emitting a `[]{#par-…}` anchor, because "see section 4" is often
+  more precision than the writer has and less than the reader wants;
+* **generated sections can link too.** An introduction was rendered by the generator with
+  `MD.rich(intro, {})` — before the outline exists, so with no resolver to hand (D-031). It is
+  rendered by `App.doc` now, with the ctx a hand-authored paragraph gets, and the introduction
+  toolbar gained the Link and line-break buttons in the same change.
+
+**REF-2 — every mention of a control links itself.** Write `AHG-001` in a paragraph, a rationale or
+a justification and it becomes a link to that control's row in Control coverage; the row carries an
+anchor, threaded through a new `rowAnchors` option on `App.md.table` that costs the column no width
+and cannot be broken. Nothing is linked when the coverage section is switched off — a link to a
+section the document does not carry is a link to nowhere, and pandoc does not warn.
+
+**FNT-4 — every kind of text has a size, a weight and a slope.** A **Table captions** row joins the
+Fonts table, and bold/italic are live on all four non-heading rows rather than greyed out. The
+header row's weight moved out of the per-section "style the header row" opt-in — two switches
+saying "bold" about different sets of tables is how a document ends up with two kinds of header —
+so it reaches every table through `\chTblHeadFont`, and opting a section in now buys the shading.
+An older profile's `tables.head.bold` is read into the new field once, on load.
+
+**CTR-1 — centring a section centres its heading.** The switch is what someone composing a title
+page ticks; getting a centred body under a flush-left title was not a formatting choice anybody
+made (D-032). Found while fixing it: the preview threw away the outline of any centred block, so a
+centred section vanished from the rail and the contents list (D-033), and a paragraph anchor was
+being attached to the next table instead (D-034).
+
+**TBL-1 — the "Removed"/"Tactical" subtitles are gone.** A grouped register produced a numbered
+sub-section per group, printing the group's declared name as a heading *and* again as a "— Removed"
+caption suffix. Both are gone; the groups are now tables under the one heading. In their place each
+table names itself, per table: a **title row** above the column headings (a full-width band in the
+header row's own type — markdown has no column spans, so it takes the same
+paragraph-between-macros shape the caption does), a **caption** that follows the title row unless
+given one of its own, and a **heading per column**, because the same column carries different
+content in each.
+
+**SEC-4 — two more per-section switches**: start on a new page (distinct from the per-*level* rule,
+which is house style), and leave out of the contents list while keeping the heading, the number and
+the anchor — so a cross-reference to a title block still reads correctly.
+
+**HDR-1 — a Header & Footer pane.** Header and footer configured independently, three slots each,
+`#page`/`#pages` markers, and an optional different first page. The OFFICIAL: Sensitive banner
+moved here and now takes the first *free* slot of each rather than being pushed sideways by a rule
+about page numbers. `page.numberPosition` is gone as a setting — five fixed answers competing with
+six slots for the same three positions — and is migrated into the slots on load.
+
+**GEN-TAB — a Generate pane.** The document is named, and every `/[Tag]` written anywhere in it —
+heading, introduction, paragraph, table cell, title row, column heading, header slot — is listed
+with a box beside it and substituted everywhere on generation. Found and replaced on the *finished*
+markdown, which is the only place all of them have arrived. An unfilled tag prints as it stands; a
+silent gap reads as complete and is not. The footer's Generate button is gone.
+
+**PRV-4 — a page view in the preview.** A toggle that lays the document out as sheets sized from
+the profile, breaking where the document asks and where the content runs out of page, with the
+running header and footer drawn in the margins. Off, it is the continuous view it has always been.
+
+**Tests:** **950/950 embedded** (163 suites; +51), plus **122** live-DOM assertions in
+`tools/live-dom-report-design.js` and **64** in `tools/live-dom-report-output.js`. Nine new suites
+lock the above. D-035 — a first-page header reading "Title page" printing as "Title 1", because the
+slot markers were the bare words — was found by the live-DOM pass and not by any render-only test,
+which is the third time that has been true in this file.
+
+**Still wanting a real run:** DOD-8. No pandoc or TeX in this environment, so the emitted LaTeX for
+the title-row band (`lrbox`/`minipage`/`\colorbox`), the `\AtBeginDocument` body emphasis and the
+`fancyhdr` first-page style are asserted as *shape* only. Everything they rely on is a kernel
+construct or already proven elsewhere in the file, but the page has not been built.
+
+### 2026-08-11 — v2.9 two sections retired, one Fonts table, a title of its own (SEC-3 · NAM-3 · FNT-3 · TTL-3) — ✅ COMPLETE
+
+**SEC-3 — "About this report" and "Deviations from default" are gone**, on request, as sections and
+as machinery: the two blocks, `compositionBody`, `reportSectionDescriptor`, `buildDeviationsSection`
+and the descriptor threaded through `sectionContent` are all deleted rather than left switched off.
+An id in a saved arrangement that no longer resolves has always been ignored rather than honoured,
+so a project written before this still opens, still generates, and simply has two fewer sections.
+
+**What went with them, deliberately named here rather than discovered later.** The RPT-2 relevance
+note — *"items marked REPORT, IRRELEVANT were left out: 2 applicable items are not shown below"* —
+was the last paragraph of the composition section and had no other home. The filter still applies
+and the Report Design workspace still counts what it will drop **before** you generate; what the
+finished document no longer does is announce it. Restoring it is `relevanceNote` plus one call.
+
+**NAM-3 — heading, then name, on every section.** A generated section asked for the name first and
+the heading second; a hand-authored one has always done the opposite. They are the same two
+questions and are now in the same order, which is the order the page puts them in.
+
+**FNT-3 — every size in the document, in one table.** The Formatting pane's **Headings** fieldset is
+**Fonts**, and it carries the document's own size (was under Page) and the two table sizes (were
+under Tables) as three more rows beside the heading levels. Those three are a size and nothing
+else, so the rest of each row is a disabled control rather than a gap — the column still lines up
+and the row says plainly that leading, bold, spacing and New page belong to headings.
+
+**TTL-3 — a title is styled as a title.** The `T` level printed at H1's styling because both emit a
+`#`, and titlesec styles the COMMAND: a second `\titleformat{\section}` in the preamble would simply
+win for both. So the title's row compiles to a MACRO instead — `\chTitleStyle` before the heading,
+`\chSectionStyle` after it — and `App.doc` emits the pair around a title only. Deliberately **not**
+a `\begingroup`: `\section` leaves the indent suppression for the paragraph after it in `\everypar`,
+which is a local assignment, so closing a group straight after the heading would indent the first
+paragraph under a title where the same paragraph under an H1 is not indented. The shipped row is a
+copy of H1, so no existing document moves until it is edited, and a profile written before the row
+existed inherits its own H1 by `normalise`'s positional fallback — which is exactly what that
+profile was already producing. The preview follows: `.prv-title` instead of `.prv-h1`, from the same
+row.
+
+**Verification.** 15 new self-tests (SEC-3 · NAM-3 · FNT-3 · TTL-3) → **896/896 pass**, 154 suites,
+headless. Both live-DOM passes green (85 and 64) after updating the two assertions that drove the
+retired sections. **Not built to PDF** — pandoc/tectonic are not installed in this environment, so
+`\chTitleStyle` is reasoned from titlesec's behaviour and locked by the preamble tests, not read
+back off a page.
+
+### 2026-08-11 — v2.8 six things the PDF got wrong (CODE-1 · TOC-1/2 · TTL-2 · CAP-3) — ✅ COMPLETE
+
+**A toolchain, first.** Every one of these was a question about what the PDF actually does, and the
+answers had been reasoned about rather than measured. pandoc 3.1.11 and tectonic 0.15 are installed
+in this environment now, so each fix below was **built and read back off the page** — including the
+three options that were tried and rejected.
+
+**CODE-1 — a shaded box behind a code span.** The preview shaded them; the page did not.
+`\colorbox` is the obvious answer and it is wrong: it typesets in an unbreakable hbox, and a
+64-character SHA-256 inside one runs **49pt past the right margin** — exactly the defect BRK-1 fixed
+by routing `\texttt` through `\seqsplit`. soul's `\hl` breaks only at spaces, which an identifier has
+none of (**37pt** over); `\hl` around `\seqsplit` is a hard error. All three measured. So the choice
+is made per span by the only thing able to judge it — the typesetter, which knows the run's width.
+Fits, box it; does not, leave it breakable and unshaded, because a background painted across a line
+break reads worse than none.
+
+The measurement is against **`\linewidth`, not `\columnwidth`**, and the difference is the whole
+thing: inside a table cell `\columnwidth` is still the page's column, so the first version boxed
+`imsSettings.simSlot0.enabled` in a narrow first column and ran it 38pt out of the cell. Caught by
+the build, not by a test.
+
+**TOC-1 — the contents list is a section.** `toc: true` prints it immediately after `\maketitle`
+with LaTeX's own heading: the one part of the document the section order could not reach.
+`\@starttoc{toc}` prints the entries and nothing else, so the heading above them is ours — ordered,
+levelled, renamed and numbered by the same machinery as everything else, and defaulting to **T**
+because "1 Contents" ahead of the sections it lists reads as a section of the report. Its own
+heading is emitted `.unnumbered .unlisted` so the list does not contain itself. The other two
+documents have no such section and keep the automatic list, so nothing about them changes.
+
+**TOC-2 — the gaps in it.** `tocloft`, and `\setstretch{1}` inside the list: a contents list is not
+prose, and at 1.15 the stretch compounds with the class's own 1em inter-entry skip, which is what
+made a seven-section report take most of a page to list. 2pt by default, and a box to change it.
+
+**TTL-2 — no automatic title block.** There is no markdown that suppresses `\maketitle`; the only
+way not to get it is not to name the metadata, so the switch withholds `title`/`subtitle`/`date`.
+Off by default, stored in the project rather than the session — someone composing their own title
+page should not have to switch it off every time the app opens. The provenance is not withheld with
+it: tool, device, version, generated-at and the project hash still travel as their own YAML keys and
+still print in Device Config Information.
+
+**CAP-3 — the caption, and a counting bug behind it.** Pandoc's caption syntax puts the text
+*inside the longtable's first head* — `\caption{...}\tabularnewline` before `\toprule`, read
+straight out of its LaTeX — so it printed above the table whichever side the markdown put it on, and
+no `\captionsetup` moves it. Two ways of moving it were built and rejected: `\AtBeginEnvironment`
+fires before longtable resets `\caption`, and patching `\LT@makecaption` works but double-steps the
+counter (Table 2, Table 4) and leaves the emptied caption row's space behind.
+
+So a caption stops being a pandoc caption. It is an ordinary paragraph that **App.doc numbers**,
+exactly as it numbers headings — which is also the answer to "why two counters?": there is now one,
+and the number in the caption is by construction the number a cross-reference to it prints.
+
+Making ours the only counter exposed a real defect: `tableIndex` descended into a grouped dataset's
+`children` *and* read the same children back as flattened blocks, numbering a three-group Packages
+report 1,2,3,4,5,3,4,5 — so **every table cross-reference after a grouped dataset named a number the
+page did not print**. Invisible while LaTeX did the printing. Fixed, with a test that the numbers run
+1..n.
+
+**Verification.** 22 new self-tests → **885/885 pass**, 150 suites; live-DOM **85/85**; end-to-end
+**62/62**. Four PDFs built and read: the default (captions below, shading on, no title block),
+captions above, the title block on, and shading off with a hand-authored title page as the first
+section — **zero overfull boxes** in all four.
+
+### 2026-08-11 — v2.7 the document chooses its font (FNT-2) — ✅ COMPLETE
+
+**Asked:** what font the Report Design preview uses, and whether the font could be set in the YAML at
+the top of the generated `.md`. The answer to the first was *nothing chose it* — `.rd-paper` set no
+family at all, so the preview inherited the app's UI sans (`--font`) while the PDF came out in
+LaTeX's default serif. The preview was faithful about sizes, widths and shading and silently wrong
+about the one thing being looked at.
+
+**A package name, not a font name.** Pandoc has two knobs and they are not interchangeable.
+`mainfont:` takes a font installed on the machine building the PDF and works only on XeTeX/LuaTeX —
+a document carrying one substitutes or fails anywhere that font is missing, and this `.md` is meant
+to travel. `fontfamily:` names a package from the TeX distribution itself, which every engine loads
+and tectonic fetches on demand. So the file carries its own font, and the selector is a **fixed list
+of ten** rather than a text box: the value is interpolated into a `\usepackage`, where a name that is
+not a package is a hard compile failure with an unhelpful error.
+
+Seven serif — Latin Modern (the default, which names nothing at all), TeX Gyre Termes, Pagella,
+Schola and Bonum, Charter, Linux Libertine — and three sans: TeX Gyre Heros, Adventor, Source Sans
+Pro.
+
+**The sans trap.** `fontfamily: tgheros` on its own does nothing visible: a sans package sets
+`\sfdefault` and stops, so the body stays in the roman default and only the (unused) sans family
+changes. The three sans rows carry `sans: true` and the preamble adds
+`\renewcommand{\familydefault}{\sfdefault}` — which lands *after* the template's `\usepackage`,
+because `header-includes` is read late.
+
+**One validation point.** The value reaches a LaTeX preamble AND a stylesheet, which are two
+different ways for an unchecked string to do damage. `normalise` reduces it to one of the fixed rows
+once — the same fail-safe rule `paper` and `normaliseShade` already follow — so neither consumer
+guards it and the preview CSS is safe to interpolate by construction.
+
+**The preview follows.** `.rd-paper` states the family and everything on the sheet inherits it, as
+`\familydefault` does on the page. It is a screen face standing in for a metal one and is meant to
+be; what it gets right is the shape class — serif against sans, wide against narrow — which is the
+question a preview is being asked.
+
+**Verification.** 7 new self-tests → **863/863 pass**, 146 suites; live-DOM **72/72** (8 new, folded
+into `tools/live-dom-report-design.js`): picking a font from the real `<select>` on a duplicated
+profile, then confirming the paper *and a heading inside it* **compute** to the chosen family — the
+half of this a render-only test cannot see — and that the generated `.md` names the package and
+carries the `\familydefault` switch. End-to-end 60/60. **Not built to PDF** — no pandoc or tectonic
+in this environment — so the ten package names are checked against the distribution by inspection,
+not by a compile.
 
 ### 2026-08-11 — v2.6 a Description column, and a numbered introduction — ✅ COMPLETE
 

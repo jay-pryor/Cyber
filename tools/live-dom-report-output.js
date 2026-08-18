@@ -98,7 +98,13 @@ ok(!!q('#rd-modal-host'), 'the workspace mounts');
 click('[data-rd-select="ds:android.tactical"]');
 ok(!!q('[data-rd-sec-name="ds:android.tactical"]'), 'a generated section offers a name field');
 setVal('[data-rd-sec-name="ds:android.tactical"]', 'Knox');
-setVal('[data-rd-intro="ds:android.tactical"]', 'The Knox tactical policy below was captured from the device and reviewed line by line.');
+// RTX-1: the introduction is a contenteditable now — type into it and let it blur.
+{ const box = q('[data-rd-intro="ds:android.tactical"]');
+  if (!box) { fail++; console.log('  \u2717 no introduction box'); }
+  else {
+    box.textContent = 'The Knox tactical policy below was captured from the device and reviewed line by line.';
+    box.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+  } }
 check('[data-rd-tstyle="head"][data-rd-block="ds:android.tactical"]', true);
 check('[data-rd-tstyle="firstColumn"][data-rd-block="ds:android.tactical"]', true);
 const bag = A.store.getProject().report;
@@ -123,13 +129,19 @@ setVal('[data-rd-sec-title="' + secId + '"]', 'Residual risks');
 click('[data-rd-addpart="table"]');
 const tid = A.store.getProject().report.sections[0].parts[0].id;
 click('[data-rd-addcol="' + tid + '"]');
-setVal(`[data-rd-cell="${tid}"][data-rd-row="-1"][data-rd-col="0"]`, 'Risk');
-setVal(`[data-rd-cell="${tid}"][data-rd-row="-1"][data-rd-col="1"]`, 'Owner');
-setVal(`[data-rd-cell="${tid}"][data-rd-row="-1"][data-rd-col="2"]`, 'Due');
-setVal(`[data-rd-cell="${tid}"][data-rd-row="0"][data-rd-col="0"]`,
-  'The Bluetooth stack package cannot be uninstalled on this firmware build, so it is disabled for user 0 instead and re-checked at each capture.');
-setVal(`[data-rd-cell="${tid}"][data-rd-row="0"][data-rd-col="1"]`, 'J. Pryor');
-setVal(`[data-rd-cell="${tid}"][data-rd-row="0"][data-rd-col="2"]`, '2026-09-30');
+// RTX-2: a cell is a rich box now, so it is typed into and blurred like a paragraph.
+function cellIn(row, col, text) {
+  const el = q(`[data-rd-cell="${tid}"][data-rd-row="${row}"][data-rd-col="${col}"]`);
+  if (!el) { fail++; console.log('  \u2717 no cell ' + row + ',' + col); return; }
+  el.textContent = text;
+  el.dispatchEvent(new window.FocusEvent('focusout', { bubbles: true }));
+}
+cellIn(-1, 0, 'Risk');
+cellIn(-1, 1, 'Owner');
+cellIn(-1, 2, 'Due');
+cellIn(0, 0, 'The Bluetooth stack package cannot be uninstalled on this firmware build, so it is disabled for user 0 instead and re-checked at each capture.');
+cellIn(0, 1, 'J. Pryor');
+cellIn(0, 2, '2026-09-30');
 check(`[data-rd-part-flag="styleHead"][data-rd-part="${tid}"]`, true);
 check(`[data-rd-part-flag="styleFirstColumn"][data-rd-part="${tid}"]`, true);
 
@@ -147,6 +159,10 @@ click('[data-rd-optmenu="control"]');
 const ccols = qa('.rd-optmenu [data-rd-dsmap="columns"][data-rd-ds="control"]').map(e => e.getAttribute('data-rd-key'));
 click('[data-rd-optmenu="control"]');
 ok(ccols.join(',') === 'type,description,status,items,justification', 'Control coverage offers its optional columns: ' + ccols);
+// COL-3: Type and Items ship OFF, so the strip has four slots until they are asked for.
+ok(qa('.rd-widthbar .rd-wseg').length === 4, 'the strip shows the columns the table will have: ' + qa('.rd-widthbar .rd-wseg').length);
+['type', 'items'].forEach(c => A.docStore.setReportInclude('columns', 'control', c, true, false));
+A.ui.views.reportDesign.refresh();
 ok(qa('.rd-widthbar .rd-wseg').length === 6, 'the width strip stands in for the generated table: ' + qa('.rd-widthbar .rd-wseg').length);
 ok(qa('.rd-widthbar [data-rd-colresize]').length === 5, 'a six-column strip has five draggable edges');
 const CCW = [[0, 0.20], [1, 0.08], [2, 0.22], [3, 0.14], [4, 0.16], [5, 0.20]];
@@ -171,12 +187,12 @@ ok(!!q('.rd-wnote') && /of the page width, centred/.test(q('.rd-wnote').textCont
 CCW.forEach(([i, w]) => A.docStore.setBlockWidth('control', 6, i, w, true));
 
 // ---- TTL-1 + NAM-2 + CAP-2: a title, a reworded heading, a centred caption ---
-setVal('[data-rd-level="composition"]', String(A.doc.TITLE_LEVEL));
-ok(A.store.getProject().report.levels.composition === A.doc.TITLE_LEVEL, 'the title level reaches the project');
-click('[data-rd-select="deviations"]');
-if (q('[data-rd-sec-heading="deviations"]')) {
-  setVal('[data-rd-sec-heading="deviations"]', 'Departures from the fleet default');
-  ok(A.store.getProject().report.headings.deviations === 'Departures from the fleet default', 'a generated heading is editable');
+setVal('[data-rd-level="meta"]', String(A.doc.TITLE_LEVEL));
+ok(A.store.getProject().report.levels.meta === A.doc.TITLE_LEVEL, 'the title level reaches the project');
+click('[data-rd-select="guidelines"]');
+if (q('[data-rd-sec-heading="guidelines"]')) {
+  setVal('[data-rd-sec-heading="guidelines"]', 'Departures from the fleet default');
+  ok(A.store.getProject().report.headings.guidelines === 'Departures from the fleet default', 'a generated heading is editable');
 } else { ok(false, 'no heading box on a generated section'); }
 // The caption-centring switch lives on the profile, which must be duplicated first.
 A.docStore.addFormat('House', A.docFormat.standard());
@@ -217,10 +233,17 @@ ok(a1 === a2, 'generation is byte-deterministic');
 A.util.clock.resetClock();
 
 const md = out.text;
-ok(/^# About this report \{#sec-composition\}$/m.test(md), 'a title section carries no number');
-ok(/^# 1 Device Config Information/m.test(md), 'and the section after it is still 1');
-ok(md.indexOf('Departures from the fleet default {#sec-deviations}') !== -1, 'the reworded heading reaches the document');
-ok(/\\usepackage\{caption\}/.test(md) && /singlelinecheck=false/.test(md), 'the caption-centring preamble is emitted');
+ok(/^# Device Config Information \{#sec-meta\}$/m.test(md), 'a title section carries no number');
+ok(/^# 1 /m.test(md), 'and the section after it is still 1');
+// TTL-3: a title wears its own styling, switched on around that one heading.
+ok(/\\chTitleStyle\n```\n\n# Device Config Information/.test(md), 'the title styling is switched on for it');
+ok(md.indexOf('\\chSectionStyle') !== -1, 'and off again afterwards');
+ok(/\\newcommand\{\\chTitleStyle\}\{\\titleformat/.test(md), 'and the macro itself is in the preamble');
+// CAP-3: a caption is an ordinary numbered paragraph between two macros now, so
+// centring it is \centering rather than a captionsetup undoing LaTeX's own rules.
+ok(/\\newcommand\{\\chCaptionOpen\}\{[^\n]*\\centering\}/.test(md), 'the caption-centring preamble is emitted');
+ok(/^Table 1: /m.test(md) && /^Table 2: /m.test(md), 'captions carry their own numbers');
+ok(!/^: \S/m.test(md), 'no pandoc caption markers survive');
 ok(/chTblBodyFont\}\{\\fontsize\{9pt\}/.test(md) && /chTblHeadFont\}\{\\fontsize\{12pt\}/.test(md),
   'the three font sizes reach the document');
 ok(/Tactical \{#sec-ds-android-tactical\}/.test(md), 'the HEADING is still Tactical, not the name Knox');
