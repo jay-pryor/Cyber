@@ -1882,6 +1882,861 @@
 
   <script>
   /* =============================================================================
+   * MODULE: App.util.idbKv  — TF.1: a key/value shelf that survives a restart
+   * PURPOSE: Promise-wrapped IndexedDB, used for exactly two things: the
+   *          FileSystemDirectoryHandle (structured-cloneable, so it survives a browser
+   *          restart) and the short-cycle crash draft. Nothing else belongs here.
+   * PURITY:  impure (IndexedDB). No DOM.
+   * DEPENDS: (none)
+   * INVARIANTS:
+   *   * NEVER canonical state. The folder is canonical; this is a handle shelf and
+   *     crash insurance (folder-storage-requirements.md 2.1, 6.1).
+   *   * The database name is NAMESPACED to this tool. Every file:// page shares one
+   *     origin and therefore one IndexedDB, so an unnamespaced DB would collide with
+   *     any other local tool. This does NOT make the data private — see the recorded
+   *     risk in folder-storage-requirements.md 2.2.
+   *   * Every call degrades rather than throws: with IndexedDB unavailable, get()
+   *     resolves null and set()/del() resolve having done nothing.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var DB_NAME = 'ch-config-tool';   // namespaced — see INVARIANTS
+    var STORE = 'kv';
+    var VERSION = 1;
+
+    function idb() {
+      try { return window.indexedDB || null; } catch (e) { return null; }
+    }
+
+    /** @returns {boolean} true when IndexedDB can be reached at all. */
+    function available() { return !!idb(); }
+
+    function openDb() {
+      var db = idb();
+      if (!db) return Promise.reject(new Error('IndexedDB unavailable'));
+      return new Promise(function (resolve, reject) {
+        var req;
+        try { req = db.open(DB_NAME, VERSION); } catch (e) { reject(e); return; }
+        req.onupgradeneeded = function () {
+          var d = req.result;
+          if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE);
+        };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error || new Error('IndexedDB open failed')); };
+        req.onblocked = function () { reject(new Error('IndexedDB blocked by another tab')); };
+      });
+    }
+
+    /** Run one transaction; resolves with the request's result (undefined for writes). */
+    function tx(mode, fn) {
+      return openDb().then(function (db) {
+        return new Promise(function (resolve, reject) {
+          var t, req;
+          try {
+            t = db.transaction(STORE, mode);
+            req = fn(t.objectStore(STORE));
+          } catch (e) { try { db.close(); } catch (e2) {} reject(e); return; }
+          t.oncomplete = function () { db.close(); resolve(req ? req.result : undefined); };
+          t.onerror = function () { db.close(); reject(t.error || new Error('IndexedDB transaction failed')); };
+          t.onabort = function () { db.close(); reject(t.error || new Error('IndexedDB transaction aborted')); };
+        });
+      });
+    }
+
+    /** @returns {Promise<*>} the stored value, or null if absent/unavailable. */
+    function get(key) {
+      return tx('readonly', function (s) { return s.get(key); })
+        .then(function (v) { return v === undefined ? null : v; })
+        .catch(function () { return null; });
+    }
+
+    /** @returns {Promise<boolean>} true if it actually stored. */
+    function set(key, value) {
+      return tx('readwrite', function (s) { return s.put(value, key); })
+        .then(function () { return true; })
+        .catch(function () { return false; });
+    }
+
+    /** @returns {Promise<void>} */
+    function del(key) {
+      return tx('readwrite', function (s) { return s['delete'](key); })
+        .then(function () { return undefined; })
+        .catch(function () { return undefined; });
+    }
+
+    App.util = App.util || {};
+    App.util.idbKv = { available: available, get: get, set: set, del: del, DB_NAME: DB_NAME };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.storage  — TF.2/TF.3: the shared vocabulary of the storage layer
+   * PURPOSE: Status constants, the normalised error shape, and path helpers that the
+   *          drivers and the folder store both speak. Kept in its own tiny module so
+   *          neither driver has to depend on the other.
+   * PURITY:  pure
+   * DEPENDS: (none)
+   * INVARIANTS:
+   *   * NAME HAZARD: App.store is the in-memory PROJECT (the register, the devices,
+   *     the decisions). App.storage.* is the FOLDER on disk. They are unrelated and
+   *     conflating them will produce very confusing bugs.
+   *   * A `name` is a POSIX-ish relative path ("Snapshots/2026-08-18T01-08-14-233Z.json").
+   *     Drivers walk and create the intermediate directories themselves.
+   *   * Every rejection out of a driver is a normalised {code, message, cause}, never
+   *     a bare DOMException, so callers switch on code and not on browser wording.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var STATUS = {
+      IDLE: 'idle',                        // no saved handle -> offer to connect
+      READY: 'ready',                      // connected and writable
+      NEEDS_PERMISSION: 'needs-permission',// handle survived the restart; the grant did not
+      UNSUPPORTED: 'unsupported',          // no File System Access API in this browser
+      ERROR: 'error'                       // stale handle, denied, or an IO failure
+    };
+
+    /* Error codes. The mapping from DOMException names is the single place browser
+     * wording is interpreted (folder-storage-requirements.md 5.6). */
+    var CODES = {
+      ABORTED: 'aborted',                  // user cancelled a picker — NOT an error
+      DENIED: 'denied',                    // permission refused or revoked
+      NOT_FOUND: 'not-found',              // file or directory absent
+      LOCKED: 'locked',                    // commonly the sync client holding the file
+      QUOTA: 'quota',
+      UNSUPPORTED: 'unsupported',
+      IO: 'io'                             // anything else — reported verbatim
+    };
+
+    var NAME_BY_CODE = {
+      AbortError: CODES.ABORTED,
+      NotAllowedError: CODES.DENIED,
+      SecurityError: CODES.DENIED,
+      NotFoundError: CODES.NOT_FOUND,
+      NoModificationAllowedError: CODES.LOCKED,
+      InvalidStateError: CODES.LOCKED,
+      QuotaExceededError: CODES.QUOTA
+    };
+
+    /**
+     * Normalise anything thrown by the filesystem into {code, message, cause}.
+     * @param {*} e
+     * @param {string} [context] prepended to the message so the Activity log says which op failed
+     * @returns {{code:string, message:string, cause:*}}
+     */
+    function err(e, context) {
+      var name = (e && e.name) || '';
+      var code = NAME_BY_CODE[name] || CODES.IO;
+      var msg = (e && e.message) || String(e);
+      return { code: code, message: (context ? context + ': ' : '') + msg, cause: e };
+    }
+
+    /** Make a normalised error directly (no DOMException to translate). */
+    function fail(code, message) { return { code: code, message: message, cause: null }; }
+
+    /** Strip a leading "./" or "/", collapse repeated slashes. */
+    function normName(name) {
+      return String(name === undefined || name === null ? '' : name)
+        .replace(/\\/g, '/')
+        .replace(/^\.?\//, '')
+        .replace(/\/+/g, '/');
+    }
+
+    /** Split a normalised name into non-empty segments. */
+    function segments(name) {
+      return normName(name).split('/').filter(function (s) { return s.length > 0; });
+    }
+
+    /** The directory portion of a name, normalised, '' for a root-level file. */
+    function dirOf(name) {
+      var segs = segments(name);
+      segs.pop();
+      return segs.join('/');
+    }
+
+    /**
+     * True when `name` is an immediate FILE child of directory `dir`.
+     * listDir() is a DIRECTORY listing, not a prefix match — see the driver contract.
+     */
+    function isChildOf(name, dir) {
+      var n = normName(name), d = normName(dir);
+      if (d && n.slice(0, d.length + 1) !== d + '/') return false;
+      var rest = d ? n.slice(d.length + 1) : n;
+      return rest.length > 0 && rest.indexOf('/') === -1;
+    }
+
+    App.storage = App.storage || {};
+    App.storage.STATUS = STATUS;
+    App.storage.CODES = CODES;
+    App.storage.err = err;
+    App.storage.fail = fail;
+    App.storage.normName = normName;
+    App.storage.segments = segments;
+    App.storage.dirOf = dirOf;
+    App.storage.isChildOf = isChildOf;
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.storage.driverMemory  — TF.2: the reason any of this is testable
+   * PURPOSE: A Map pretending to be a folder. Implements the driver contract exactly,
+   *          including fault injection, so every policy above the driver line —
+   *          snapshot rotation, prune, debounce coalescing, quarantine, the divergence
+   *          guard — is exercised headlessly in jsdom with no picker to click.
+   * PURITY:  impure (holds state) but in-process only. No DOM, no filesystem.
+   * DEPENDS: App.storage (STATUS, err helpers, path helpers)
+   * INVARIANTS:
+   *   * Behaviourally identical to driverFsa for every operation the folder store uses.
+   *     Where the two could drift, the contract is defined here and driverFsa follows.
+   *   * listDir(dir) is a DIRECTORY listing: immediate FILE children of `dir`, as full
+   *     relative paths, sorted. NOT a prefix match — a prefix match would make
+   *     listDir('') return the snapshots too, and the two drivers would disagree.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var S = App.storage;
+
+    /**
+     * @param {{files?:Object}} [seed] optional initial contents, name -> text
+     * @returns {Object} a driver
+     */
+    function create(seed) {
+      var files = {};
+      var fault = null;
+      if (seed && seed.files) {
+        Object.keys(seed.files).forEach(function (k) { files[S.normName(k)] = String(seed.files[k]); });
+      }
+
+      /** Inject failures: fn(op, name) returns an Error/normalised error, or null. */
+      function setFault(fn) { fault = fn || null; }
+
+      function guard(op, name) {
+        if (!fault) return null;
+        var e = fault(op, name);
+        return e ? Promise.reject(e.code ? e : S.err(e, op)) : null;
+      }
+
+      function getText(name) {
+        var g = guard('getText', name); if (g) return g;
+        var n = S.normName(name);
+        return Promise.resolve(Object.prototype.hasOwnProperty.call(files, n) ? files[n] : null);
+      }
+
+      function putText(name, text) {
+        var g = guard('putText', name); if (g) return g;
+        files[S.normName(name)] = String(text);
+        return Promise.resolve();
+      }
+
+      function listDir(dir) {
+        var g = guard('listDir', dir); if (g) return g;
+        var out = Object.keys(files).filter(function (n) { return S.isChildOf(n, dir); });
+        out.sort();
+        return Promise.resolve(out);
+      }
+
+      function removeName(name) {
+        var g = guard('removeName', name); if (g) return g;
+        delete files[S.normName(name)];
+        return Promise.resolve(); // absent is not an error
+      }
+
+      return {
+        kind: 'memory',
+        get label() { return 'in memory'; },
+        init: function () { return Promise.resolve(S.STATUS.READY); },
+        hasSavedHandle: function () { return Promise.resolve(true); },
+        pickFolder: function () { return Promise.resolve(S.STATUS.READY); },
+        requestAccess: function () { return Promise.resolve(S.STATUS.READY); },
+        forget: function () { files = {}; return Promise.resolve(S.STATUS.IDLE); },
+        getText: getText,
+        putText: putText,
+        listDir: listDir,
+        removeName: removeName,
+        // test-only reach-ins
+        setFault: setFault,
+        _files: function () { return files; }
+      };
+    }
+
+    App.storage.driverMemory = { create: create };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.storage.driverFsa  — TF.3: real files in a real folder
+   * PURPOSE: The File System Access API behind the driver contract. Deliberately the
+   *          THINNEST module in the storage layer, because it is the only one that
+   *          cannot be tested headlessly — showDirectoryPicker() has no picker for a
+   *          test to click. Every decision worth making is made above this line.
+   * PURITY:  impure (filesystem, IndexedDB, user gesture).
+   * DEPENDS: App.storage, App.util.idbKv
+   * INVARIANTS:
+   *   * FSA is LOCAL I/O, not network. The no-fetch/no-XHR/no-CDN invariant is intact.
+   *   * A directory handle survives a browser restart; ITS PERMISSION GRANT DOES NOT.
+   *     init() therefore reports NEEDS_PERMISSION as a normal status, never an error —
+   *     it is what every session after the first looks like.
+   *   * requestPermission() is NEVER called from init(). It requires a user gesture and
+   *     belongs in a click handler.
+   *   * Writes are atomic: createWritable() stages to a swap file and commits on
+   *     close(), so a crash mid-write leaves the previous contents intact.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var S = App.storage;
+    var HANDLE_KEY = 'dirHandle';
+    var PICKER_ID = 'ch-config-tool-project'; // the browser remembers the last dir per id
+
+    function supported() {
+      try { return typeof window.showDirectoryPicker === 'function'; } catch (e) { return false; }
+    }
+
+    function create() {
+      var root = null; // FileSystemDirectoryHandle
+
+      function queryPerm(h) {
+        if (!h || typeof h.queryPermission !== 'function') return Promise.resolve('granted');
+        return Promise.resolve(h.queryPermission({ mode: 'readwrite' }));
+      }
+
+      function statusFor(perm) {
+        if (perm === 'granted') return S.STATUS.READY;
+        if (perm === 'denied') return S.STATUS.ERROR;
+        return S.STATUS.NEEDS_PERMISSION;
+      }
+
+      function init() {
+        if (!supported()) return Promise.resolve(S.STATUS.UNSUPPORTED);
+        return App.util.idbKv.get(HANDLE_KEY).then(function (h) {
+          if (!h) return S.STATUS.IDLE;
+          root = h;
+          return queryPerm(h).then(statusFor, function () { return S.STATUS.NEEDS_PERMISSION; });
+        });
+      }
+
+      function hasSavedHandle() {
+        return App.util.idbKv.get(HANDLE_KEY).then(function (h) { return !!h; });
+      }
+
+      /** @returns {Promise<string|null>} the new status, or null if the user cancelled. */
+      function pickFolder() {
+        if (!supported()) return Promise.reject(S.fail(S.CODES.UNSUPPORTED, 'This browser has no File System Access API.'));
+        return Promise.resolve()
+          .then(function () {
+            return window.showDirectoryPicker({ mode: 'readwrite', id: PICKER_ID, startIn: 'documents' });
+          })
+          .then(function (h) {
+            root = h;
+            return App.util.idbKv.set(HANDLE_KEY, h).then(function () { return S.STATUS.READY; });
+          })
+          .catch(function (e) {
+            var n = S.err(e, 'Choose folder');
+            if (n.code === S.CODES.ABORTED) return null; // cancelled is not an error
+            throw n;
+          });
+      }
+
+      /** Must be called from a user gesture. */
+      function requestAccess() {
+        if (!root) return Promise.resolve(S.STATUS.IDLE);
+        if (typeof root.requestPermission !== 'function') return Promise.resolve(S.STATUS.READY);
+        return Promise.resolve(root.requestPermission({ mode: 'readwrite' }))
+          .then(statusFor)
+          .catch(function (e) { throw S.err(e, 'Reconnect'); });
+      }
+
+      function forget() {
+        root = null;
+        return App.util.idbKv.del(HANDLE_KEY).then(function () { return S.STATUS.IDLE; });
+      }
+
+      /** Walk to the directory holding `name`, optionally creating it. */
+      function dirFor(name, create_) {
+        if (!root) return Promise.reject(S.fail(S.CODES.NOT_FOUND, 'No folder is connected.'));
+        var segs = S.segments(name);
+        segs.pop(); // drop the filename
+        var p = Promise.resolve(root);
+        segs.forEach(function (seg) {
+          p = p.then(function (d) { return d.getDirectoryHandle(seg, { create: !!create_ }); });
+        });
+        return p;
+      }
+
+      function baseName(name) {
+        var segs = S.segments(name);
+        return segs[segs.length - 1];
+      }
+
+      function getText(name) {
+        return dirFor(name, false)
+          .then(function (d) { return d.getFileHandle(baseName(name), { create: false }); })
+          .then(function (fh) { return fh.getFile(); })
+          .then(function (f) { return f.text(); })
+          .catch(function (e) {
+            var n = e && e.code ? e : S.err(e, 'Read ' + name);
+            if (n.code === S.CODES.NOT_FOUND) return null; // absent is not an error
+            throw n;
+          });
+      }
+
+      function putText(name, text) {
+        return dirFor(name, true)
+          .then(function (d) { return d.getFileHandle(baseName(name), { create: true }); })
+          .then(function (fh) { return fh.createWritable(); })
+          .then(function (w) {
+            // Staged to a swap file; close() is the atomic commit.
+            return Promise.resolve(w.write(String(text))).then(function () { return w.close(); });
+          })
+          .catch(function (e) { throw (e && e.code ? e : S.err(e, 'Write ' + name)); });
+      }
+
+      /** Immediate FILE children of `dir`, as full relative paths, sorted. */
+      function listDir(dir) {
+        if (!root) return Promise.reject(S.fail(S.CODES.NOT_FOUND, 'No folder is connected.'));
+        var segs = S.segments(dir);
+        var p = Promise.resolve(root);
+        segs.forEach(function (seg) {
+          p = p.then(function (d) { return d.getDirectoryHandle(seg, { create: false }); });
+        });
+        return p.then(function (d) {
+          var out = [];
+          var prefix = segs.length ? segs.join('/') + '/' : '';
+          // Drive the async iterator by hand — the file is ES5 throughout, no for-await.
+          var it = d.entries();
+          function step() {
+            return Promise.resolve(it.next()).then(function (r) {
+              if (r.done) { out.sort(); return out; }
+              var entryName = r.value[0], handle = r.value[1];
+              if (handle && handle.kind === 'file') out.push(prefix + entryName);
+              return step();
+            });
+          }
+          return step();
+        }).catch(function (e) {
+          var n = e && e.code ? e : S.err(e, 'List ' + dir);
+          if (n.code === S.CODES.NOT_FOUND) return []; // a directory we never created yet
+          throw n;
+        });
+      }
+
+      function removeName(name) {
+        return dirFor(name, false)
+          .then(function (d) { return d.removeEntry(baseName(name)); })
+          .then(function () { return undefined; })
+          .catch(function (e) {
+            var n = e && e.code ? e : S.err(e, 'Delete ' + name);
+            if (n.code === S.CODES.NOT_FOUND) return undefined; // already gone — swallow
+            throw n;
+          });
+      }
+
+      return {
+        kind: 'fsa',
+        get label() { return root ? root.name : ''; },
+        init: init,
+        hasSavedHandle: hasSavedHandle,
+        pickFolder: pickFolder,
+        requestAccess: requestAccess,
+        forget: forget,
+        getText: getText,
+        putText: putText,
+        listDir: listDir,
+        removeName: removeName
+      };
+    }
+
+    App.storage.driverFsa = { create: create, supported: supported, PICKER_ID: PICKER_ID };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.storage.folder  — TF.4: the layout, the snapshot policy, the guard
+   * PURPOSE: Everything the storage layer decides, sitting above a driver that only
+   *          moves named text. Owns the on-disk layout, the snapshot-before-write
+   *          policy, pruning, quarantine, the concurrent-write guard, and the
+   *          Outputs tree. Domain-blind: it moves one opaque text document and knows
+   *          nothing about projects, devices or decisions.
+   * PURITY:  impure (drives a driver). No DOM.
+   * DEPENDS: App.storage, App.util.hash, App.util.clock
+   * INVARIANTS:
+   *   * NAME HAZARD: this is NOT App.store. See App.storage's banner.
+   *   * Timestamps come from App.util.clock ONLY, so snapshot filenames are
+   *     deterministic under an injected clock. Date is used solely to DIFFERENCE two
+   *     ISO strings that the clock supplied; it is never a source of time.
+   *   * Stamps are ISO with [:.] -> '-', which is both filename-safe and
+   *     lexicographically sortable, so listing newest-first is sort().reverse() with
+   *     no parsing.
+   *   * write() NEVER overwrites a file that changed underneath us. It reports
+   *     divergence and leaves both sides intact (requirements 10.1).
+   *   * quarantine() RENAMES by copy-then-delete, and only deletes once the copy has
+   *     been written. Starting fresh must never be the same act as destroying the
+   *     only copy a human could repair.
+   *   * Nothing outside the paths below is ever read, written or deleted.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var S = App.storage;
+
+    var STATE_FILE = 'project.json';
+    var SNAP_DIR = 'Snapshots';
+    var OUT_DIR = 'Outputs';
+    var CORRUPT_PREFIX = 'project.corrupt-';
+
+    var SNAPSHOT_MIN_INTERVAL_MS = 5 * 60 * 1000; // requirements 7.1
+    var SNAPSHOT_KEEP = 40;
+
+    /** ISO -> filename-safe, sortable stamp. */
+    function isoToStamp(iso) { return String(iso).replace(/[:.]/g, '-'); }
+
+    /** The inverse, for differencing only. Returns null for an unrecognised name. */
+    function stampToIso(stamp) {
+      var m = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(String(stamp));
+      return m ? m[1] + 'T' + m[2] + ':' + m[3] + ':' + m[4] + '.' + m[5] + 'Z' : null;
+    }
+
+    /** Snapshot filename -> its stamp, or null if the name is not one of ours. */
+    function stampOf(name) {
+      var m = /(?:^|\/)([0-9T:\-]+Z)\.json$/.exec(String(name));
+      return m ? m[1] : null;
+    }
+
+    /**
+     * @param {{driver:Object, clock?:Object}} opts
+     * @returns {Object}
+     */
+    function create(opts) {
+      var driver = opts.driver;
+      var clock = opts.clock || App.util.clock;
+      var status = S.STATUS.IDLE;
+      // The hash of the bytes we last wrote or last read. The divergence guard's
+      // whole basis: if what is on disk no longer hashes to this, someone else
+      // changed it and we must not write over them.
+      var lastKnownHash = null;
+
+      function sha(text) { return App.util.hash.sha256Hex(String(text)); }
+      function now() { return clock.nowIso(); }
+      function msBetween(isoLater, isoEarlier) {
+        var a = Date.parse(isoLater), b = Date.parse(isoEarlier);
+        return (isNaN(a) || isNaN(b)) ? Infinity : (a - b);
+      }
+
+      function setStatus(s) { status = s; return s; }
+      function getStatus() { return status; }
+      function canWrite() { return status === S.STATUS.READY; }
+      function label() { return driver.label; }
+
+      function init() { return driver.init().then(setStatus); }
+
+      function connect() {
+        return driver.pickFolder().then(function (s) {
+          if (s === null) return status;    // cancelled — unchanged, and not an error
+          lastKnownHash = null;             // a different folder: no baseline yet
+          return setStatus(s);
+        });
+      }
+
+      function reconnect() { return driver.requestAccess().then(setStatus); }
+
+      function disconnect() {
+        lastKnownHash = null;
+        return driver.forget().then(setStatus);
+      }
+
+      /**
+       * Read the canonical document and adopt it as the divergence baseline.
+       * @returns {Promise<string|null>} null when the folder holds no project yet.
+       */
+      function read() {
+        return driver.getText(STATE_FILE).then(function (text) {
+          lastKnownHash = (text === null) ? null : sha(text);
+          return text;
+        });
+      }
+
+      /** Snapshot names, newest first. */
+      function snapshots() {
+        return driver.listDir(SNAP_DIR).then(function (names) {
+          return names.filter(function (n) { return stampOf(n); }).sort().reverse();
+        });
+      }
+
+      function readSnapshot(name) { return driver.getText(name); }
+
+      /** Write `text` to Snapshots/<stamp>.json and prune to the newest SNAPSHOT_KEEP. */
+      function takeSnapshot(text) {
+        var name = SNAP_DIR + '/' + isoToStamp(now()) + '.json';
+        return driver.putText(name, text).then(prune).then(function () { return name; });
+      }
+
+      function prune() {
+        return snapshots().then(function (names) {
+          var doomed = names.slice(SNAPSHOT_KEEP);
+          var p = Promise.resolve();
+          doomed.forEach(function (n) { p = p.then(function () { return driver.removeName(n); }); });
+          return p;
+        });
+      }
+
+      /** True when the newest snapshot is old enough that another one is warranted. */
+      function snapshotDue() {
+        return snapshots().then(function (names) {
+          if (!names.length) return true;
+          var iso = stampToIso(stampOf(names[0]));
+          if (!iso) return true;
+          return msBetween(now(), iso) >= SNAPSHOT_MIN_INTERVAL_MS;
+        });
+      }
+
+      /**
+       * The canonical write. Refuses rather than clobbers.
+       * @param {string} text
+       * @returns {Promise<{written:boolean, diverged:boolean, snapshot:string|null, onDisk:string|null}>}
+       */
+      function write(text) {
+        return driver.getText(STATE_FILE).then(function (current) {
+          if (current !== null && (lastKnownHash === null || sha(current) !== lastKnownHash)) {
+            // Changed underneath us — another machine, another tab, or a synced edit.
+            return { written: false, diverged: true, snapshot: null, onDisk: current };
+          }
+          if (current === text) {
+            // Byte-identical: nothing to do, and nothing worth a version.
+            return { written: false, diverged: false, snapshot: null, onDisk: current };
+          }
+          var pre = (current === null) ? Promise.resolve(null)
+            : snapshotDue().then(function (due) { return due ? takeSnapshot(current) : null; });
+          return pre.then(function (snapName) {
+            return driver.putText(STATE_FILE, text).then(function () {
+              lastKnownHash = sha(text);
+              return { written: true, diverged: false, snapshot: snapName, onDisk: null };
+            });
+          });
+        });
+      }
+
+      /**
+       * "Keep mine" (requirements 10.2): snapshot whatever is on disk, then overwrite.
+       * @returns {Promise<{written:boolean, snapshot:string|null}>}
+       */
+      function forceWrite(text) {
+        return driver.getText(STATE_FILE).then(function (current) {
+          var pre = (current === null || current === text) ? Promise.resolve(null) : takeSnapshot(current);
+          return pre.then(function (snapName) {
+            return driver.putText(STATE_FILE, text).then(function () {
+              lastKnownHash = sha(text);
+              return { written: true, snapshot: snapName };
+            });
+          });
+        });
+      }
+
+      /**
+       * "Take theirs" (requirements 10.2): snapshot my unsaved state so it is not lost,
+       * then hand back what is on disk and adopt it as the baseline.
+       * @param {string|null} myText the state being abandoned; snapshotted first
+       */
+      function adoptDisk(myText) {
+        var pre = myText ? takeSnapshot(myText) : Promise.resolve(null);
+        return pre.then(function (snapName) {
+          return read().then(function (text) { return { text: text, snapshot: snapName }; });
+        });
+      }
+
+      /**
+       * Move an unreadable project.json aside. Copy first, delete only once the copy
+       * exists — see INVARIANTS.
+       * @returns {Promise<string|null>} the quarantine filename, or null if there was nothing to move.
+       */
+      function quarantine() {
+        return driver.getText(STATE_FILE).then(function (current) {
+          if (current === null) return null;
+          var name = CORRUPT_PREFIX + isoToStamp(now()) + '.json';
+          return driver.putText(name, current)
+            .then(function () { return driver.removeName(STATE_FILE); })
+            .then(function () { lastKnownHash = null; return name; });
+        });
+      }
+
+      /**
+       * Write generated artifacts UNPACKED (requirements 9.1). Sequential on purpose:
+       * a burst of parallel writes is exactly what makes a sync client complain.
+       * @param {string} deviceId
+       * @param {string} command
+       * @param {Array<{name:string,content:string}>} files
+       * @returns {Promise<string[]>} the paths written
+       */
+      function writeOutputs(deviceId, command, files) {
+        var base = OUT_DIR + '/' + deviceId + '/' + command + '/';
+        var written = [];
+        var p = Promise.resolve();
+        (files || []).forEach(function (f) {
+          p = p.then(function () {
+            var path = base + S.normName(f.name);
+            return driver.putText(path, f.content).then(function () { written.push(path); });
+          });
+        });
+        return p.then(function () { return written; });
+      }
+
+      /**
+       * Root .json files that are not ours — typically a OneDrive conflict copy
+       * ("project-jay.json"). Reported, never touched (requirements 10.3, 3.3).
+       */
+      function conflictCopies() {
+        return driver.listDir('').then(function (names) {
+          return names.filter(function (n) {
+            return /\.json$/i.test(n) && n !== STATE_FILE && n.indexOf(CORRUPT_PREFIX) !== 0;
+          }).sort();
+        });
+      }
+
+      return {
+        STATE_FILE: STATE_FILE, SNAP_DIR: SNAP_DIR, OUT_DIR: OUT_DIR,
+        CORRUPT_PREFIX: CORRUPT_PREFIX, SNAPSHOT_KEEP: SNAPSHOT_KEEP,
+        SNAPSHOT_MIN_INTERVAL_MS: SNAPSHOT_MIN_INTERVAL_MS,
+        driver: driver,
+        status: getStatus, canWrite: canWrite, label: label,
+        init: init, connect: connect, reconnect: reconnect, disconnect: disconnect,
+        read: read, write: write, forceWrite: forceWrite, adoptDisk: adoptDisk,
+        snapshots: snapshots, readSnapshot: readSnapshot, takeSnapshot: takeSnapshot,
+        snapshotDue: snapshotDue, prune: prune,
+        quarantine: quarantine, writeOutputs: writeOutputs, conflictCopies: conflictCopies,
+        // test-only reach-ins
+        _baseline: function () { return lastKnownHash; },
+        _setStatus: setStatus
+      };
+    }
+
+    App.storage.folder = {
+      create: create, isoToStamp: isoToStamp, stampToIso: stampToIso, stampOf: stampOf
+    };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.storage.writer  — TF.5: the 60s idle / 180s capped debounce
+   * PURPOSE: The save POLICY, kept out of the folder store so both stay trivially
+   *          testable. Coalesces a burst of edits into one write, guarantees only one
+   *          write is ever in flight, and never spins on failure.
+   * PURITY:  impure (timers) but every dependency is injectable.
+   * DEPENDS: App.util.clock (default time source only)
+   * INVARIANTS:
+   *   * COALESCING. `pending` holds only the LATEST document. There is no queue of
+   *     stale versions to work through.
+   *   * ONE WRITE AT A TIME, and the drain LOOPS rather than recursing on the stack:
+   *     an edit arriving DURING a write is picked up by the same drain. flush()
+   *     therefore resolves only when nothing is pending AND nothing is in flight.
+   *   * NO RETRY SPIN. A failed write clears `pending` and reports 'error'. The next
+   *     edit retries; a failure never loops hot.
+   *   * The idle delay is not the whole policy: without the CAP, continuous editing
+   *     that never pauses for `idleMs` would never write at all. See requirements 6.2.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var IDLE_MS = 60 * 1000;   // write 60s after the last change...
+    var CAP_MS = 180 * 1000;   // ...but never let more than 3 minutes pass unwritten
+
+    /**
+     * @param {{write:function(string):Promise, idleMs?:number, capMs?:number,
+     *          onState?:function(string,*), now?:function():number,
+     *          setTimer?:function, clearTimer?:function}} opts
+     */
+    function create(opts) {
+      var doWrite = opts.write;
+      var idleMs = opts.idleMs === undefined ? IDLE_MS : opts.idleMs;
+      var capMs = opts.capMs === undefined ? CAP_MS : opts.capMs;
+      var onState = opts.onState || function () {};
+      var now = opts.now || function () { return Date.parse(App.util.clock.nowIso()); };
+      var setTimer = opts.setTimer || function (fn, ms) { return window.setTimeout(fn, ms); };
+      var clearTimer = opts.clearTimer || function (t) { window.clearTimeout(t); };
+
+      var pending = null;      // the LATEST document awaiting a write, or null
+      var firstPendingAt = null; // when the current unwritten run began (for the cap)
+      var inFlight = false;
+      var current = Promise.resolve(); // tail of the drain chain, for flush()
+      var timer = null;
+      var state = 'saved';
+
+      function setState(s, err) { state = s; onState(s, err); }
+
+      function disarm() { if (timer !== null) { clearTimer(timer); timer = null; } }
+
+      function arm() {
+        disarm();
+        var t = now();
+        var dueAt = Math.min(t + idleMs, firstPendingAt + capMs);
+        timer = setTimer(function () { timer = null; drain(); }, Math.max(0, dueAt - t));
+      }
+
+      /** Record a new document. Coalesces; only the latest survives. */
+      function schedule(text) {
+        pending = String(text);
+        if (firstPendingAt === null) firstPendingAt = now();
+        if (state !== 'saving') setState('dirty');
+        arm();
+      }
+
+      function drain() {
+        if (inFlight) return current;
+        if (pending === null) return Promise.resolve();
+        disarm();
+        inFlight = true;
+        setState('saving');
+        var text = pending;
+        pending = null;
+        current = Promise.resolve()
+          .then(function () { return doWrite(text); })
+          .then(function () {
+            inFlight = false;
+            if (pending !== null) return drain(); // an edit landed mid-write — same drain
+            firstPendingAt = null;
+            setState('saved');
+          }, function (err) {
+            // No retry spin: drop the pending doc and wait for the next edit.
+            inFlight = false;
+            pending = null;
+            firstPendingAt = null;
+            setState('error', err);
+          });
+        return current;
+      }
+
+      /** Resolves only once nothing is pending and nothing is in flight. */
+      function flush() {
+        disarm();
+        return drain().then(function () {
+          if (pending !== null || inFlight) return flush();
+          return undefined;
+        });
+      }
+
+      return {
+        schedule: schedule,
+        flush: flush,
+        drain: drain,
+        state: function () { return state; },
+        pending: function () { return pending !== null; },
+        inFlight: function () { return inFlight; },
+        armed: function () { return timer !== null; },
+        cancel: function () { disarm(); pending = null; firstPendingAt = null; }
+      };
+    }
+
+    App.storage.writer = { create: create, IDLE_MS: IDLE_MS, CAP_MS: CAP_MS };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
    * MODULE: App.md  — MD-1: LaTeX-safe markdown primitives
    * PURPOSE: The single choke point through which every data-derived string passes
    *          on its way into a generated document, exactly as App.util.html.esc is
@@ -3369,12 +4224,23 @@
    *          a dev button; MUST NOT run in normal use.
    * PURITY:  harness is pure; rendering touches the DOM only when explicitly run.
    * DEPENDS: App.util.html (esc)
-   * INVARIANTS: registering a suite never executes it; run() executes all.
+   * INVARIANTS:
+   *   * registering a suite never executes it; run() executes all.
+   *   * run() RESOLVES A PROMISE. A test fn may return a thenable (the folder-storage
+   *     suites are promise-based end to end); one that returns anything else is
+   *     treated as having passed the moment it returns, so the 170-odd synchronous
+   *     suites needed no edit when this went async.
+   *   * Tests run STRICTLY SEQUENTIALLY, and concurrent run() calls are serialised
+   *     against each other (_running). Suites share global App state — App.store.init,
+   *     the active platform, the injected clock — so any interleaving is a flake
+   *     factory. Under #selftest in jsdom there ARE two callers (boot below, and
+   *     tools/run-selftests.js), which is exactly the case this guards.
    * ============================================================================= */
   (function (App) {
     'use strict';
 
     var _suites = []; // {name, tests:[{name, fn}]}
+    var _running = null; // tail of the serialised run chain (see INVARIANTS)
 
     /** Register a suite of tests. */
     function suite(name, registerFn) {
@@ -3417,35 +4283,54 @@
       try { return typeof v === 'string' ? v : JSON.stringify(v); } catch (e) { return String(v); }
     }
 
+    function errText(e) { return (e && e.message) || String(e); }
+
     /**
-     * Run all registered suites.
-     * @returns {{suites:Object[], passed:number, failed:number}}
+     * Run all registered suites, sequentially, awaiting any test that returns a
+     * thenable. Serialised against any run already in flight.
+     * @returns {Promise<{suites:Object[], passed:number, failed:number}>}
      */
     function run() {
-      var results = [];
-      var passed = 0, failed = 0;
-      for (var s = 0; s < _suites.length; s++) {
-        var suiteRes = { name: _suites[s].name, tests: [] };
-        for (var t = 0; t < _suites[s].tests.length; t++) {
-          var tc = _suites[s].tests[t];
-          try {
-            tc.fn();
-            suiteRes.tests.push({ name: tc.name, ok: true });
-            passed++;
-          } catch (e) {
-            suiteRes.tests.push({ name: tc.name, ok: false, error: e.message || String(e) });
-            failed++;
-          }
-        }
-        results.push(suiteRes);
-      }
-      return { suites: results, passed: passed, failed: failed };
+      _running = (_running || Promise.resolve()).then(runOnce);
+      return _running;
     }
 
-    /** Run all suites and render the results into a fresh DOM panel. */
+    function runOnce() {
+      var results = [];
+      var passed = 0, failed = 0;
+      // One promise chain, appended to per test, so tests never overlap.
+      var chain = Promise.resolve();
+      _suites.forEach(function (su) {
+        var suiteRes = { name: su.name, tests: [] };
+        results.push(suiteRes);
+        su.tests.forEach(function (tc) {
+          chain = chain.then(function () {
+            function pass() { suiteRes.tests.push({ name: tc.name, ok: true }); passed++; }
+            function fail(e) { suiteRes.tests.push({ name: tc.name, ok: false, error: errText(e) }); failed++; }
+            var out;
+            try { out = tc.fn(); } catch (e) { fail(e); return; }
+            // Anything that is not a thenable has already finished, synchronously.
+            if (!out || typeof out.then !== 'function') { pass(); return; }
+            return out.then(pass, fail);
+          });
+        });
+      });
+      return chain.then(function () {
+        return { suites: results, passed: passed, failed: failed };
+      });
+    }
+
+    /**
+     * Run all suites and render the results into a fresh DOM panel.
+     * @returns {Promise<{suites:Object[], passed:number, failed:number}>}
+     */
     function runAndRender(rootEl) {
+      rootEl.innerHTML = '<div id="selftest-root"><h2>Self-tests</h2><div class="st-summary">running…</div></div>';
+      return run().then(function (res) { return render(rootEl, res); });
+    }
+
+    function render(rootEl, res) {
       var esc = App.util.html.esc;
-      var res = run();
       var html = '<div id="selftest-root">';
       html += '<h2>Self-tests</h2>';
       html += '<div class="st-summary ' + (res.failed ? 'st-fail' : 'st-pass') + '">' +
@@ -36717,6 +37602,580 @@
         T.assertDeepEqual(App.projectIo.validateSchema(p).filter(function (i) { return i.severity === 'error'; }), []);
         T.assertEqual(DOC.gapFor({ id: 'sec1', title: 'X', label: 'X', level: 1 }), '',
           'a block with no spaceBefore asks for nothing');
+      });
+    });
+
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * FOLDER-STORAGE SELF-TEST SUITES (TF.1–TF.5)
+   * Everything above the driver line, run against driverMemory in plain jsdom.
+   * showDirectoryPicker() cannot be driven by any headless test — there is no picker
+   * to click — which is precisely why the driver line sits where it does and why
+   * driverFsa is kept thin enough that hand-verification is credible
+   * (folder-storage-requirements.md 13.2).
+   * These suites are ASYNC: they return promises, which the harness awaits.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+    var T = App.test;
+    var S = App.storage;
+    var F = App.storage.folder;
+
+    /* ---- shared helpers ---- */
+
+    /** Run fn under a controllable clock; always restores the real one. */
+    function withClock(startIso, fn) {
+      var t = Date.parse(startIso);
+      App.util.clock.setClock(function () { return new Date(t); });
+      var ctl = {
+        advance: function (ms) { t += ms; },
+        iso: function () { return new Date(t).toISOString(); }
+      };
+      var done = function () { App.util.clock.resetClock(); };
+      var out;
+      try { out = fn(ctl); } catch (e) { done(); throw e; }
+      return Promise.resolve(out).then(
+        function (v) { done(); return v; },
+        function (e) { done(); throw e; }
+      );
+    }
+
+    /** A folder store over a fresh in-memory driver. */
+    function mk(seed) {
+      var driver = App.storage.driverMemory.create(seed ? { files: seed } : null);
+      var store = F.create({ driver: driver });
+      store._setStatus(S.STATUS.READY);
+      return { store: store, driver: driver, files: function () { return driver._files(); } };
+    }
+
+    /** Virtual timers, so the debounce is tested without waiting three real minutes. */
+    function fakeTimers() {
+      var q = [], nextId = 1, t = 0;
+      return {
+        now: function () { return t; },
+        set: function (fn, ms) { var e = { id: nextId++, at: t + ms, fn: fn }; q.push(e); return e.id; },
+        clear: function (id) { q = q.filter(function (e) { return e.id !== id; }); },
+        advance: function (ms) {
+          t += ms;
+          var due = q.filter(function (e) { return e.at <= t; }).sort(function (a, b) { return a.at - b.at; });
+          q = q.filter(function (e) { return e.at > t; });
+          due.forEach(function (e) { e.fn(); });
+        }
+      };
+    }
+
+    function deferred() {
+      var d = {};
+      d.promise = new Promise(function (res, rej) { d.resolve = res; d.reject = rej; });
+      return d;
+    }
+
+    /** Settle the microtask queue so a drain that is already running can finish. */
+    function tick(n) {
+      var p = Promise.resolve();
+      for (var i = 0; i < (n || 6); i++) p = p.then(function () {});
+      return p;
+    }
+
+    /* ===== SUITES: paths and the driver contract (TF.2) ===== */
+
+    T.suite('TF.2 storage path helpers', function (t) {
+      t.test('normName strips a leading ./ and collapses slashes', function () {
+        T.assertEqual(S.normName('./Snapshots//a.json'), 'Snapshots/a.json');
+        T.assertEqual(S.normName('/project.json'), 'project.json');
+        T.assertEqual(S.normName('Outputs\\dev\\a.txt'), 'Outputs/dev/a.txt');
+      });
+      t.test('dirOf returns the containing directory', function () {
+        T.assertEqual(S.dirOf('Snapshots/a.json'), 'Snapshots');
+        T.assertEqual(S.dirOf('project.json'), '');
+        T.assertEqual(S.dirOf('Outputs/d/c/x.sh'), 'Outputs/d/c');
+      });
+      t.test('isChildOf is a DIRECTORY test, not a prefix match', function () {
+        T.assertEqual(S.isChildOf('Snapshots/a.json', 'Snapshots'), true);
+        T.assertEqual(S.isChildOf('Snapshots/deep/a.json', 'Snapshots'), false, 'not an immediate child');
+        T.assertEqual(S.isChildOf('project.json', ''), true);
+        T.assertEqual(S.isChildOf('Snapshots/a.json', ''), false, 'root listing must not see snapshots');
+      });
+    });
+
+    T.suite('TF.2 driverMemory honours the driver contract', function (t) {
+      t.test('put then get round-trips; absent reads as null', function () {
+        var d = App.storage.driverMemory.create();
+        return d.putText('a/b.json', 'hello')
+          .then(function () { return d.getText('a/b.json'); })
+          .then(function (v) {
+            T.assertEqual(v, 'hello');
+            return d.getText('nope.json');
+          })
+          .then(function (v) { T.assertEqual(v, null); });
+      });
+
+      t.test('listDir lists immediate FILE children only, sorted', function () {
+        var d = App.storage.driverMemory.create({ files: {
+          'project.json': '{}', 'Snapshots/b.json': '1', 'Snapshots/a.json': '2',
+          'Outputs/dev/impl/x.sh': '3'
+        } });
+        return d.listDir('Snapshots').then(function (n) {
+          T.assertDeepEqual(n, ['Snapshots/a.json', 'Snapshots/b.json']);
+          return d.listDir('');
+        }).then(function (n) {
+          T.assertDeepEqual(n, ['project.json'], 'the root listing must not descend');
+        });
+      });
+
+      t.test('removeName on an absent file is not an error', function () {
+        var d = App.storage.driverMemory.create();
+        return d.removeName('gone.json').then(function () { T.assert(true); });
+      });
+
+      t.test('fault injection rejects the nominated op only', function () {
+        var d = App.storage.driverMemory.create();
+        d.setFault(function (op, name) {
+          return (op === 'putText' && name === 'boom.json') ? S.fail(S.CODES.LOCKED, 'locked by sync') : null;
+        });
+        return d.putText('fine.json', 'x')
+          .then(function () { return d.putText('boom.json', 'x'); })
+          .then(function () { throw new Error('expected the write to reject'); },
+            function (e) { T.assertEqual(e.code, S.CODES.LOCKED); });
+      });
+    });
+
+    /* ===== SUITES: the snapshot policy (TF.4 · requirements 7.1) ===== */
+
+    T.suite('TF.4 snapshots are due on a 5-minute floor and pruned to 40', function (t) {
+      t.test('stamps are filename-safe, sortable, and reversible', function () {
+        var stamp = F.isoToStamp('2026-08-18T01:08:14.233Z');
+        T.assertEqual(stamp, '2026-08-18T01-08-14-233Z');
+        T.assertEqual(F.stampToIso(stamp), '2026-08-18T01:08:14.233Z');
+        T.assert(/^[A-Za-z0-9T\-]+Z$/.test(stamp), 'no character a filesystem would object to');
+        T.assert('2026-08-18T01-08-14-233Z' < '2026-08-18T01-09-00-000Z', 'sorts chronologically');
+      });
+
+      t.test('the first snapshot is always due; a second within 5 minutes is not', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function (clk) {
+          var m = mk();
+          return m.store.snapshotDue()
+            .then(function (due) {
+              T.assertEqual(due, true, 'nothing on disk yet');
+              return m.store.takeSnapshot('v1');
+            })
+            .then(function () {
+              clk.advance(4 * 60 * 1000);
+              return m.store.snapshotDue();
+            })
+            .then(function (due) {
+              T.assertEqual(due, false, '4 minutes is inside the floor');
+              clk.advance(61 * 1000);
+              return m.store.snapshotDue();
+            })
+            .then(function (due) { T.assertEqual(due, true, 'past 5 minutes'); });
+        });
+      });
+
+      t.test('prune keeps exactly the newest 40', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function (clk) {
+          var m = mk();
+          var p = Promise.resolve();
+          for (var i = 0; i < 45; i++) {
+            p = p.then(function () {
+              clk.advance(6 * 60 * 1000);
+              return m.store.takeSnapshot('v');
+            });
+          }
+          return p.then(function () { return m.store.snapshots(); })
+            .then(function (names) {
+              T.assertEqual(names.length, 40, 'pruned to SNAPSHOT_KEEP');
+              T.assert(names[0] > names[names.length - 1], 'newest first');
+            });
+        });
+      });
+
+      t.test('snapshot filenames are deterministic under a fixed clock', function () {
+        return withClock('2026-08-18T01:08:14.233Z', function () {
+          var m = mk();
+          return m.store.takeSnapshot('x').then(function (name) {
+            T.assertEqual(name, 'Snapshots/2026-08-18T01-08-14-233Z.json');
+          });
+        });
+      });
+    });
+
+    /* ===== SUITES: the canonical write (TF.4 · requirements 6.2, 7.1) ===== */
+
+    T.suite('TF.4 the canonical write', function (t) {
+      t.test('the first write creates project.json and takes no snapshot', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var m = mk();
+          return m.store.read()
+            .then(function (text) {
+              T.assertEqual(text, null, 'an empty folder holds no project');
+              return m.store.write('{"a":1}');
+            })
+            .then(function (res) {
+              T.assertEqual(res.written, true);
+              T.assertEqual(res.snapshot, null, 'nothing to snapshot on a genesis write');
+              T.assertEqual(m.files()['project.json'], '{"a":1}');
+            });
+        });
+      });
+
+      t.test('a byte-identical write is a no-op — no version worth recording', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var m = mk();
+          return m.store.read()
+            .then(function () { return m.store.write('{"a":1}'); })
+            .then(function () { return m.store.write('{"a":1}'); })
+            .then(function (res) {
+              T.assertEqual(res.written, false);
+              T.assertEqual(res.diverged, false);
+              return m.store.snapshots();
+            })
+            .then(function (n) { T.assertEqual(n.length, 0); });
+        });
+      });
+
+      t.test('overwriting snapshots the previous contents once the floor has passed', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function (clk) {
+          var m = mk();
+          return m.store.read()
+            .then(function () { return m.store.write('one'); })
+            .then(function () { clk.advance(6 * 60 * 1000); return m.store.write('two'); })
+            .then(function (res) {
+              T.assert(res.snapshot, 'a snapshot was taken');
+              T.assertEqual(m.files()[res.snapshot], 'one', 'the snapshot holds the PREVIOUS bytes');
+              T.assertEqual(m.files()['project.json'], 'two');
+              clk.advance(60 * 1000);
+              return m.store.write('three');
+            })
+            .then(function (res) {
+              T.assertEqual(res.written, true);
+              T.assertEqual(res.snapshot, null, 'inside the 5-minute floor, no second snapshot');
+            });
+        });
+      });
+    });
+
+    /* ===== SUITES: the concurrent-write guard (TF.4 · requirements 10) ===== */
+
+    T.suite('TF.4 the guard refuses to clobber', function (t) {
+      t.test('a change underneath us is reported, and nothing is written', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var m = mk();
+          return m.store.read()
+            .then(function () { return m.store.write('mine-1'); })
+            .then(function () {
+              m.files()['project.json'] = 'theirs'; // another machine, via the sync client
+              return m.store.write('mine-2');
+            })
+            .then(function (res) {
+              T.assertEqual(res.written, false);
+              T.assertEqual(res.diverged, true);
+              T.assertEqual(res.onDisk, 'theirs');
+              T.assertEqual(m.files()['project.json'], 'theirs', 'their bytes are intact');
+            });
+        });
+      });
+
+      t.test('a project.json we have never read is treated as divergent, not as ours', function () {
+        var m = mk({ 'project.json': 'someone-elses' });
+        return m.store.write('mine').then(function (res) {
+          T.assertEqual(res.diverged, true, 'no baseline means no licence to overwrite');
+          T.assertEqual(m.files()['project.json'], 'someone-elses');
+        });
+      });
+
+      t.test('"keep mine" snapshots their version first, then overwrites', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var m = mk();
+          return m.store.read()
+            .then(function () { return m.store.write('mine-1'); })
+            .then(function () {
+              m.files()['project.json'] = 'theirs';
+              return m.store.forceWrite('mine-2');
+            })
+            .then(function (res) {
+              T.assertEqual(res.written, true);
+              T.assertEqual(m.files()[res.snapshot], 'theirs', 'their version survives as a snapshot');
+              T.assertEqual(m.files()['project.json'], 'mine-2');
+              return m.store.write('mine-3'); // baseline re-adopted, so this proceeds
+            })
+            .then(function (res) { T.assertEqual(res.written, true); });
+        });
+      });
+
+      t.test('"take theirs" snapshots my unsaved state before handing theirs back', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var m = mk({ 'project.json': 'theirs' });
+          return m.store.adoptDisk('my-unsaved-work').then(function (res) {
+            T.assertEqual(res.text, 'theirs');
+            T.assertEqual(m.files()[res.snapshot], 'my-unsaved-work', 'my work is not lost');
+            return m.store.write('built-on-theirs');
+          }).then(function (res) {
+            T.assertEqual(res.written, true, 'adopting theirs re-establishes the baseline');
+          });
+        });
+      });
+
+      t.test('a sync conflict copy is reported, and left completely alone', function () {
+        var m = mk({
+          'project.json': '{}',
+          'project-jay.json': '{}',                          // OneDrive conflict copy
+          'project.corrupt-2026-08-18T00-00-00-000Z.json': '{}',
+          'Snapshots/2026-08-18T00-00-00-000Z.json': '{}'
+        });
+        return m.store.conflictCopies().then(function (n) {
+          T.assertDeepEqual(n, ['project-jay.json']);
+          T.assertEqual(m.files()['project-jay.json'], '{}', 'never touched');
+        });
+      });
+    });
+
+    /* ===== SUITES: quarantine and outputs (TF.4 · requirements 8, 9) ===== */
+
+    T.suite('TF.4 quarantine preserves the bytes a human could repair', function (t) {
+      t.test('the bad file is copied aside, then removed — never overwritten', function () {
+        return withClock('2026-08-18T01:08:14.233Z', function () {
+          var m = mk({ 'project.json': '{ not json' });
+          return m.store.quarantine().then(function (name) {
+            T.assertEqual(name, 'project.corrupt-2026-08-18T01-08-14-233Z.json');
+            T.assertEqual(m.files()[name], '{ not json', 'the unreadable bytes survive');
+            T.assertEqual(m.files()['project.json'], undefined, 'and the bad file is out of the way');
+          });
+        });
+      });
+
+      t.test('the copy is written BEFORE the delete, so a failure cannot lose it', function () {
+        var m = mk({ 'project.json': 'precious' });
+        m.driver.setFault(function (op) {
+          return op === 'putText' ? S.fail(S.CODES.LOCKED, 'locked') : null;
+        });
+        return m.store.quarantine().then(
+          function () { throw new Error('expected quarantine to reject'); },
+          function (e) {
+            T.assertEqual(e.code, S.CODES.LOCKED);
+            T.assertEqual(m.files()['project.json'], 'precious', 'still there — the delete never ran');
+          }
+        );
+      });
+
+      t.test('nothing to quarantine resolves null', function () {
+        var m = mk();
+        return m.store.quarantine().then(function (n) { T.assertEqual(n, null); });
+      });
+    });
+
+    T.suite('TF.10 generated artifacts land unpacked under Outputs/', function (t) {
+      t.test('each file keeps the logical path the zip entry used', function () {
+        var m = mk();
+        var files = [
+          { name: 'implementation.sh', content: '#!/bin/sh\n' },
+          { name: 'tactical.json', content: '{}' },
+          { name: 'manifest.json', content: '{"a":1}' }
+        ];
+        return m.store.writeOutputs('pixel-1', 'implementation', files).then(function (paths) {
+          T.assertDeepEqual(paths, [
+            'Outputs/pixel-1/implementation/implementation.sh',
+            'Outputs/pixel-1/implementation/tactical.json',
+            'Outputs/pixel-1/implementation/manifest.json'
+          ]);
+          T.assertEqual(m.files()['Outputs/pixel-1/implementation/tactical.json'], '{}');
+        });
+      });
+
+      t.test('a second run overwrites in place rather than accumulating', function () {
+        var m = mk();
+        var one = [{ name: 'a.sh', content: 'first' }];
+        var two = [{ name: 'a.sh', content: 'second' }];
+        return m.store.writeOutputs('d', 'verification', one)
+          .then(function () { return m.store.writeOutputs('d', 'verification', two); })
+          .then(function () { return m.driver.listDir('Outputs/d/verification'); })
+          .then(function (names) {
+            T.assertEqual(names.length, 1);
+            T.assertEqual(m.files()['Outputs/d/verification/a.sh'], 'second');
+          });
+      });
+    });
+
+    /* ===== SUITES: the debounced writer (TF.5 · requirements 6.2) ===== */
+
+    T.suite('TF.5 the writer coalesces, caps, and never spins', function (t) {
+      function harness(writeImpl) {
+        var timers = fakeTimers();
+        var writes = [];
+        var states = [];
+        var w = App.storage.writer.create({
+          write: writeImpl || function (text) { writes.push(text); return Promise.resolve(); },
+          idleMs: 60000, capMs: 180000,
+          now: timers.now, setTimer: timers.set, clearTimer: timers.clear,
+          onState: function (s) { states.push(s); }
+        });
+        return { w: w, timers: timers, writes: writes, states: states };
+      }
+
+      t.test('a burst of edits collapses to ONE write of the latest document', function () {
+        var h = harness();
+        h.w.schedule('a'); h.w.schedule('b'); h.w.schedule('c'); h.w.schedule('d');
+        T.assertEqual(h.writes.length, 0, 'nothing written while the burst is still arriving');
+        h.timers.advance(60000);
+        return tick().then(function () {
+          T.assertDeepEqual(h.writes, ['d'], 'only the latest survives — no queue of stale versions');
+          T.assertEqual(h.w.state(), 'saved');
+        });
+      });
+
+      t.test('the idle timer restarts on every edit', function () {
+        var h = harness();
+        h.w.schedule('a');
+        h.timers.advance(50000); h.w.schedule('b');
+        h.timers.advance(50000);
+        return tick().then(function () {
+          T.assertEqual(h.writes.length, 0, '100s elapsed but never 60s idle');
+          h.timers.advance(10000);
+          return tick();
+        }).then(function () {
+          T.assertDeepEqual(h.writes, ['b']);
+        });
+      });
+
+      t.test('the 180s cap writes even when the idle timer never expires', function () {
+        var h = harness();
+        h.w.schedule('v0');
+        // Edit every 30s: the idle timer is pushed out each time and never expires.
+        for (var i = 1; i <= 5; i++) { h.timers.advance(30000); h.w.schedule('v' + i); }
+        return tick().then(function () {
+          T.assertEqual(h.writes.length, 0, 'at 150s a pure idle debounce would still be waiting');
+          h.timers.advance(30000); // t = 180s — the cap
+          return tick();
+        }).then(function () {
+          T.assertDeepEqual(h.writes, ['v5'], 'the cap forced the write, with the latest document');
+        });
+      });
+
+      t.test('flush() resolves only after an edit that arrived MID-WRITE is written', function () {
+        var gate = deferred();
+        var h = harness(function (text) {
+          h.writes.push(text);
+          return h.writes.length === 1 ? gate.promise : Promise.resolve();
+        });
+        h.w.schedule('first');
+        var flushed = false;
+        var p = h.w.flush().then(function () { flushed = true; });
+        return tick().then(function () {
+          T.assertDeepEqual(h.writes, ['first']);
+          T.assertEqual(h.w.inFlight(), true);
+          h.w.schedule('second');       // lands while the first write is still in flight
+          gate.resolve();
+          return p;
+        }).then(function () {
+          T.assertEqual(flushed, true);
+          T.assertDeepEqual(h.writes, ['first', 'second'], 'the same drain picked it up');
+          T.assertEqual(h.w.pending(), false);
+          T.assertEqual(h.w.inFlight(), false);
+        });
+      });
+
+      t.test('a failure reports error, drops the pending doc, and does NOT loop hot', function () {
+        var attempts = 0;
+        var h = harness(function (text) {
+          attempts++;
+          h.writes.push(text);
+          return attempts === 1 ? Promise.reject(new Error('disk full')) : Promise.resolve();
+        });
+        h.w.schedule('a');
+        h.timers.advance(60000);
+        return tick().then(function () {
+          T.assertEqual(h.w.state(), 'error');
+          T.assertEqual(h.w.pending(), false, 'pending cleared — nothing to retry against');
+          T.assertEqual(attempts, 1);
+          h.timers.advance(600000);   // ten minutes of nothing happening
+          return tick();
+        }).then(function () {
+          T.assertEqual(attempts, 1, 'no retry spin');
+          h.w.schedule('b');          // the NEXT edit is what retries
+          h.timers.advance(60000);
+          return tick();
+        }).then(function () {
+          T.assertEqual(attempts, 2);
+          T.assertEqual(h.w.state(), 'saved');
+        });
+      });
+
+      t.test('flush() with nothing pending resolves without writing', function () {
+        var h = harness();
+        return h.w.flush().then(function () {
+          T.assertEqual(h.writes.length, 0);
+        });
+      });
+
+      t.test('the reported states are the ones the chrome shows', function () {
+        var h = harness();
+        h.w.schedule('a');
+        h.timers.advance(60000);
+        return tick().then(function () {
+          T.assertDeepEqual(h.states, ['dirty', 'saving', 'saved']);
+        });
+      });
+    });
+
+    /* ===== SUITES: the writer over the real folder store (TF.4 + TF.5) ===== */
+
+    T.suite('TF.5 the writer driving the folder store end to end', function (t) {
+      t.test('edits coalesce into one canonical write, with the snapshot ladder behind it', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function (clk) {
+          var m = mk();
+          var timers = fakeTimers();
+          var w = App.storage.writer.create({
+            write: function (text) { return m.store.write(text); },
+            idleMs: 60000, capMs: 180000,
+            now: timers.now, setTimer: timers.set, clearTimer: timers.clear
+          });
+          return m.store.read().then(function () {
+            w.schedule('{"v":1}');
+            w.schedule('{"v":2}');
+            timers.advance(60000);
+            return w.flush();
+          }).then(function () {
+            T.assertEqual(m.files()['project.json'], '{"v":2}');
+            clk.advance(6 * 60 * 1000);
+            w.schedule('{"v":3}');
+            return w.flush();
+          }).then(function () {
+            T.assertEqual(m.files()['project.json'], '{"v":3}');
+            return m.store.snapshots();
+          }).then(function (names) {
+            T.assertEqual(names.length, 1, 'one snapshot, holding the superseded document');
+            T.assertEqual(m.files()[names[0]], '{"v":2}');
+          });
+        });
+      });
+
+      t.test('a divergent write surfaces as an unwritten result, not as a silent success', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var m = mk();
+          var results = [];
+          var timers = fakeTimers();
+          var w = App.storage.writer.create({
+            write: function (text) {
+              return m.store.write(text).then(function (r) { results.push(r); return r; });
+            },
+            now: timers.now, setTimer: timers.set, clearTimer: timers.clear
+          });
+          return m.store.read()
+            .then(function () { w.schedule('mine'); return w.flush(); })
+            .then(function () {
+              m.files()['project.json'] = 'theirs';
+              w.schedule('mine-again');
+              return w.flush();
+            })
+            .then(function () {
+              T.assertEqual(results.length, 2);
+              T.assertEqual(results[1].diverged, true);
+              T.assertEqual(m.files()['project.json'], 'theirs', 'their bytes stand');
+            });
+        });
       });
     });
 

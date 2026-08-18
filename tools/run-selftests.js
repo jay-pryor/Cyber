@@ -43,8 +43,15 @@ if (!App || !App.test) {
   process.exit(2);
 }
 
-const res = App.test.run();
+// App.test.run() resolves a promise now that the folder-storage suites are async
+// (harness INVARIANTS). Concurrent runs are serialised inside the harness, so this
+// one queues behind the render triggered by #selftest rather than interleaving.
+App.test.run().then(report).catch(err => {
+  console.error('FATAL: the suite run rejected — ' + (err && err.stack ? err.stack : err));
+  process.exit(2);
+});
 
+function report(res) {
 let shownFail = 0;
 for (const suite of res.suites) {
   const fails = suite.tests.filter(t => !t.ok);
@@ -79,3 +86,4 @@ console.log(
   `\n${colour}${res.passed}/${total} pass\x1b[0m  (${res.suites.length} suites, ${res.failed} failed)`
 );
 process.exit(res.failed ? 1 : 0);
+}
