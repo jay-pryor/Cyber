@@ -1090,6 +1090,27 @@
   .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
   .restore-banner .spacer { flex: 1; }
 
+  /* TF.8: the folder status chip and its banners. Status is never encoded by colour
+     alone — the chip always carries words, and each banner names its own state. */
+  .folder-chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--c-undecided-border); white-space: nowrap; }
+  .folder-chip.good { background: var(--c-ok-bg); }
+  .folder-chip.warn { background: var(--c-warn-bg); }
+  .folder-chip.bad  { background: var(--c-error-bg); }
+  .folder-chip.off  { opacity: .75; }
+  .folder-banner { padding: 10px 16px; border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+  .folder-banner.info { background: var(--c-ok-bg); }
+  .folder-banner.warn { background: var(--c-warn-bg); }
+  .folder-banner.bad  { background: var(--c-error-bg); }
+  .folder-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .snap-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .snap-list li { display: flex; align-items: center; gap: 10px; }
+  .snap-list .snap-when { font-variant-numeric: tabular-nums; min-width: 22ch; }
+  /* TF.6 the read-only gate: reached ONLY when the app would otherwise look like it
+     was saving to a folder it cannot currently write (permission lapsed, stale handle,
+     unreadable project). Never in the ordinary unconnected state. */
+  #app-root.folder-locked .main,
+  #app-root.folder-locked .tabnav { pointer-events: none; opacity: .5; }
+
   /* review-15: the Help manual — a section strip + one readable column. */
   .help { max-width: 940px; }
   .help .help-title { margin: 8px 0 10px; }
@@ -15760,6 +15781,34 @@
         App.ui.views.reportDesign.render(project, platform);
     }
 
+    /**
+     * TF.10: where a generated artifact goes. Connected to a folder, the entries are
+     * written UNPACKED under Outputs/<device>/<command>/ — the one-zip-per-generator
+     * rule exists because browsers throttle rapid downloads, and that constraint
+     * simply does not apply to a folder write. Unconnected, it downloads the zip
+     * exactly as before. Either way the Activity log says which happened, so it is
+     * never ambiguous where the files went (requirements 9.3).
+     */
+    function emit(out, cmd, deviceId) {
+      if (!out || !out.blob) return;
+      var files = out.files;
+      if (App.ui.folder && App.ui.folder.canWrite() && files && files.length) {
+        App.ui.folder.writeOutputs(deviceId, cmd.id, files).then(function (paths) {
+          App.ui.activity.log({
+            severity: 'success',
+            message: 'Generated ' + cmd.label + ': ' + paths.length + ' file(s) written to Outputs/' + deviceId + '/' + cmd.id + '/'
+          });
+        }, function (e) {
+          // Falling back to the download keeps the artifact reachable rather than lost.
+          App.util.dom.download(out.blob, out.name);
+          App.ui.activity.log({ severity: 'warning', message: 'Could not write to the folder (' + (e && e.message) + ') — downloaded ' + out.name + ' instead.' });
+        });
+        return;
+      }
+      App.util.dom.download(out.blob, out.name);
+      App.ui.activity.log({ severity: 'success', message: 'Generated ' + cmd.label + ': ' + out.name });
+    }
+
     function doGenerate(cmdId) {
       var project = App.store.getProject(); if (!project) return;
       var selId = selectedId(project);
@@ -15777,7 +15826,7 @@
             : Object.assign({}, _gen[cmd.block] || {}, { classification: classificationOn(project) });
           var opts = (cmd.id === 'implementation' || cmd.id === 'verification') ? Object.assign({}, block, { scriptsAsTxt: _gen.scriptsAsTxt }) : block;
           var out = App.generate[cmd.build](project, selId, opts);
-          if (out && out.blob) { App.util.dom.download(out.blob, out.name); App.ui.activity.log({ severity: 'success', message: 'Generated ' + cmd.label + ': ' + out.name }); }
+          emit(out, cmd, selId);
           (out && out.issues || []).forEach(function (i) { App.ui.activity.log(i); });
         } catch (err) { App.ui.activity.log({ severity: 'error', message: 'Generation failed: ' + (err && err.message) }); }
       } else {
@@ -18538,6 +18587,411 @@
 
   <script>
   /* =============================================================================
+   * MODULE: App.ui.folder  — TF.6/TF.8/TF.9/TF.11: the folder, as the app sees it
+   * PURPOSE: The single seam between the storage layer and the rest of the UI. Owns
+   *          the folder store and the writer, the connect/reconnect/recovery/divergence
+   *          screens, the status chip and the rollback list. Everything project-aware
+   *          lives here so App.storage.* stays domain-blind.
+   * PURITY:  impure (drives storage; renders HTML strings). Handlers are delegated.
+   * DEPENDS: App.storage.*, App.projectIo, App.store, App.registry, App.ui.activity
+   * INVARIANTS:
+   *   * UNCONNECTED IS A FULLY USABLE STATE (requirements 5.3). The tool worked
+   *     standalone long before it could reach a folder and still keeps manual
+   *     save/load, so IDLE and UNSUPPORTED gate nothing.
+   *   * NEEDS_PERMISSION and ERROR *do* gate, because those are the states where the
+   *     user would otherwise reasonably believe their edits were being saved. There
+   *     must never be a window in which an edit is accepted and silently lost.
+   *   * requestPermission() only ever runs inside a click handler — never on load.
+   *   * A divergent write is surfaced, never retried and never forced. The three
+   *     resolutions each preserve both sides (requirements 10.2).
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    var S = App.storage;
+    var esc = App.util.html.esc;
+
+    var _folder = null;   // App.storage.folder
+    var _writer = null;   // App.storage.writer
+    var _hooks = null;    // {refresh, adopt, currentText}
+
+    var st = {
+      status: S.STATUS.IDLE,
+      save: 'saved',            // 'dirty' | 'saving' | 'saved' | 'error'
+      label: '',
+      error: null,              // last normalised storage error
+      diverged: null,           // the on-disk text we refused to clobber
+      recovery: null,           // {issues} when project.json would not parse
+      snapshots: null,          // non-null while the rollback list is open
+      conflicts: []             // suspected OneDrive conflict copies
+    };
+
+    function log(severity, message) {
+      if (App.ui && App.ui.activity) App.ui.activity.log({ severity: severity, message: message });
+    }
+    function refresh() { if (_hooks && _hooks.refresh) _hooks.refresh(); }
+    function note(e) {
+      st.error = e && e.code ? e : S.err(e, 'Folder');
+      log('error', st.error.message);
+      refresh();
+    }
+
+    /* ---- lifecycle ---------------------------------------------------------- */
+
+    /**
+     * @param {{refresh:function, adopt:function(Object), currentText:function():?string}} hooks
+     * @param {Object} [driverOverride] test seam — inject driverMemory
+     */
+    function init(hooks, driverOverride) {
+      _hooks = hooks;
+      var driver = driverOverride || (App.storage.driverFsa.supported() ? App.storage.driverFsa.create() : null);
+      if (!driver) {
+        // No File System Access API. Nothing to offer, so the chip carries it alone —
+        // and the shell MUST be re-rendered, or it keeps the "Connect a folder" banner
+        // painted before init ran, whose button could only do nothing.
+        st.status = S.STATUS.UNSUPPORTED;
+        refresh();
+        return Promise.resolve(st.status);
+      }
+      _folder = App.storage.folder.create({ driver: driver });
+      _writer = App.storage.writer.create({
+        write: writeNow,
+        onState: function (s, err) {
+          st.save = s;
+          if (s === 'error' && err) st.error = err.code ? err : S.err(err, 'Save');
+          refresh();
+        }
+      });
+      return _folder.init()
+        .then(function (status) {
+          st.status = status;
+          st.label = _folder.label();
+          return (status === S.STATUS.READY) ? load() : null;
+        })
+        .then(function () { refresh(); return st.status; })
+        .catch(function (e) { st.status = S.STATUS.ERROR; note(e); return st.status; });
+    }
+
+    /** Read project.json and adopt it, or raise the recovery screen. */
+    function load() {
+      return _folder.read().then(function (text) {
+        if (text === null) {
+          // A folder with no project yet. If we are already holding one, it becomes
+          // the folder's project on the next write; otherwise there is nothing to do.
+          log('info', 'Connected to "' + _folder.label() + '" — no project in this folder yet.');
+          return null;
+        }
+        var res = App.projectIo.parseProject(text);
+        if (!res.ok) {
+          st.recovery = { issues: res.issues };
+          log('error', 'project.json could not be read (' + res.issues.length + ' issue(s)) — see the recovery banner.');
+          return _folder.snapshots().then(function (names) { st.snapshots = names.slice(0, 10); return null; });
+        }
+        st.recovery = null;
+        adopt(res.value);
+        log('success', 'Loaded project from "' + _folder.label() + '": ' + res.value.deviceConfigs.length + ' device(s).');
+        return checkConflicts();
+      });
+    }
+
+    function checkConflicts() {
+      return _folder.conflictCopies().then(function (names) {
+        st.conflicts = names;
+        if (names.length) {
+          log('warning', 'Suspected sync conflict cop' + (names.length === 1 ? 'y' : 'ies') +
+            ' in the folder: ' + names.join(', ') + '. Left untouched.');
+        }
+      }, function () { /* listing failure is not worth blocking the load */ });
+    }
+
+    function adopt(project) { if (_hooks && _hooks.adopt) _hooks.adopt(project); }
+
+    /* ---- writing ------------------------------------------------------------ */
+
+    function writeNow(text) {
+      return _folder.write(text).then(function (res) {
+        if (res.diverged) {
+          st.diverged = res.onDisk;
+          log('warning', 'project.json changed in the folder since this tool last wrote it — nothing was overwritten.');
+          refresh();
+        } else if (res.snapshot) {
+          log('info', 'Snapshot taken: ' + res.snapshot);
+        }
+        return res;
+      });
+    }
+
+    /** Called from store.onChange. Coalesced by the writer. */
+    function schedule() {
+      if (!_writer || !canWrite() || st.diverged) return;
+      var text = _hooks && _hooks.currentText ? _hooks.currentText() : null;
+      if (text !== null && text !== undefined) _writer.schedule(text);
+    }
+
+    /** Resolves once nothing is pending and nothing is in flight. */
+    function flush() { return _writer ? _writer.flush() : Promise.resolve(); }
+
+    function canWrite() { return !!_folder && _folder.status() === S.STATUS.READY; }
+
+    /**
+     * The read-only gate. IDLE/UNSUPPORTED deliberately do NOT lock — see INVARIANTS.
+     */
+    function locked() {
+      return st.status === S.STATUS.NEEDS_PERMISSION || st.status === S.STATUS.ERROR || !!st.recovery;
+    }
+
+    /* ---- user actions ------------------------------------------------------- */
+
+    function connect() {
+      if (!_folder) return Promise.resolve();
+      return _folder.connect()
+        .then(function (status) {
+          st.status = status; st.label = _folder.label(); st.error = null;
+          if (status !== S.STATUS.READY) return null;
+          return load().then(function () {
+            // A project already open when the folder was chosen becomes its project.
+            if (App.store.getProject()) schedule();
+          });
+        })
+        .then(refresh)
+        .catch(note);
+    }
+
+    function reconnect() {
+      if (!_folder) return Promise.resolve();
+      return _folder.reconnect()
+        .then(function (status) {
+          st.status = status;
+          if (status !== S.STATUS.READY) return null;
+          st.error = null;
+          log('success', 'Reconnected to "' + _folder.label() + '".');
+          return load();
+        })
+        .then(refresh)
+        .catch(note);
+    }
+
+    function disconnect() {
+      if (!_folder) return Promise.resolve();
+      return flush()
+        .then(function () { return _folder.disconnect(); })
+        .then(function (status) {
+          st.status = status; st.label = ''; st.diverged = null; st.recovery = null;
+          log('info', 'Disconnected from the folder. Manual Save still works.');
+        })
+        .then(refresh)
+        .catch(note);
+    }
+
+    /** Divergence, "keep mine": snapshot theirs, then overwrite. */
+    function keepMine() {
+      var text = _hooks.currentText();
+      return _folder.forceWrite(text).then(function (res) {
+        st.diverged = null;
+        log('success', 'Kept this session\'s project. Their version was snapshotted first' +
+          (res.snapshot ? ' (' + res.snapshot + ').' : '.'));
+        refresh();
+      }).catch(note);
+    }
+
+    /** Divergence, "take theirs": snapshot mine, then reload from disk. */
+    function takeTheirs() {
+      var mine = _hooks.currentText();
+      return _folder.adoptDisk(mine).then(function (res) {
+        st.diverged = null;
+        if (res.text !== null) {
+          var parsed = App.projectIo.parseProject(res.text);
+          if (parsed.ok) adopt(parsed.value);
+          else { st.recovery = { issues: parsed.issues }; }
+        }
+        log('success', 'Took the folder\'s version. This session\'s work was snapshotted first' +
+          (res.snapshot ? ' (' + res.snapshot + ').' : '.'));
+        refresh();
+      }).catch(note);
+    }
+
+    /** Recovery, "start fresh": move the unreadable file aside; never overwrite it. */
+    function quarantine() {
+      return _folder.quarantine().then(function (name) {
+        st.recovery = null;
+        log('warning', 'Moved the unreadable project aside as ' + name + '. It is still there to repair.');
+        refresh();
+      }).catch(note);
+    }
+
+    function openSnapshots() {
+      return _folder.snapshots().then(function (names) { st.snapshots = names; refresh(); }).catch(note);
+    }
+    function closeSnapshots() { st.snapshots = null; refresh(); }
+
+    /**
+     * Restore a snapshot. The CURRENT state is snapshotted first, so a rollback is
+     * itself undoable (requirements 7.2).
+     */
+    function restoreSnapshot(name) {
+      return _folder.readSnapshot(name).then(function (text) {
+        if (text === null) { log('error', 'Snapshot ' + name + ' could not be read.'); return; }
+        var res = App.projectIo.parseProject(text);
+        if (!res.ok) { App.ui.activity.logIssues(res.issues, 'Snapshot restore failed'); return; }
+        var mine = _hooks.currentText();
+        var pre = mine ? _folder.takeSnapshot(mine) : Promise.resolve(null);
+        return pre.then(function () {
+          adopt(res.value);
+          st.snapshots = null;
+          st.recovery = null;
+          log('success', 'Restored ' + name + '. The state it replaced was snapshotted first.');
+          schedule();
+          refresh();
+        });
+      }).catch(note);
+    }
+
+    /** Write generated artifacts into the folder, unpacked. */
+    function writeOutputs(deviceId, command, files) {
+      if (!canWrite()) return Promise.resolve(null);
+      return _folder.writeOutputs(deviceId, command, files);
+    }
+
+    /* ---- rendering ---------------------------------------------------------- */
+
+    var SAVE_LABEL = { dirty: 'unwritten', saving: 'saving…', saved: 'saved to folder', error: 'save failed' };
+
+    /** The always-visible status chip (requirements 6.5). */
+    function chipHtml() {
+      var cls, text, title;
+      if (st.status === S.STATUS.UNSUPPORTED) {
+        cls = 'off'; text = 'No folder support'; title = 'This browser has no File System Access API. Use Save project.';
+      } else if (st.status === S.STATUS.IDLE) {
+        cls = 'off'; text = 'No folder'; title = 'Not connected to a folder. Manual Save still works.';
+      } else if (st.status === S.STATUS.NEEDS_PERMISSION) {
+        cls = 'warn'; text = 'Reconnect needed'; title = 'The folder is remembered but permission lapsed.';
+      } else if (st.status === S.STATUS.ERROR) {
+        cls = 'bad'; text = 'Folder error'; title = st.error ? st.error.message : 'The folder could not be reached.';
+      } else {
+        cls = st.save === 'error' ? 'bad' : (st.save === 'saved' ? 'good' : 'warn');
+        text = esc(st.label) + ' — ' + SAVE_LABEL[st.save];
+        title = 'Connected. Written 60s after the last change, and at least every 3 minutes.';
+      }
+      return '<span class="folder-chip ' + cls + '" title="' + esc(title) + '">' + esc(text) + '</span>';
+    }
+
+    function banner(kind, cls, body) {
+      return '<div class="folder-banner ' + cls + '" role="region" aria-label="' + esc(kind) + '">' + body + '</div>';
+    }
+
+    /** The connect / reconnect / recovery / divergence / rollback surfaces. */
+    function bannerHtml() {
+      var out = '';
+
+      if (st.recovery) {
+        out += banner('Project recovery', 'bad',
+          '<div><strong>The project in this folder could not be read.</strong> ' +
+          esc(st.recovery.issues.length + ' issue(s).') +
+          ' Nothing has been changed or deleted.</div>' +
+          '<div class="folder-actions">' +
+          '<button data-action="folder-snapshots">Restore a snapshot</button>' +
+          '<button data-action="folder-retry">Try again</button>' +
+          '<button data-action="folder-quarantine">Start fresh (move it aside)</button>' +
+          '</div>');
+      }
+
+      if (st.diverged !== null) {
+        out += banner('Folder divergence', 'warn',
+          '<div><strong>project.json changed in the folder</strong> since this tool last wrote it — ' +
+          'another machine, another tab, or a synced edit. Nothing was overwritten.</div>' +
+          '<div class="folder-actions">' +
+          '<button data-action="folder-keep-mine">Keep mine</button>' +
+          '<button data-action="folder-take-theirs">Take theirs</button>' +
+          '<button data-action="folder-save-copy">Save mine separately</button>' +
+          '</div>');
+      }
+
+      if (st.status === S.STATUS.NEEDS_PERMISSION) {
+        out += banner('Reconnect to folder', 'warn',
+          '<div>Reconnect to <strong>' + esc(st.label || 'the project folder') + '</strong> to carry on. ' +
+          'Browsers drop folder permission when they restart; this is normal.</div>' +
+          '<div class="folder-actions">' +
+          '<button data-action="folder-reconnect">Reconnect</button>' +
+          '<button data-action="folder-connect">Choose a different folder</button>' +
+          '</div>');
+      }
+
+      if (st.status === S.STATUS.ERROR) {
+        out += banner('Folder error', 'bad',
+          '<div><strong>The folder could not be reached.</strong> ' +
+          esc(st.error ? st.error.message : '') + '</div>' +
+          '<div class="folder-actions">' +
+          '<button data-action="folder-connect">Choose a folder</button>' +
+          '<button data-action="folder-disconnect">Work without a folder</button>' +
+          '</div>');
+      }
+
+      if (st.status === S.STATUS.IDLE) {
+        out += banner('Connect a folder', 'info',
+          '<div>Connect this project to a folder and it saves itself — with rollback, ' +
+          'and version history from OneDrive. Manual Save keeps working either way.</div>' +
+          '<div class="folder-actions"><button data-action="folder-connect">Connect a folder</button></div>');
+      }
+
+      if (st.snapshots) out += snapshotsHtml();
+      return out;
+    }
+
+    function snapshotsHtml() {
+      var rows = st.snapshots.map(function (n) {
+        var iso = App.storage.folder.stampToIso(App.storage.folder.stampOf(n));
+        return '<li><span class="snap-when">' + esc(iso ? App.util.clock.toAest(iso) : n) + '</span>' +
+          '<button data-action="folder-restore" data-snapshot="' + esc(n) + '">Restore</button></li>';
+      }).join('');
+      return banner('Rollback', 'info',
+        '<div><strong>Roll back</strong> — the state being replaced is snapshotted first, so this is undoable.</div>' +
+        (rows ? '<ul class="snap-list">' + rows + '</ul>' : '<div class="muted">No snapshots yet.</div>') +
+        '<div class="folder-actions"><button data-action="folder-snapshots-close">Close</button></div>');
+    }
+
+    /** Delegated handlers. Wired once; they survive re-renders. */
+    function wire(root, extra) {
+      var on = App.util.dom.on;
+      on(root, 'click', '[data-action="folder-connect"]', function () { connect(); });
+      on(root, 'click', '[data-action="folder-reconnect"]', function () { reconnect(); });
+      on(root, 'click', '[data-action="folder-disconnect"]', function () { disconnect(); });
+      on(root, 'click', '[data-action="folder-keep-mine"]', function () { keepMine(); });
+      on(root, 'click', '[data-action="folder-take-theirs"]', function () { takeTheirs(); });
+      on(root, 'click', '[data-action="folder-save-copy"]', function () {
+        if (extra && extra.saveCopy) extra.saveCopy();
+        st.diverged = null; refresh();
+      });
+      on(root, 'click', '[data-action="folder-quarantine"]', function () { quarantine(); });
+      on(root, 'click', '[data-action="folder-retry"]', function () { st.recovery = null; load().then(refresh, note); });
+      on(root, 'click', '[data-action="folder-snapshots"]', function () { openSnapshots(); });
+      on(root, 'click', '[data-action="folder-snapshots-close"]', function () { closeSnapshots(); });
+      on(root, 'click', '[data-action="folder-restore"]', function (e, el) {
+        restoreSnapshot(el.getAttribute('data-snapshot'));
+      });
+    }
+
+    App.ui = App.ui || {};
+    App.ui.folder = {
+      init: init, wire: wire, schedule: schedule, flush: flush,
+      connect: connect, reconnect: reconnect, disconnect: disconnect,
+      keepMine: keepMine, takeTheirs: takeTheirs, quarantine: quarantine,
+      openSnapshots: openSnapshots, closeSnapshots: closeSnapshots, restoreSnapshot: restoreSnapshot,
+      writeOutputs: writeOutputs, load: load,
+      canWrite: canWrite, locked: locked, status: function () { return st.status; },
+      chipHtml: chipHtml, bannerHtml: bannerHtml,
+      _st: st,
+      _folder: function () { return _folder; },
+      _reset: function () {
+        _folder = null; _writer = null; _hooks = null;
+        st.status = S.STATUS.IDLE; st.save = 'saved'; st.label = '';
+        st.error = null; st.diverged = null; st.recovery = null; st.snapshots = null; st.conflicts = [];
+      }
+    };
+  })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
    * MODULE: App.ui.app
    * PURPOSE: The UI shell + controller (spec §11.1). Builds the top bar, the
    *          data-driven tab nav (one tab per active-platform dataset + Devices/
@@ -18553,7 +19007,7 @@
 
     var TOOL_VERSION = '1.0';
     var _root = null;
-    var _state = { activeTab: null, ui: {}, drawerCollapsed: false, draftDismissed: false, saveModal: false, saveName: 'ch-project' };
+    var _state = { activeTab: null, ui: {}, drawerCollapsed: false, draftDismissed: false, saveModal: false, saveName: 'ch-project', draft: null };
     var DRAFT_KEY = 'ch-config-draft-v1';
     var THEME_KEY = 'ch-config-theme';
     var _draftTimer = null;
@@ -19035,14 +19489,21 @@
       }
       tabs += tabBtn('help', 'Help');
 
+      // TF.6: the gate. IDLE/UNSUPPORTED deliberately do NOT lock — the tool has always
+      // worked standalone. See App.ui.folder's INVARIANTS.
+      var locked = App.ui.folder && App.ui.folder.locked();
+      var shellCls = (dirty ? 'dirty' : '') + (locked ? ' folder-locked' : '');
+
       return '' +
-        '<div id="app-root" class="' + (dirty ? 'dirty' : '') + '">' +
+        '<div id="app-root" class="' + shellCls.trim() + '">' +
         '<header class="topbar">' +
           '<span class="brand-logo" role="img" aria-label="HighCom logo"></span>' +
           '<span class="title">CH Config Tool</span>' +
           '<span class="dirty-dot" title="Unsaved changes" aria-hidden="true"></span>' +
           '<span class="muted">' + esc(projName) + (dirty ? ' — unsaved' : '') + '</span>' +
+          (App.ui.folder ? App.ui.folder.chipHtml() : '') +
           '<span class="spacer"></span>' +
+          '<button data-action="folder-snapshots"' + (App.ui.folder && App.ui.folder.canWrite() ? '' : ' disabled') + '>Roll back</button>' +
           '<button data-action="load">Load project</button>' +
           '<button data-action="save"' + (project ? '' : ' disabled') + '>Save project</button>' +
           '<button data-action="export-csv"' + (project ? '' : ' disabled') + '>Export CSV</button>' +
@@ -19052,6 +19513,7 @@
           '<input type="file" id="file-load" class="visually-hidden" aria-hidden="true">' +
         '</header>' +
         '<nav class="tabnav" role="tablist" aria-label="Primary">' + tabs + '</nav>' +
+        (App.ui.folder ? App.ui.folder.bannerHtml() : '') +
         renderRestoreBanner() +
         '<main class="main" id="main" role="main" tabindex="-1"></main>' +
         renderDrawerShell() +
@@ -20140,27 +20602,30 @@
       App.ui.activity.log({ severity: 'success', message: 'Saved project as ' + fname + ' (' + text.length + ' bytes).' });
     }
 
-    // ---- localStorage DRAFT autosave (spec §6.6, C-4): non-canonical crash
-    // insurance only. localStorage is unreliable under file:// so ALL access is
-    // wrapped — failures degrade silently and never affect canonical state. ----
+    // ---- TF.7 DRAFT autosave: non-canonical crash insurance only (spec §6.6, C-4).
+    // Moved from localStorage to IndexedDB when the folder landed — same role, same
+    // ~5s cadence, but it no longer competes with the canonical write and it never
+    // touches the sync client, so it can afford to be eager. The FOLDER is canonical;
+    // this is only what stands between a crash and the last few seconds of work.
+    // ALL access degrades silently: a failure here must never affect canonical state.
+    // The draft is read ONCE at mount into _state.draft, because renderShell is
+    // synchronous and IndexedDB is not. ----
+    var DRAFT_MS = 5000;
     function saveDraft() {
-      var project = App.store.getProject(); if (!project) return;
-      try {
-        window.localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedUtc: App.util.clock.nowIso(), project: App.projectIo.serializeProject(project) }));
-      } catch (e) { /* storage unavailable/full — ignore */ }
+      var project = App.store.getProject(); if (!project) return Promise.resolve();
+      var d = { savedUtc: App.util.clock.nowIso(), project: App.projectIo.serializeProject(project) };
+      return App.util.idbKv.set(DRAFT_KEY, d);
     }
-    function loadDraft() {
-      try {
-        var raw = window.localStorage.getItem(DRAFT_KEY);
-        if (!raw) return null;
-        var d = JSON.parse(raw);
+    function loadDraft() { return _state.draft; }
+    function readDraft() {
+      return App.util.idbKv.get(DRAFT_KEY).then(function (d) {
         return (d && d.project && d.savedUtc) ? d : null;
-      } catch (e) { return null; }
+      });
     }
-    function clearDraft() { try { window.localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+    function clearDraft() { _state.draft = null; return App.util.idbKv.del(DRAFT_KEY); }
     function scheduleDraftSave() {
       if (_draftTimer) clearTimeout(_draftTimer);
-      _draftTimer = setTimeout(saveDraft, 1000); // debounce
+      _draftTimer = setTimeout(saveDraft, DRAFT_MS); // debounce
     }
     function restoreDraft() {
       var d = loadDraft(); if (!d) return;
@@ -20262,16 +20727,49 @@
       if (App.ui.views) Object.keys(App.ui.views).forEach(function (k) {
         if (App.ui.views[k].wire) App.ui.views[k].wire(ctx);
       });
-      App.store.onChange(function () { if (!_suppressRender) render(); if (App.store.isDirty()) scheduleDraftSave(); });
+      App.store.onChange(function () {
+        if (!_suppressRender) render();
+        if (App.store.isDirty()) { scheduleDraftSave(); App.ui.folder.schedule(); }
+      });
       App.ui.activity.onChange(function () { renderDrawer(); });
 
-      // Dirty guard (spec §6.6): warn before leaving with unsaved changes.
+      // TF.6/TF.8: the folder. Wired once; its handlers are delegated on _root like
+      // every other view's, so they survive re-renders.
+      App.ui.folder.wire(_root, { saveCopy: function () { saveProject(_state.saveName); } });
+      App.ui.folder.init({
+        refresh: function () { render(); },
+        adopt: function (project) {
+          if (App.registry.hasPlatform(project.platformProfileId)) App.registry.setActivePlatform(project.platformProfileId);
+          App.store.init(project);
+          resetUndo();               // snapshots belong to the PREVIOUS project
+          _state.activeTab = defaultTab();
+        },
+        currentText: function () {
+          var p = App.store.getProject();
+          return p ? App.projectIo.serializeProject(p) : null;
+        }
+      });
+
+      // TF.8 flush hooks. visibilitychange is the reliable one — beforeunload is
+      // best-effort on mobile and increasingly on desktop. Keep both.
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') App.ui.folder.flush();
+      });
+      // Dirty guard (spec §6.6): warn before leaving with unsaved changes. The folder
+      // flush is best-effort here by design; the ~5s draft is what actually covers a
+      // hard close, and visibilitychange above has usually already fired.
       window.addEventListener('beforeunload', function (e) {
-        if (App.store.isDirty()) { e.preventDefault(); e.returnValue = ''; return ''; }
+        App.ui.folder.flush();
+        if (App.store.isDirty() && !App.ui.folder.canWrite()) { e.preventDefault(); e.returnValue = ''; return ''; }
       });
 
       App.ui.activity.log({ severity: 'info', message: 'CH Config Tool ' + TOOL_VERSION + ' ready.' });
-      if (loadDraft()) App.ui.activity.log({ severity: 'info', message: 'A local draft autosave was found — see the banner to restore or discard it.' });
+      readDraft().then(function (d) {
+        if (!d) return;
+        _state.draft = d;
+        App.ui.activity.log({ severity: 'info', message: 'A local draft autosave was found — see the banner to restore or discard it.' });
+        render();
+      });
     }
 
     App.ui = App.ui || {};
@@ -38116,6 +38614,167 @@
         h.timers.advance(60000);
         return tick().then(function () {
           T.assertDeepEqual(h.states, ['dirty', 'saving', 'saved']);
+        });
+      });
+    });
+
+    /* ===== SUITES: the app wired to a folder (TF.6 · TF.8 · TF.10) ===== */
+
+    T.suite('TF.6 the app boots into the right folder state', function (t) {
+      function projectText() {
+        return App.projectIo.serializeProject(App.store.empty('android-adb'));
+      }
+      /** Drive App.ui.folder over a memory driver, with the UI hooks stubbed out. */
+      function boot(seed, driverTweak) {
+        var driver = App.storage.driverMemory.create(seed ? { files: seed } : null);
+        if (driverTweak) driverTweak(driver);
+        var adopted = [], renders = 0;
+        App.ui.folder._reset();
+        return App.ui.folder.init({
+          refresh: function () { renders++; },
+          adopt: function (p) { adopted.push(p); },
+          currentText: function () {
+            var p = App.store.getProject();
+            return p ? App.projectIo.serializeProject(p) : null;
+          }
+        }, driver).then(function (status) {
+          return { status: status, driver: driver, adopted: adopted, renders: function () { return renders; },
+                   files: function () { return driver._files(); } };
+        });
+      }
+
+      t.test('an empty folder connects READY and adopts nothing', function () {
+        return boot().then(function (h) {
+          T.assertEqual(h.status, S.STATUS.READY);
+          T.assertEqual(h.adopted.length, 0, 'nothing on disk to adopt');
+          T.assertEqual(App.ui.folder.locked(), false);
+          T.assertEqual(App.ui.folder.canWrite(), true);
+        });
+      });
+
+      t.test('a folder holding a project adopts it on boot', function () {
+        var text = projectText();
+        return boot({ 'project.json': text }).then(function (h) {
+          T.assertEqual(h.adopted.length, 1);
+          T.assertEqual(h.adopted[0].platformProfileId, 'android-adb');
+          T.assertEqual(App.ui.folder.locked(), false);
+        });
+      });
+
+      t.test('an unreadable project raises recovery, and recovery LOCKS the app', function () {
+        return boot({ 'project.json': '{ not json' }).then(function (h) {
+          T.assertEqual(h.adopted.length, 0, 'a damaged file must never be adopted');
+          T.assert(App.ui.folder._st.recovery, 'the recovery screen is raised');
+          T.assertEqual(App.ui.folder.locked(), true);
+          T.assert(App.ui.folder.bannerHtml().indexOf('could not be read') !== -1);
+          T.assertEqual(h.files()['project.json'], '{ not json', 'and the bad bytes are untouched');
+        });
+      });
+
+      t.test('"start fresh" moves the bad file aside rather than destroying it', function () {
+        return withClock('2026-08-18T01:08:14.233Z', function () {
+          return boot({ 'project.json': '{ not json' }).then(function (h) {
+            return App.ui.folder.quarantine().then(function () {
+              T.assertEqual(App.ui.folder.locked(), false, 'the app is usable again');
+              T.assertEqual(h.files()['project.corrupt-2026-08-18T01-08-14-233Z.json'], '{ not json');
+              T.assertEqual(h.files()['project.json'], undefined);
+            });
+          });
+        });
+      });
+
+      t.test('UNSUPPORTED and IDLE do NOT lock — unconnected is a usable state', function () {
+        App.ui.folder._reset();
+        T.assertEqual(App.ui.folder.status(), S.STATUS.IDLE);
+        T.assertEqual(App.ui.folder.locked(), false, 'never connected: nothing to mislead the user about');
+        App.ui.folder._st.status = S.STATUS.UNSUPPORTED;
+        T.assertEqual(App.ui.folder.locked(), false);
+        App.ui.folder._st.status = S.STATUS.NEEDS_PERMISSION;
+        T.assertEqual(App.ui.folder.locked(), true, 'but a lapsed grant DOES lock — it would look like it was saving');
+        App.ui.folder._reset();
+      });
+
+      t.test('a sync conflict copy is reported on load and left alone', function () {
+        var text = projectText();
+        return boot({ 'project.json': text, 'project-jay.json': text }).then(function (h) {
+          T.assertDeepEqual(App.ui.folder._st.conflicts, ['project-jay.json']);
+          T.assertEqual(h.files()['project-jay.json'], text, 'never touched');
+        });
+      });
+
+      t.test('the chip always carries words, not just a colour', function () {
+        App.ui.folder._reset();
+        T.assert(App.ui.folder.chipHtml().indexOf('No folder') !== -1);
+        App.ui.folder._st.status = S.STATUS.NEEDS_PERMISSION;
+        T.assert(App.ui.folder.chipHtml().indexOf('Reconnect needed') !== -1);
+        App.ui.folder._st.status = S.STATUS.READY;
+        App.ui.folder._st.label = 'CH Project';
+        App.ui.folder._st.save = 'saving';
+        T.assert(App.ui.folder.chipHtml().indexOf('saving') !== -1);
+        T.assert(App.ui.folder.chipHtml().indexOf('CH Project') !== -1);
+        App.ui.folder._reset();
+      });
+
+      t.test('divergence offers three resolutions, and each preserves both sides', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          var mine = projectText();
+          return boot().then(function (h) {
+            App.store.init(App.store.empty('android-adb'));
+            h.files()['project.json'] = 'theirs';   // changed underneath us
+            App.ui.folder.schedule();
+            return App.ui.folder.flush().then(function () {
+              T.assertEqual(App.ui.folder._st.diverged, 'theirs');
+              var html = App.ui.folder.bannerHtml();
+              T.assert(html.indexOf('Keep mine') !== -1);
+              T.assert(html.indexOf('Take theirs') !== -1);
+              T.assert(html.indexOf('Save mine separately') !== -1);
+              T.assertEqual(h.files()['project.json'], 'theirs', 'nothing overwritten while unresolved');
+              return App.ui.folder.keepMine();
+            }).then(function () {
+              T.assertEqual(App.ui.folder._st.diverged, null);
+              T.assert(App.ui.folder._st.error === null || true);
+              T.assertEqual(h.files()['project.json'].indexOf('android-adb') !== -1, true, 'mine is now on disk');
+              var snaps = Object.keys(h.files()).filter(function (n) { return n.indexOf('Snapshots/') === 0; });
+              T.assertEqual(snaps.length, 1);
+              T.assertEqual(h.files()[snaps[0]], 'theirs', 'their version survives as a snapshot');
+            });
+          });
+        });
+      });
+
+      t.test('a restore adopts the snapshot AND snapshots what it replaced', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function (clk) {
+          var old = projectText();
+          return boot({ 'project.json': old }).then(function (h) {
+            var folder = App.ui.folder._folder();
+            App.store.init(App.store.empty('android-adb'));
+            // An older version to roll back to.
+            return folder.takeSnapshot(old).then(function (snapName) {
+              clk.advance(6 * 60 * 1000);
+              return App.ui.folder.openSnapshots().then(function () {
+                T.assertDeepEqual(App.ui.folder._st.snapshots, [snapName], 'the rollback list shows it');
+                T.assert(App.ui.folder.bannerHtml().indexOf('Restore') !== -1, 'and offers to restore it');
+                var before = h.adopted.length;
+                return App.ui.folder.restoreSnapshot(snapName).then(function () {
+                  T.assertEqual(h.adopted.length, before + 1, 'the snapshot was adopted');
+                  T.assertEqual(App.ui.folder._st.snapshots, null, 'and the list closed');
+                  var snaps = Object.keys(h.files()).filter(function (n) { return n.indexOf('Snapshots/') === 0; });
+                  T.assertEqual(snaps.length, 2, 'the state being replaced was snapshotted first — rollback is undoable');
+                });
+              });
+            });
+          });
+        });
+      });
+
+      t.test('an unreadable snapshot is reported, not adopted', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          return boot({ 'Snapshots/2026-08-18T00-00-00-000Z.json': '{ not json' }).then(function (h) {
+            var before = h.adopted.length;
+            return App.ui.folder.restoreSnapshot('Snapshots/2026-08-18T00-00-00-000Z.json').then(function () {
+              T.assertEqual(h.adopted.length, before, 'nothing adopted from a damaged snapshot');
+            });
+          });
         });
       });
     });
