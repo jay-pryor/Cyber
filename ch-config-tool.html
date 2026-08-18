@@ -2049,20 +2049,36 @@
     };
 
     /**
-     * Normalise anything thrown by the filesystem into {code, message, cause}.
+     * D-067: is this ALREADY one of ours?
+     *
+     * The obvious test — `e.code` — is a trap, and it cost two rounds of misdiagnosis.
+     * DOMException carries a LEGACY NUMERIC `code` (NotFoundError is 8), so `e.code` is
+     * truthy for every error the filesystem throws. Guards written as
+     * `e && e.code ? e : err(e, ctx)` therefore took the "already normalised" branch for
+     * raw DOMExceptions and passed them straight through: no string code, no context, no
+     * stale classification — just the browser's own wording, which is what the user saw.
+     * Normalised errors are BRANDED instead, and nothing else in this file sets `storage`.
+     */
+    function isErr(e) { return !!(e && e.storage === true); }
+
+    /**
+     * Normalise anything thrown by the filesystem into a branded {code, message, cause}.
+     * Idempotent: handing it one of ours returns it unchanged, so it is safe to call on
+     * every catch path without first asking what kind of error arrived.
      * @param {*} e
      * @param {string} [context] prepended to the message so the Activity log says which op failed
-     * @returns {{code:string, message:string, cause:*}}
+     * @returns {{storage:true, code:string, message:string, cause:*}}
      */
     function err(e, context) {
+      if (isErr(e)) return e;
       var name = (e && e.name) || '';
       var code = NAME_BY_CODE[name] || CODES.IO;
       var msg = (e && e.message) || String(e);
-      return { code: code, message: (context ? context + ': ' : '') + msg, cause: e };
+      return { storage: true, code: code, message: (context ? context + ': ' : '') + msg, cause: e };
     }
 
     /** Make a normalised error directly (no DOMException to translate). */
-    function fail(code, message) { return { code: code, message: message, cause: null }; }
+    function fail(code, message) { return { storage: true, code: code, message: message, cause: null }; }
 
     /** Strip a leading "./" or "/", collapse repeated slashes. */
     function normName(name) {
@@ -2100,6 +2116,7 @@
     App.storage.CODES = CODES;
     App.storage.err = err;
     App.storage.fail = fail;
+    App.storage.isErr = isErr;
     App.storage.normName = normName;
     App.storage.segments = segments;
     App.storage.dirOf = dirOf;
@@ -2145,7 +2162,9 @@
       function guard(op, name) {
         if (!fault) return null;
         var e = fault(op, name);
-        return e ? Promise.reject(e.code ? e : S.err(e, op)) : null;
+        // Context carries the PATH as well as the operation, exactly as driverFsa does —
+        // a double that reports less than the real thing lets D-067-shaped bugs hide.
+        return e ? Promise.reject(S.err(e, op + ' ' + S.normName(name))) : null;
       }
 
       function getText(name) {
@@ -2356,7 +2375,7 @@
           .then(function (f) { return f.text(); })
           .catch(function (e) {
             // An absent FILE resolves null; a dead ROOT must not (D-065).
-            return absentOr(e && e.code ? e : S.err(e, 'Read ' + name), null);
+            return absentOr(S.err(e, 'Read ' + name), null);
           });
       }
 
@@ -2369,7 +2388,7 @@
             return Promise.resolve(w.write(String(text))).then(function () { return w.close(); });
           })
           .catch(function (e) {
-            var n = e && e.code ? e : S.err(e, 'Write ' + name);
+            var n = S.err(e, 'Write ' + name);
             // create:true means a NotFoundError here can only be a dead root — but
             // classify anyway rather than assume, and never swallow either way.
             if (n.code !== S.CODES.NOT_FOUND) throw n;
@@ -2401,7 +2420,7 @@
           return step();
         }).catch(function (e) {
           // A directory we never created yet lists as empty; a dead root does not.
-          return absentOr(e && e.code ? e : S.err(e, 'List ' + dir), []);
+          return absentOr(S.err(e, 'List ' + dir), []);
         });
       }
 
@@ -2411,7 +2430,7 @@
           .then(function () { return undefined; })
           .catch(function (e) {
             // Already gone is fine (another user may have deleted it); a dead root is not.
-            return absentOr(e && e.code ? e : S.err(e, 'Delete ' + name), undefined);
+            return absentOr(S.err(e, 'Delete ' + name), undefined);
           });
       }
 
@@ -18761,9 +18780,12 @@
      * rather than left looking healthy while every subsequent write fails the same way.
      */
     function note(e) {
-      var err = e && e.code ? e : S.err(e, 'Folder');
+      var err = S.err(e, 'Folder');
       st.error = err;
-      log('error', err.message);
+      // The code is appended because the browser's own wording is frequently the least
+      // useful part of a storage failure — D-067 was two rounds of guessing at exactly
+      // this message with no way to tell which of four conditions produced it.
+      log('error', err.message + ' [' + err.code + ']');
       if (err.code === S.CODES.STALE || err.code === S.CODES.NO_FOLDER) {
         st.stale = true;
         st.status = S.STATUS.ERROR;
@@ -38439,6 +38461,83 @@
           .then(function () { return d.putText('boom.json', 'x'); })
           .then(function () { throw new Error('expected the write to reject'); },
             function (e) { T.assertEqual(e.code, S.CODES.LOCKED); });
+      });
+    });
+
+    /* ===== SUITES: real DOMExceptions, not synthetic stand-ins (D-067) ===== */
+
+    T.suite('D-067 a real DOMException is normalised, not waved through', function (t) {
+      /** The actual object the File System Access API throws — not a hand-rolled stand-in. */
+      function domEx(name, message) {
+        return new window.DOMException(message || 'boom', name);
+      }
+
+      t.test('DOMException carries a truthy legacy numeric code — the trap itself', function () {
+        var e = domEx('NotFoundError', 'A requested file or directory could not be found.');
+        T.assertEqual(typeof e.code, 'number', 'legacy DOM code, NOT one of ours');
+        T.assert(!!e.code, 'and it is TRUTHY — which is what defeated `e.code ? e : err(e)`');
+        T.assertEqual(S.isErr(e), false, 'so identity must not be decided by .code');
+      });
+
+      t.test('err() converts it, brands it, and keeps the context', function () {
+        var n = S.err(domEx('NotFoundError', 'gone'), 'Write project.json');
+        T.assertEqual(S.isErr(n), true);
+        T.assertEqual(n.code, S.CODES.NOT_FOUND, 'a STRING code, not 8');
+        T.assertEqual(n.message, 'Write project.json: gone', 'the operation and file survive');
+      });
+
+      t.test('err() is idempotent, so every catch path can call it blind', function () {
+        var once = S.err(domEx('NotAllowedError'), 'Reconnect');
+        var twice = S.err(once, 'Something else');
+        T.assertEqual(twice, once, 'the same object, not re-wrapped');
+        T.assertEqual(twice.message.indexOf('Something else'), -1, 'and not re-prefixed');
+      });
+
+      t.test('every DOMException the spec names maps to a code we act on', function () {
+        T.assertEqual(S.err(domEx('AbortError')).code, S.CODES.ABORTED);
+        T.assertEqual(S.err(domEx('NotAllowedError')).code, S.CODES.DENIED);
+        T.assertEqual(S.err(domEx('NotFoundError')).code, S.CODES.NOT_FOUND);
+        T.assertEqual(S.err(domEx('NoModificationAllowedError')).code, S.CODES.LOCKED);
+        T.assertEqual(S.err(domEx('QuotaExceededError')).code, S.CODES.QUOTA);
+        T.assertEqual(S.err(domEx('SomethingUnheardOf')).code, S.CODES.IO, 'unknown reports verbatim');
+      });
+
+      t.test('a driver throwing a REAL DOMException still reaches the folder store as ours', function () {
+        var m = mk();
+        m.driver.setFault(function (op) {
+          // Thrown exactly as the browser would, with no code of our own attached.
+          return op === 'putText' ? domEx('NotFoundError', 'A requested file or directory could not be found.') : null;
+        });
+        return m.store.write('{"v":1}').then(
+          function () { throw new Error('expected the write to reject'); },
+          function (e) {
+            T.assertEqual(S.isErr(e), true, 'normalised on the way out of the driver');
+            T.assertEqual(e.code, S.CODES.NOT_FOUND);
+            T.assert(e.message.indexOf('project.json') !== -1, 'and it says WHICH file');
+          }
+        );
+      });
+
+      t.test('the app tears down on a real DOMException-shaped stale failure', function () {
+        var driver = App.storage.driverMemory.create();
+        driver.setFault(function (op) {
+          return op === 'putText' ? domEx('NotFoundError', 'A requested file or directory could not be found.') : null;
+        });
+        App.ui.folder._reset();
+        return App.ui.folder.init({
+          refresh: function () {}, adopt: function () {},
+          currentText: function () { return '{"v":1}'; }
+        }, driver).then(function () {
+          return App.ui.folder.saveNow();
+        }).then(function () {
+          // A memory driver's root is always alive, so this classifies as a genuine
+          // NOT_FOUND rather than STALE — the point is that it is OURS, with context,
+          // instead of the browser's bare wording reaching the user.
+          T.assertEqual(S.isErr(App.ui.folder._st.error), true);
+          T.assert(App.ui.folder._st.error.message.indexOf('project.json') !== -1,
+            'the drawer now says which file, not just that something was not found');
+          App.ui.folder._reset();
+        });
       });
     });
 

@@ -3671,3 +3671,36 @@ through `App.store`, so they cannot be fooled by the store happening to serialis
 **Result:** 1106/1106 self-tests pass (6 new). `driverFsa` remains hand-verification-outstanding by
 construction — this defect is exactly the kind the headless suite cannot reach, which is the
 argument for doing §13.2 sooner rather than later.
+
+### 2026-08-18 (later still) — D-067: the guard that never guarded
+
+Same reported symptom as D-065, *after* D-065 shipped: the drawer still showed the identical bare
+`NotFoundError` wording. That identity was the clue — the reporter had the **Save to folder**
+button, which shipped in the same commit as the classification, so the fix was definitely running
+and producing byte-identical output to the code it replaced. That is not an insufficient fix; it is
+a fix that never executes.
+
+**`DOMException` carries a legacy numeric `code`** — `NotFoundError` is `8`. Every normalisation
+guard read `e && e.code ? e : S.err(e, ctx)`, i.e. *"if it already has a code it is already ours"*.
+Truthy for every real filesystem error, so raw DOMExceptions were waved through unnormalised.
+Everything downstream then failed open: `n.code === 'not-found'` compared against `8` was never
+true, `absentOr` never swallowed, `classify()` never ran, `rootAlive()` was never called, and the
+entire STALE path from D-065 was unreachable. This predated D-065 — no FSA error had *ever* been
+normalised since TF.3.
+
+**Fixed:** identity is a brand (`storage: true`) tested by `S.isErr()`, never a property something
+else might coincidentally have. `S.err()` is idempotent so every catch path calls it blind. The
+Activity log appends the code, because the browser's wording is usually the least useful part.
+
+**Why the suite missed it, which is the part worth keeping.** Every injected fault was
+`S.fail(CODE, msg)` — an object that already had a string code. The tests exercised the branch that
+*assumes* normalisation and never the branch that has to *perform* it. The test double was easier
+to satisfy than reality in exactly the way that mattered, so it certified code that could not work.
+Six new tests build real `DOMException`s from the jsdom window instead, and the memory driver now
+reports the path as well as the operation so it can no longer report less than the real driver.
+
+Fifth defect in this repo with this shape (D-010, D-016, D-061, D-065). Recorded in the register
+with the general rule: where a boundary object comes from a browser API, the tests must use the
+browser's object.
+
+**Result:** 1112/1112 self-tests pass (6 new).

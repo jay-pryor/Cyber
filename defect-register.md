@@ -66,6 +66,7 @@ Severity: blocker · major · minor · trivial
 | D-062 | 17 (SPC-1) | minor | WONTFIX | "Line breaks are only ever showing up as one additional empty line" in the PDF. Correct, and not fixable where it was reported: pressing Enter repeatedly in a prose box leaves several newlines, and *every* run of two or more is one paragraph break in markdown — which the typesetter gives one fixed gap, whatever `\parskip` says. (Breaks written as `{{br}}` tokens do stack — five of them measure four blank lines on a built page — but a text box has no way to type one.) | Not made to stack: a blank line is a paragraph break and changing that would change every paragraph in the document. Answered instead by **SPC-1**, which makes empty space a measurement — a Space part, extra row height on a table, and space above a section's heading, all in millimetres |
 | D-065 | 17 (TF/§9.3) | major | FIXED | Reported as "save failed, it doesn't seem to be connecting to the folder properly", with `NotFoundError` in the Activity drawer. A `FileSystemDirectoryHandle` whose folder has been moved, renamed or re-synced by OneDrive still reports `queryPermission() === 'granted'` — the grant is inspected, not the disk — so the app connected, then swallowed the failed read of `project.json` as "no project in this folder yet", then failed on the first write. Three separate faults compounded it: `NotFoundError` mapped to ONE code covering four different situations (absent file, absent directory, dead root, nothing connected); `getText` swallowed all of them as `null`; and §9.3's stale-handle handling had never been implemented, so nothing tore the dead connection down. A fourth made it unrecoverable: §5.5's "change folder at any time" was only ever rendered on the reconnect banner, so a connected session had no way to re-pick — the only way out was clearing IndexedDB by hand | Split the codes: `NOT_FOUND` (this file is absent — swallowable) vs `STALE` (the root no longer resolves) vs `NO_FOLDER` (nothing connected). `driverFsa.rootAlive()` decides between them by enumerating the root, which is the cheapest operation that must actually resolve the handle; every `NotFoundError` is classified through it before being swallowed. `init()` probes a granted handle up front and discards a dead one per §9.3. A STALE error routes through one `note()` in `App.ui.folder` that tears the connection down — status ERROR, handle discarded, writes stopped — behind a banner naming the likely cause and saying the work is safe. The chip became the button that opens folder controls, so Change folder / Disconnect are reachable from every state |
 | D-066 | 17 (TF) | minor | FIXED | A failed folder write reported the bare DOMException text, so the drawer said "A requested file or directory could not be found at the time an operation was processed" without saying which operation, on which file, or what to do | Every driver rejection carries its operation and path as context, and the STALE case carries a written explanation rather than the browser's wording |
+| D-067 | 17 (TF) | blocker | FIXED | The D-065 fix did not take, and the drawer showed the identical bare `NotFoundError` wording afterwards. **`DOMException` carries a legacy NUMERIC `code`** (`NotFoundError` is `8`), so every normalisation guard written as `e && e.code ? e : S.err(e, ctx)` saw a truthy `code`, took the "already one of ours" branch, and passed the RAW DOMException straight through — no string code, no context, no stale classification, and `n.code === 'not-found'` comparing against `8` was never true. Nothing thrown by the filesystem had EVER been normalised, in either version. The suite could not see it: every injected fault was a synthetic object with a string code already on it | Normalised errors are BRANDED (`storage: true`) and identity is `S.isErr()`, never `.code`. `S.err()` is idempotent, so every catch path calls it blind. The memory driver's fault path now carries the path as well as the operation, so the double reports as much as the real driver. Six tests construct real `DOMException`s and assert they arrive normalised, contextual and correctly coded; the Activity log appends the code |
 | D-018 | 9 (FIL-1/FIL-2/CMF-1) | major | FIXED | Every "(none assigned)" / "(not set)" column filter returned an EMPTY table. The sentinel behind those options was `U+0000`, and the HTML parser rewrites a NUL in an `<option value>` to `U+FFFD` — so the value read back off the select never equalled the one the predicate compares against | Sentinel moved to a private-use codepoint that round-trips; one shared `FILTER_NONE` constant replaces six literals plus a stray raw-NUL fallback. Locked by FIL-3, which asserts through the rendered DOM |
 
 <!-- Add rows above. Detailed notes below per defect. -->
@@ -845,3 +846,43 @@ the embedded suite cannot reach, because `showDirectoryPicker()` has no picker f
   on. Here the boundary was a real filesystem handle going stale, which is why the residual risk is
   named rather than closed — `driverFsa` remains hand-verified only, and the checklist for that is
   `folder-storage-requirements.md` §13.2.
+
+### D-067 — the guard that never guarded
+
+The same reported symptom as D-065, *after* D-065 was fixed and shipped: the Activity drawer still
+read `A requested file or directory could not be found at the time an operation was processed.`,
+word for word, with no operation, no filename, and no stale classification.
+
+- **Why that was decisive.** The reporter had the **Save to folder** button, which shipped in the
+  same commit as the D-065 classification. So the fix was definitely running — and producing
+  byte-identical output to the code it replaced. That is not a fix that is insufficient; that is a
+  fix that is not executing.
+- **The cause:** `DOMException` has a **legacy numeric `code`** — `NotFoundError` is `8`. Every
+  normalisation guard in the storage layer was written as `e && e.code ? e : S.err(e, ctx)`,
+  meaning *"if it already has a code it is already one of ours"*. For every error the filesystem
+  actually throws, `e.code` is `8`, which is truthy. So the raw `DOMException` was passed straight
+  through as though it had been normalised.
+- **Everything downstream then silently failed open.** `n.code === S.CODES.NOT_FOUND` compared `8`
+  against `'not-found'` and was never true, so `absentOr` never swallowed, `classify()` never ran,
+  `rootAlive()` was never called, and the STALE path — the entire point of D-065 — was unreachable.
+  The message the user saw was the browser's own, because `S.err` had never been called on it.
+- **This predated D-065.** The same guard shape was in the original TF.3 driver, so no error thrown
+  by the File System Access API had ever been normalised at any point.
+- **Fix:** identity is a **brand**, not a property that something else might happen to have.
+  Normalised errors carry `storage: true`; `S.isErr()` is the only test; `S.err()` is idempotent so
+  every catch path can call it unconditionally without asking what arrived.
+- **Why the suite missed it — and this is the whole lesson.** Every injected fault in the folder
+  suites was `S.fail(CODE, msg)`: an object that *already had a string code*. The tests exercised
+  the branch that assumes normalisation has happened, and never once the branch that has to perform
+  it. The double was more convenient than the real thing in precisely the way that mattered.
+- **Locked by:** six tests built on real `DOMException` objects from the jsdom window — including
+  one asserting the trap directly (`typeof e.code === 'number'` and truthy, therefore unusable as
+  an identity test), one for idempotence, one covering every DOMException name the spec names, and
+  two driving a real DOMException through the driver into the folder store and into the app. The
+  memory driver was also changed to report the path as well as the operation, so it can no longer
+  report *less* than the real driver.
+- **Lesson:** the fifth defect in this repo with the same shape, and the sharpest. D-010, D-016,
+  D-061 and D-065 were all "the test constructed its own input and so could not fail". This one
+  goes further: the test double's *error type* was wrong, and a test double that is easier to
+  satisfy than reality will certify code that cannot work. Where a boundary object comes from a
+  browser API, the tests have to use the browser's object.
