@@ -64,6 +64,8 @@ Severity: blocker · major · minor · trivial
 | D-064 | 17 (CLS-1) | minor | FIXED | The classification banner's tick was not saved: it lived in the per-run session block with the file name and the `/[Tag]` values, so it had to be re-ticked every time the tool was opened — and a document generated from a fresh session went out **unmarked**, which is the wrong way round for a switch that says how sensitive the contents are | Moved into the project's `report` bag beside `titleBlock`, on the same presence rule (off leaves no trace). One answer for all three documents that carry a banner — the report, the control report and the procedure — rather than three ticks that always had to agree |
 | D-063 | 17 (SEC-4) | major | FIXED | "Leave this section out of the contents list" did nothing in the PDF — reported against a Title-level title block, true of every level. The heading carried pandoc's `.unlisted` alone, and pandoc only reads `unlisted` alongside `unnumbered`: measured on 3.1.11, `# X {.unlisted}` comes out as a plain `\section{X}`, which lists itself whatever the class said. The tool's own preview builds its contents list from the outline and honoured the flag, so the switch looked like it worked everywhere except the one place it matters | The pair, `.unnumbered .unlisted`. "Unnumbered" costs nothing here: `numbersections` is false for the whole document because App.doc writes every number into the heading TEXT, so the class changes only `\section` to `\section*` — which is what suppresses the `\addcontentsline`. Verified on a built page: the heading still reads "6 Approval", still starts its own page, still comes down its 70mm, still carries its `\label` for cross-references, and is not in the contents |
 | D-062 | 17 (SPC-1) | minor | WONTFIX | "Line breaks are only ever showing up as one additional empty line" in the PDF. Correct, and not fixable where it was reported: pressing Enter repeatedly in a prose box leaves several newlines, and *every* run of two or more is one paragraph break in markdown — which the typesetter gives one fixed gap, whatever `\parskip` says. (Breaks written as `{{br}}` tokens do stack — five of them measure four blank lines on a built page — but a text box has no way to type one.) | Not made to stack: a blank line is a paragraph break and changing that would change every paragraph in the document. Answered instead by **SPC-1**, which makes empty space a measurement — a Space part, extra row height on a table, and space above a section's heading, all in millimetres |
+| D-065 | 17 (TF/§9.3) | major | FIXED | Reported as "save failed, it doesn't seem to be connecting to the folder properly", with `NotFoundError` in the Activity drawer. A `FileSystemDirectoryHandle` whose folder has been moved, renamed or re-synced by OneDrive still reports `queryPermission() === 'granted'` — the grant is inspected, not the disk — so the app connected, then swallowed the failed read of `project.json` as "no project in this folder yet", then failed on the first write. Three separate faults compounded it: `NotFoundError` mapped to ONE code covering four different situations (absent file, absent directory, dead root, nothing connected); `getText` swallowed all of them as `null`; and §9.3's stale-handle handling had never been implemented, so nothing tore the dead connection down. A fourth made it unrecoverable: §5.5's "change folder at any time" was only ever rendered on the reconnect banner, so a connected session had no way to re-pick — the only way out was clearing IndexedDB by hand | Split the codes: `NOT_FOUND` (this file is absent — swallowable) vs `STALE` (the root no longer resolves) vs `NO_FOLDER` (nothing connected). `driverFsa.rootAlive()` decides between them by enumerating the root, which is the cheapest operation that must actually resolve the handle; every `NotFoundError` is classified through it before being swallowed. `init()` probes a granted handle up front and discards a dead one per §9.3. A STALE error routes through one `note()` in `App.ui.folder` that tears the connection down — status ERROR, handle discarded, writes stopped — behind a banner naming the likely cause and saying the work is safe. The chip became the button that opens folder controls, so Change folder / Disconnect are reachable from every state |
+| D-066 | 17 (TF) | minor | FIXED | A failed folder write reported the bare DOMException text, so the drawer said "A requested file or directory could not be found at the time an operation was processed" without saying which operation, on which file, or what to do | Every driver rejection carries its operation and path as context, and the STALE case carries a written explanation rather than the browser's wording |
 | D-018 | 9 (FIL-1/FIL-2/CMF-1) | major | FIXED | Every "(none assigned)" / "(not set)" column filter returned an EMPTY table. The sentinel behind those options was `U+0000`, and the HTML parser rewrites a NUL in an `<option value>` to `U+FFFD` — so the value read back off the select never equalled the one the predicate compares against | Sentinel moved to a private-use codepoint that round-trips; one shared `FILTER_NONE` constant replaces six literals plus a stray raw-NUL fallback. Locked by FIL-3, which asserts through the rendered DOM |
 
 <!-- Add rows above. Detailed notes below per defect. -->
@@ -799,3 +801,47 @@ Severity: blocker · major · minor · trivial
 - **Lesson:** the same shape as D-010 and D-016. A test that constructs the input it is about to
   assert on cannot find an encoding bug; the input has to come from where the real input comes from.
   Three defects now have had "the test never crossed the boundary the bug lives on" as their cause.
+
+### D-065 — a folder that moved, and four faults that hid it
+
+Reported from real use, which is exactly where it had to come from: `driverFsa` is the one module
+the embedded suite cannot reach, because `showDirectoryPicker()` has no picker for a test to click.
+
+- **The trigger:** OneDrive moved, renamed or re-synced the project folder. A stored
+  `FileSystemDirectoryHandle` survives that syntactically — it is still a valid object, and
+  `queryPermission()` still answers `'granted'`, because it inspects the permission grant and never
+  touches the disk. Nothing in the connect path asked the only question that mattered: *is the
+  folder still there?*
+- **Why it presented as "not connecting properly":** the failed read of `project.json` came back as
+  `NotFoundError`, which `getText` swallowed as `null` — the same answer it gives for the perfectly
+  normal case of a folder that has no project in it yet. So the app logged "no project in this
+  folder yet" and looked connected.
+- **Why it then said "save failed":** `putText` does not swallow, so the first canonical write
+  surfaced the raw DOMException 60 seconds later.
+- **The root fault was a lost distinction.** `NotFoundError` was mapped to a single code standing
+  for four different situations: this file is absent (normal), this directory is absent (normal),
+  the root handle is dead (fatal), nothing is connected at all (a programming error). Only the
+  first two are safe to swallow. The DOMException name cannot tell them apart — deciding needs a
+  probe.
+- **Two specified behaviours had never been built.** §9.3 (discard a stale handle, explain, prompt
+  for re-selection) was in `folder-storage-requirements.md` and not in the code. §5.5 (change folder
+  from inside the app at any time) was implemented only on the reconnect banner, so a *connected*
+  session had no way to re-pick or disconnect — the sole recovery was deleting the IndexedDB
+  database through DevTools.
+- **Fix:** three codes instead of one — `NOT_FOUND`, `STALE`, `NO_FOLDER`. `rootAlive()` enumerates
+  the root, the cheapest operation that must genuinely resolve the handle, and every `NotFoundError`
+  is classified through it before anything is swallowed. `init()` probes a granted handle before
+  reporting READY. A `STALE` error routes through one place in `App.ui.folder` that tears the
+  connection down rather than leaving it looking healthy while every write fails identically. The
+  status chip became the button that opens the folder controls, so Change folder and Disconnect are
+  reachable from every state.
+- **Locked by:** five tests — a dead handle tears the connection down and names the cause; the
+  codes are distinct; the controls render from any state; a deliberate save forces a snapshot inside
+  the floor while a timed one does not; a save refuses while a divergence is unresolved.
+- **Lesson, and it is the same one three times over:** the first version of this test seeded the
+  folder with the *same* project it then scheduled, so the write was byte-identical, short-circuited
+  before `putText`, and never reached the injected fault — it passed while proving nothing. Cousin
+  of D-010, D-016 and D-061: a test that arranges its own input can miss the boundary the bug lives
+  on. Here the boundary was a real filesystem handle going stale, which is why the residual risk is
+  named rather than closed — `driverFsa` remains hand-verified only, and the checklist for that is
+  `folder-storage-requirements.md` §13.2.

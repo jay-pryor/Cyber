@@ -3626,3 +3626,48 @@ SharePoint records a version per canonical write and the swap file does not pers
 dehydrated snapshot read produces the specific message rather than a generic error. Two-machine
 concurrency is out of scope by decision — the divergence guard is written to fail safe, not proven
 by test.
+
+### 2026-08-18 (later) — D-065/D-066: a folder that moved, and the four faults that hid it
+
+First real-use report against the folder work: *"save failed, it doesn't seem to be connecting to
+the folder properly"*, with `NotFoundError` in the Activity drawer. Diagnosed by inspection and
+fixed with the **Save to folder** button in the same pass.
+
+**The mechanism.** OneDrive had moved/renamed/re-synced the folder. A stored directory handle
+survives that syntactically, and `queryPermission()` still answers `'granted'` — it inspects the
+grant, not the disk. So the connect path never asked the only question that mattered.
+
+**Four faults, compounding:**
+1. `NotFoundError` mapped to ONE code standing for four situations — absent file (normal), absent
+   directory (normal), dead root (fatal), nothing connected (a programming error).
+2. `getText` swallowed all four as `null`, so a dead handle read exactly like an empty folder and
+   the app logged "no project in this folder yet".
+3. §9.3 stale-handle handling was specified and never implemented, so nothing tore the dead
+   connection down — every subsequent write failed identically.
+4. §5.5 "change folder at any time" existed only on the reconnect banner, so a *connected* session
+   could not re-pick at all. The only recovery was deleting the IndexedDB database via DevTools.
+
+**Fixed:** three codes (`not-found` / `stale` / `no-folder`); `driverFsa.rootAlive()` enumerates the
+root to decide between them, and every `NotFoundError` is classified before anything is swallowed;
+`init()` probes a granted handle up front and discards a dead one; one `note()` in `App.ui.folder`
+tears the connection down on `stale` and holds ERROR rather than dropping to IDLE, behind a banner
+that names the cause and says nothing has been lost; the status chip became the button that opens
+Change folder / Disconnect, reachable from every state. Driver rejections now carry their operation
+and path (D-066).
+
+**Also built — Save to folder (§6.6).** Writes immediately and restarts both timers, and snapshots
+regardless of the 5-minute floor: a deliberate save is a point the user thinks is significant, so
+the rollback list should hold the points they marked rather than only the ones a timer chose. A
+no-op on unchanged content, and refused while a divergence is unresolved. It also makes any folder
+failure visible at once rather than 60 seconds later, which is how this class of defect should
+surface in future.
+
+**A test that proved nothing.** The first version of the stale-handle test seeded the folder with
+the same project it then scheduled. The write was byte-identical, short-circuited before `putText`,
+and never reached the injected fault — green, and worthless. Same shape as D-010, D-016 and D-061.
+Rewritten against an empty folder, and the writer tests now drive the document directly rather than
+through `App.store`, so they cannot be fooled by the store happening to serialise identically.
+
+**Result:** 1106/1106 self-tests pass (6 new). `driverFsa` remains hand-verification-outstanding by
+construction — this defect is exactly the kind the headless suite cannot reach, which is the
+argument for doing §13.2 sooner rather than later.

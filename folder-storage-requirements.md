@@ -257,6 +257,34 @@ screen. Switching folders discards the stored handle, stores the new one, and re
 state from the new folder. Unsaved changes must be flushed to the *old* folder first, or
 the user warned if that is not possible.
 
+**This is load-bearing, not a convenience** (D-065). The first implementation rendered it
+only on the reconnect banner, so a *connected* session had no way to re-point or disconnect
+— and when the stored handle went stale, the only recovery was deleting the IndexedDB
+database through DevTools. The status chip is therefore the control: always present,
+always clickable, in every state.
+
+### 5.6 A stale handle is a first-class state
+
+The single most important thing `queryPermission()` does **not** tell you is whether the
+folder still exists. It inspects the permission grant, not the disk, and answers `'granted'`
+for a handle whose folder has been moved, renamed, or re-synced by OneDrive.
+
+So `NotFoundError` must never be treated as one condition. It stands for four:
+
+| Meaning | Code | Swallowable? |
+|---|---|---|
+| This file is not there yet | `not-found` | Yes — it is the normal first-run answer |
+| This directory is not there yet | `not-found` | Yes — lists as empty |
+| The root handle no longer resolves | `stale` | **Never** |
+| Nothing is connected at all | `no-folder` | **Never** — a programming error |
+
+Deciding between them requires a probe: enumerate the root, the cheapest operation that
+must genuinely resolve the handle. Classify **before** swallowing, on every path.
+
+On `stale`: discard the stored handle, hold `ERROR` (not `IDLE` — that would render the
+ordinary connect invitation and lose the explanation), stop all writes, and show a banner
+that names the likely cause and states that nothing has been lost. Never retry in a loop.
+
 ### 5.6 Error handling
 
 Every filesystem operation is wrapped. An unhandled rejection leaving the store
@@ -334,7 +362,22 @@ must be visible at all times. The existing topbar "unsaved" marker is repurposed
 this; it must distinguish *not yet written to the folder* from *no folder connected*,
 because those call for different user action.
 
-### 6.6 Manual save is unchanged
+### 6.6 Saving on demand
+
+**Save to folder** writes immediately and restarts the clock: it flushes the writer, which
+disarms the pending timer and clears the cap window, so both the 60s idle and the 180s cap
+begin again from the next edit.
+
+It also snapshots **regardless of the §7.1 five-minute floor**. A deliberate save is a point
+the user considers significant, and the rollback list should hold the points they marked
+rather than only the points a timer chose. An automatic write continues to respect the floor.
+
+If nothing has changed since the last write it does nothing — identical content is not a new
+version, and a folder write is what SharePoint records.
+
+It is refused, with a message, while a divergence (§10) is unresolved.
+
+### 6.7 Manual save is unchanged
 
 The existing Save button still serialises and downloads a `.json` via
 `App.util.dom.download`, and Load still accepts a file through `<input type="file">`.

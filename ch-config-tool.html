@@ -2024,12 +2024,19 @@
     var CODES = {
       ABORTED: 'aborted',                  // user cancelled a picker — NOT an error
       DENIED: 'denied',                    // permission refused or revoked
-      NOT_FOUND: 'not-found',              // file or directory absent
+      NOT_FOUND: 'not-found',              // this FILE is absent — normal, and swallowable
+      STALE: 'stale',                      // the ROOT HANDLE no longer resolves (D-065, §9.3)
+      NO_FOLDER: 'no-folder',              // nothing is connected at all
       LOCKED: 'locked',                    // commonly the sync client holding the file
       QUOTA: 'quota',
       UNSUPPORTED: 'unsupported',
       IO: 'io'                             // anything else — reported verbatim
     };
+
+    /* D-065: a NotFoundError means one of FOUR things, and collapsing them is what let a
+     * dead folder handle masquerade as "no project here yet" and then fail on the first
+     * write. The DOMException name only ever gets us as far as NOT_FOUND; deciding
+     * between an absent file and a dead root needs a probe, which driverFsa does. */
 
     var NAME_BY_CODE = {
       AbortError: CODES.ABORTED,
@@ -2219,7 +2226,44 @@
     }
 
     function create() {
-      var root = null; // FileSystemDirectoryHandle
+      var root = null;   // FileSystemDirectoryHandle
+      var issue = null;  // the last normalised failure worth showing the user
+
+      /**
+       * D-065 (§9.3): does the connected folder still exist?
+       * queryPermission() cannot answer this — it inspects the grant, not the disk, and
+       * happily returns 'granted' for a folder that has been moved, renamed or re-synced
+       * out from under us. Enumerating is the cheapest operation that must actually
+       * resolve the handle.
+       */
+      function rootAlive() {
+        if (!root) return Promise.resolve(false);
+        var it;
+        try { it = root.entries(); } catch (e) { return Promise.resolve(false); }
+        return Promise.resolve(it.next()).then(function () { return true; }, function () { return false; });
+      }
+
+      var STALE_MSG = 'The connected folder could no longer be found. It may have been moved, ' +
+                      'renamed, or re-synced. Choose it again to carry on.';
+
+      /**
+       * Decide what a NotFoundError actually meant. Resolves the ORIGINAL error when the
+       * folder is fine (so the file really is absent), or a STALE error when it is not.
+       */
+      function classify(n) {
+        return rootAlive().then(function (alive) {
+          return alive ? n : S.fail(S.CODES.STALE, STALE_MSG);
+        });
+      }
+
+      /** Wrap a driver op: NOT_FOUND is classified; `onAbsent` supplies the swallow value. */
+      function absentOr(n, onAbsent) {
+        if (n.code !== S.CODES.NOT_FOUND) throw n;
+        return classify(n).then(function (c) {
+          if (c.code === S.CODES.STALE) { issue = c; throw c; }
+          return onAbsent;
+        });
+      }
 
       function queryPerm(h) {
         if (!h || typeof h.queryPermission !== 'function') return Promise.resolve('granted');
@@ -2234,10 +2278,20 @@
 
       function init() {
         if (!supported()) return Promise.resolve(S.STATUS.UNSUPPORTED);
+        issue = null;
         return App.util.idbKv.get(HANDLE_KEY).then(function (h) {
           if (!h) return S.STATUS.IDLE;
           root = h;
           return queryPerm(h).then(statusFor, function () { return S.STATUS.NEEDS_PERMISSION; });
+        }).then(function (status) {
+          // D-065: only a GRANTED handle can be probed — enumerating without permission
+          // would throw for the wrong reason. An ungranted one is checked after reconnect.
+          if (status !== S.STATUS.READY) return status;
+          return rootAlive().then(function (alive) {
+            if (alive) return status;
+            issue = S.fail(S.CODES.STALE, STALE_MSG);
+            return forget().then(function () { return S.STATUS.ERROR; }); // §9.3: discard it
+          });
         });
       }
 
@@ -2279,7 +2333,8 @@
 
       /** Walk to the directory holding `name`, optionally creating it. */
       function dirFor(name, create_) {
-        if (!root) return Promise.reject(S.fail(S.CODES.NOT_FOUND, 'No folder is connected.'));
+        // NO_FOLDER, not NOT_FOUND: getText must never swallow this as "absent file".
+        if (!root) return Promise.reject(S.fail(S.CODES.NO_FOLDER, 'No folder is connected.'));
         var segs = S.segments(name);
         segs.pop(); // drop the filename
         var p = Promise.resolve(root);
@@ -2300,9 +2355,8 @@
           .then(function (fh) { return fh.getFile(); })
           .then(function (f) { return f.text(); })
           .catch(function (e) {
-            var n = e && e.code ? e : S.err(e, 'Read ' + name);
-            if (n.code === S.CODES.NOT_FOUND) return null; // absent is not an error
-            throw n;
+            // An absent FILE resolves null; a dead ROOT must not (D-065).
+            return absentOr(e && e.code ? e : S.err(e, 'Read ' + name), null);
           });
       }
 
@@ -2314,12 +2368,18 @@
             // Staged to a swap file; close() is the atomic commit.
             return Promise.resolve(w.write(String(text))).then(function () { return w.close(); });
           })
-          .catch(function (e) { throw (e && e.code ? e : S.err(e, 'Write ' + name)); });
+          .catch(function (e) {
+            var n = e && e.code ? e : S.err(e, 'Write ' + name);
+            // create:true means a NotFoundError here can only be a dead root — but
+            // classify anyway rather than assume, and never swallow either way.
+            if (n.code !== S.CODES.NOT_FOUND) throw n;
+            return classify(n).then(function (c) { issue = (c.code === S.CODES.STALE) ? c : issue; throw c; });
+          });
       }
 
       /** Immediate FILE children of `dir`, as full relative paths, sorted. */
       function listDir(dir) {
-        if (!root) return Promise.reject(S.fail(S.CODES.NOT_FOUND, 'No folder is connected.'));
+        if (!root) return Promise.reject(S.fail(S.CODES.NO_FOLDER, 'No folder is connected.'));
         var segs = S.segments(dir);
         var p = Promise.resolve(root);
         segs.forEach(function (seg) {
@@ -2340,9 +2400,8 @@
           }
           return step();
         }).catch(function (e) {
-          var n = e && e.code ? e : S.err(e, 'List ' + dir);
-          if (n.code === S.CODES.NOT_FOUND) return []; // a directory we never created yet
-          throw n;
+          // A directory we never created yet lists as empty; a dead root does not.
+          return absentOr(e && e.code ? e : S.err(e, 'List ' + dir), []);
         });
       }
 
@@ -2351,9 +2410,8 @@
           .then(function (d) { return d.removeEntry(baseName(name)); })
           .then(function () { return undefined; })
           .catch(function (e) {
-            var n = e && e.code ? e : S.err(e, 'Delete ' + name);
-            if (n.code === S.CODES.NOT_FOUND) return undefined; // already gone — swallow
-            throw n;
+            // Already gone is fine (another user may have deleted it); a dead root is not.
+            return absentOr(e && e.code ? e : S.err(e, 'Delete ' + name), undefined);
           });
       }
 
@@ -2361,6 +2419,8 @@
         kind: 'fsa',
         get label() { return root ? root.name : ''; },
         init: init,
+        rootAlive: rootAlive,
+        lastIssue: function () { return issue; },
         hasSavedHandle: hasSavedHandle,
         pickFolder: pickFolder,
         requestAccess: requestAccess,
@@ -2472,6 +2532,17 @@
       }
 
       /**
+       * D-065 (§9.3): the folder is gone. Discard the dead handle so nothing retries
+       * against it, but hold ERROR rather than dropping to IDLE — IDLE would render the
+       * ordinary "connect a folder" invitation and quietly lose the explanation.
+       */
+      function markStale() {
+        lastKnownHash = null;
+        return Promise.resolve(driver.forget ? driver.forget() : null)
+          .then(function () { return setStatus(S.STATUS.ERROR); }, function () { return setStatus(S.STATUS.ERROR); });
+      }
+
+      /**
        * Read the canonical document and adopt it as the divergence baseline.
        * @returns {Promise<string|null>} null when the folder holds no project yet.
        */
@@ -2519,9 +2590,13 @@
       /**
        * The canonical write. Refuses rather than clobbers.
        * @param {string} text
+       * @param {{forceSnapshot?:boolean}} [opts] forceSnapshot bypasses the 5-minute floor,
+       *        for a DELIBERATE save — that is a point the user thinks is significant, so
+       *        it should be in the rollback list whether or not a timer agrees.
        * @returns {Promise<{written:boolean, diverged:boolean, snapshot:string|null, onDisk:string|null}>}
        */
-      function write(text) {
+      function write(text, opts) {
+        var force = !!(opts && opts.forceSnapshot);
         return driver.getText(STATE_FILE).then(function (current) {
           if (current !== null && (lastKnownHash === null || sha(current) !== lastKnownHash)) {
             // Changed underneath us — another machine, another tab, or a synced edit.
@@ -2532,6 +2607,7 @@
             return { written: false, diverged: false, snapshot: null, onDisk: current };
           }
           var pre = (current === null) ? Promise.resolve(null)
+            : force ? takeSnapshot(current)
             : snapshotDue().then(function (due) { return due ? takeSnapshot(current) : null; });
           return pre.then(function (snapName) {
             return driver.putText(STATE_FILE, text).then(function () {
@@ -2625,6 +2701,7 @@
         driver: driver,
         status: getStatus, canWrite: canWrite, label: label,
         init: init, connect: connect, reconnect: reconnect, disconnect: disconnect,
+        markStale: markStale,
         read: read, write: write, forceWrite: forceWrite, adoptDisk: adoptDisk,
         snapshots: snapshots, readSnapshot: readSnapshot, takeSnapshot: takeSnapshot,
         snapshotDue: snapshotDue, prune: prune,
@@ -18506,6 +18583,7 @@
         h(3, 'Connecting') +
         ul([
           'Click <strong>Connect a folder</strong> in the banner and choose the project&rsquo;s folder. One project per folder.',
+          'If the folder is ever <strong>moved, renamed, or re-synced</strong> by OneDrive, the tool says so plainly and asks you to choose it again. Nothing is lost when that happens — your work stays open, and <strong>Save project</strong> will download it.',
           'Every time you reopen the tool afterwards, you will see a <strong>Reconnect</strong> button. That is normal, not a fault: browsers remember the folder but deliberately drop write permission when they restart. One click restores it.',
           'Until you reconnect, the app is <strong>read-only</strong>. That is on purpose — it is the one moment where you might otherwise believe your edits were being saved when they were not.',
           'Not connected at all is a perfectly normal way to work. Nothing is locked, and <strong>Save project</strong> is still there.'
@@ -18517,6 +18595,12 @@
           ['<code>Outputs/</code>', 'Generated scripts and reports, unpacked, under <code>Outputs/&lt;device&gt;/&lt;command&gt;/</code>. Nothing here is ever deleted by the app — housekeeping is yours.'],
           ['<code>project.corrupt-&hellip;.json</code>', 'A project file that could not be read, moved aside rather than overwritten.']
         ]) +
+        h(3, 'Saving on demand') +
+        p('<strong>Save to folder</strong> in the top bar writes straight away and restarts the timer, ' +
+          'so you never have to wonder whether the last minute made it. It also takes a snapshot even if ' +
+          'one is not due — a save you chose is a point worth being able to roll back to. ' +
+          'If nothing has changed since the last write, it does nothing, because identical content is not a new version.') +
+        note('The folder <strong>chip</strong> beside the project name is a button. Click it at any time for the folder&rsquo;s name, <strong>Change folder</strong> and <strong>Disconnect</strong> — you never need to disconnect to re-point the tool somewhere else.') +
         h(3, 'Rolling back') +
         p('<strong>Roll back</strong> in the top bar lists the snapshots newest first. Restoring one snapshots your current state first, so a rollback is itself undoable. ' +
           'For anything older than the snapshots go, use OneDrive&rsquo;s own version history on <code>project.json</code>.') +
@@ -18660,17 +18744,35 @@
       diverged: null,           // the on-disk text we refused to clobber
       recovery: null,           // {issues} when project.json would not parse
       snapshots: null,          // non-null while the rollback list is open
-      conflicts: []             // suspected OneDrive conflict copies
+      conflicts: [],            // suspected OneDrive conflict copies
+      panel: false,             // §5.5: the folder controls, reachable at any time
+      stale: false              // D-065: the folder itself could not be found
     };
+    var _forceSnapshot = false; // set for the next write by a DELIBERATE save
 
     function log(severity, message) {
       if (App.ui && App.ui.activity) App.ui.activity.log({ severity: severity, message: message });
     }
     function refresh() { if (_hooks && _hooks.refresh) _hooks.refresh(); }
+
+    /**
+     * The single place a storage failure becomes app state. D-065: a STALE error is not
+     * a passing IO hiccup — the folder is gone, so the connection is torn down here
+     * rather than left looking healthy while every subsequent write fails the same way.
+     */
     function note(e) {
-      st.error = e && e.code ? e : S.err(e, 'Folder');
-      log('error', st.error.message);
+      var err = e && e.code ? e : S.err(e, 'Folder');
+      st.error = err;
+      log('error', err.message);
+      if (err.code === S.CODES.STALE || err.code === S.CODES.NO_FOLDER) {
+        st.stale = true;
+        st.status = S.STATUS.ERROR;
+        st.diverged = null;
+        st.snapshots = null;
+        if (_folder) return _folder.markStale().then(refresh, refresh);
+      }
       refresh();
+      return Promise.resolve();
     }
 
     /* ---- lifecycle ---------------------------------------------------------- */
@@ -18695,7 +18797,9 @@
         write: writeNow,
         onState: function (s, err) {
           st.save = s;
-          if (s === 'error' && err) st.error = err.code ? err : S.err(err, 'Save');
+          // A failed write goes through note(), so a dead folder tears the connection
+          // down here too rather than only when something else happens to notice.
+          if (s === 'error' && err) { note(err); return; }
           refresh();
         }
       });
@@ -18703,10 +18807,14 @@
         .then(function (status) {
           st.status = status;
           st.label = _folder.label();
+          // D-065: init discards a dead handle itself and reports ERROR; pick up the
+          // reason so the banner explains WHY rather than just saying something failed.
+          var issue = driver.lastIssue && driver.lastIssue();
+          if (status === S.STATUS.ERROR && issue) { st.error = issue; st.stale = issue.code === S.CODES.STALE; log('error', issue.message); }
           return (status === S.STATUS.READY) ? load() : null;
         })
         .then(function () { refresh(); return st.status; })
-        .catch(function (e) { st.status = S.STATUS.ERROR; note(e); return st.status; });
+        .catch(function (e) { st.status = S.STATUS.ERROR; return note(e).then(function () { return st.status; }); });
     }
 
     /** Read project.json and adopt it, or raise the recovery screen. */
@@ -18746,7 +18854,9 @@
     /* ---- writing ------------------------------------------------------------ */
 
     function writeNow(text) {
-      return _folder.write(text).then(function (res) {
+      var force = _forceSnapshot;
+      _forceSnapshot = false;
+      return _folder.write(text, { forceSnapshot: force }).then(function (res) {
         if (res.diverged) {
           st.diverged = res.onDisk;
           log('warning', 'project.json changed in the folder since this tool last wrote it — nothing was overwritten.');
@@ -18768,6 +18878,29 @@
     /** Resolves once nothing is pending and nothing is in flight. */
     function flush() { return _writer ? _writer.flush() : Promise.resolve(); }
 
+    /**
+     * "Save to folder": write immediately and restart the clock. flush() already
+     * disarms the pending timer and clears the cap window on success, so this is a
+     * deliberate save AND a reset. It also snapshots regardless of the 5-minute floor —
+     * the rollback list should hold the points the user marked, not the points a timer
+     * happened to choose.
+     */
+    function saveNow() {
+      if (!_writer || !canWrite()) return Promise.resolve(null);
+      var text = _hooks && _hooks.currentText ? _hooks.currentText() : null;
+      if (text === null || text === undefined) return Promise.resolve(null);
+      if (st.diverged) { log('warning', 'Resolve the folder divergence first — nothing was written.'); return Promise.resolve(null); }
+      _forceSnapshot = true;
+      _writer.schedule(text);
+      return flush().then(function () {
+        _forceSnapshot = false;
+        if (st.save === 'error') return null;
+        log('success', 'Saved to ' + (st.label || 'the folder') + '.');
+        refresh();
+        return true;
+      });
+    }
+
     function canWrite() { return !!_folder && _folder.status() === S.STATUS.READY; }
 
     /**
@@ -18783,7 +18916,8 @@
       if (!_folder) return Promise.resolve();
       return _folder.connect()
         .then(function (status) {
-          st.status = status; st.label = _folder.label(); st.error = null;
+          st.status = status; st.label = _folder.label();
+          st.error = null; st.stale = false; st.panel = false;
           if (status !== S.STATUS.READY) return null;
           return load().then(function () {
             // A project already open when the folder was chosen becomes its project.
@@ -18909,7 +19043,10 @@
         text = esc(st.label) + ' — ' + SAVE_LABEL[st.save];
         title = 'Connected. Written 60s after the last change, and at least every 3 minutes.';
       }
-      return '<span class="folder-chip ' + cls + '" title="' + esc(title) + '">' + esc(text) + '</span>';
+      // A button, not a span: the chip is the always-present way into the folder
+      // controls (§5.5), which is what makes "change folder" reachable from any state.
+      return '<button type="button" class="folder-chip ' + cls + '" data-action="folder-panel"' +
+        ' title="' + esc(title + ' — click for folder options') + '">' + esc(text) + '</button>';
     }
 
     function banner(kind, cls, body) {
@@ -18954,9 +19091,15 @@
       }
 
       if (st.status === S.STATUS.ERROR) {
+        // D-065: a folder that is GONE reads differently from one that merely failed —
+        // it names the likely cause and the fact that nothing was lost.
         out += banner('Folder error', 'bad',
-          '<div><strong>The folder could not be reached.</strong> ' +
-          esc(st.error ? st.error.message : '') + '</div>' +
+          (st.stale
+            ? '<div><strong>The connected folder could no longer be found.</strong> ' +
+              'It may have been moved, renamed, or re-synced by OneDrive. Nothing has been lost — ' +
+              'your work is still open here, and <strong>Save project</strong> will download it. ' +
+              'Choose the folder again to carry on.</div>'
+            : '<div><strong>The folder could not be reached.</strong> ' + esc(st.error ? st.error.message : '') + '</div>') +
           '<div class="folder-actions">' +
           '<button data-action="folder-connect">Choose a folder</button>' +
           '<button data-action="folder-disconnect">Work without a folder</button>' +
@@ -18968,6 +19111,20 @@
           '<div>Connect this project to a folder and it saves itself — with rollback, ' +
           'and version history from OneDrive. Manual Save keeps working either way.</div>' +
           '<div class="folder-actions"><button data-action="folder-connect">Connect a folder</button></div>');
+      }
+
+      // §5.5: the folder controls are reachable AT ANY TIME, not only from a connect or
+      // reconnect screen. Without this, a connected session had no way to re-pick or
+      // disconnect at all — the only way out of a bad handle was clearing browser
+      // storage by hand, which is not a thing to ask of anyone (D-065).
+      if (st.panel) {
+        out += banner('Folder', 'info',
+          '<div><strong>Project folder:</strong> ' + (st.label ? esc(st.label) : '<em>not connected</em>') + '</div>' +
+          '<div class="folder-actions">' +
+          '<button data-action="folder-connect">' + (st.label ? 'Change folder' : 'Connect a folder') + '</button>' +
+          (st.label ? '<button data-action="folder-disconnect">Disconnect</button>' : '') +
+          '<button data-action="folder-panel-close">Close</button>' +
+          '</div>');
       }
 
       if (st.snapshots) out += snapshotsHtml();
@@ -18989,7 +19146,10 @@
     /** Delegated handlers. Wired once; they survive re-renders. */
     function wire(root, extra) {
       var on = App.util.dom.on;
-      on(root, 'click', '[data-action="folder-connect"]', function () { connect(); });
+      on(root, 'click', '[data-action="folder-save-now"]', function () { saveNow(); });
+      on(root, 'click', '[data-action="folder-panel"]', function () { st.panel = !st.panel; refresh(); });
+      on(root, 'click', '[data-action="folder-panel-close"]', function () { st.panel = false; refresh(); });
+      on(root, 'click', '[data-action="folder-connect"]', function () { st.panel = false; connect(); });
       on(root, 'click', '[data-action="folder-reconnect"]', function () { reconnect(); });
       on(root, 'click', '[data-action="folder-disconnect"]', function () { disconnect(); });
       on(root, 'click', '[data-action="folder-keep-mine"]', function () { keepMine(); });
@@ -19009,7 +19169,7 @@
 
     App.ui = App.ui || {};
     App.ui.folder = {
-      init: init, wire: wire, schedule: schedule, flush: flush,
+      init: init, wire: wire, schedule: schedule, flush: flush, saveNow: saveNow,
       connect: connect, reconnect: reconnect, disconnect: disconnect,
       keepMine: keepMine, takeTheirs: takeTheirs, quarantine: quarantine,
       openSnapshots: openSnapshots, closeSnapshots: closeSnapshots, restoreSnapshot: restoreSnapshot,
@@ -19022,6 +19182,7 @@
         _folder = null; _writer = null; _hooks = null;
         st.status = S.STATUS.IDLE; st.save = 'saved'; st.label = '';
         st.error = null; st.diverged = null; st.recovery = null; st.snapshots = null; st.conflicts = [];
+        st.panel = false; st.stale = false; _forceSnapshot = false;
       }
     };
   })(App);
@@ -19540,9 +19701,12 @@
           '<span class="muted">' + esc(projName) + (dirty ? ' — unsaved' : '') + '</span>' +
           (App.ui.folder ? App.ui.folder.chipHtml() : '') +
           '<span class="spacer"></span>' +
+          '<button data-action="folder-save-now"' + (App.ui.folder && App.ui.folder.canWrite() ? '' : ' disabled') +
+            ' title="Write to the connected folder now, and restart the save timer">Save to folder</button>' +
           '<button data-action="folder-snapshots"' + (App.ui.folder && App.ui.folder.canWrite() ? '' : ' disabled') + '>Roll back</button>' +
           '<button data-action="load">Load project</button>' +
-          '<button data-action="save"' + (project ? '' : ' disabled') + '>Save project</button>' +
+          '<button data-action="save"' + (project ? '' : ' disabled') +
+            ' title="Download a copy of the project as a .json file">Save project</button>' +
           '<button data-action="export-csv"' + (project ? '' : ' disabled') + '>Export CSV</button>' +
           '<label class="platform">Platform <select data-action="platform" aria-label="Active platform">' + platformOpts + '</select></label>' +
           '<button data-action="toggle-theme" aria-pressed="false" title="Toggle dark mode">🌙 Dark</button>' +
@@ -38658,6 +38822,9 @@
     /* ===== SUITES: the app wired to a folder (TF.6 · TF.8 · TF.10) ===== */
 
     T.suite('TF.6 the app boots into the right folder state', function (t) {
+      function snapsIn(h) {
+        return Object.keys(h.files()).filter(function (n) { return n.indexOf('Snapshots/') === 0; }).sort();
+      }
       function projectText() {
         return App.projectIo.serializeProject(App.store.empty('android-adb'));
       }
@@ -38666,17 +38833,24 @@
         var driver = App.storage.driverMemory.create(seed ? { files: seed } : null);
         if (driverTweak) driverTweak(driver);
         var adopted = [], renders = 0;
+        // `override` lets a test drive the document the writer sees directly, instead of
+        // going through App.store — the storage layer is domain-blind, so the tests that
+        // exercise it should not have to know how to mutate a project.
+        var h = { override: null };
         App.ui.folder._reset();
         return App.ui.folder.init({
           refresh: function () { renders++; },
           adopt: function (p) { adopted.push(p); },
           currentText: function () {
+            if (h.override !== null) return h.override;
             var p = App.store.getProject();
             return p ? App.projectIo.serializeProject(p) : null;
           }
         }, driver).then(function (status) {
-          return { status: status, driver: driver, adopted: adopted, renders: function () { return renders; },
-                   files: function () { return driver._files(); } };
+          h.status = status; h.driver = driver; h.adopted = adopted;
+          h.renders = function () { return renders; };
+          h.files = function () { return driver._files(); };
+          return h;
         });
       }
 
@@ -38774,6 +38948,109 @@
               var snaps = Object.keys(h.files()).filter(function (n) { return n.indexOf('Snapshots/') === 0; });
               T.assertEqual(snaps.length, 1);
               T.assertEqual(h.files()[snaps[0]], 'theirs', 'their version survives as a snapshot');
+            });
+          });
+        });
+      });
+
+      t.test('D-065 a dead folder handle tears the connection down, and says why', function () {
+        // An EMPTY folder on purpose: seeding it with the same project would make the
+        // write byte-identical, short-circuit before putText, and never reach the fault.
+        return boot(null, function (driver) {
+          // What a moved/renamed/re-synced folder looks like from above the driver line.
+          driver.setFault(function (op) {
+            return op === 'putText' ? S.fail(S.CODES.STALE, 'The connected folder could no longer be found.') : null;
+          });
+        }).then(function (h) {
+          T.assertEqual(App.ui.folder.canWrite(), true, 'it looks healthy until something writes');
+          App.store.init(App.store.empty('android-adb'));
+          App.ui.folder.schedule();
+          return App.ui.folder.flush().then(function () {
+            T.assertEqual(App.ui.folder._st.stale, true);
+            T.assertEqual(App.ui.folder.status(), S.STATUS.ERROR);
+            T.assertEqual(App.ui.folder.canWrite(), false, 'nothing may retry against a dead handle');
+            T.assertEqual(App.ui.folder.locked(), true);
+            var html = App.ui.folder.bannerHtml();
+            T.assert(html.indexOf('could no longer be found') !== -1, 'the banner names the cause');
+            T.assert(html.indexOf('Nothing has been lost') !== -1, 'and says the work is safe');
+            T.assert(html.indexOf('Choose a folder') !== -1, 'and offers the way out');
+          });
+        });
+      });
+
+      t.test('D-065 "no folder connected" is not swallowed as an absent file', function () {
+        // The conflation that hid the dead handle: getText returning null for BOTH.
+        T.assertEqual(S.CODES.NO_FOLDER === S.CODES.NOT_FOUND, false, 'distinct codes');
+        T.assertEqual(S.CODES.STALE === S.CODES.NOT_FOUND, false, 'distinct codes');
+      });
+
+      t.test('§5.5 the folder controls are reachable from any state', function () {
+        App.ui.folder._reset();
+        T.assertEqual(App.ui.folder.bannerHtml().indexOf('Change folder'), -1, 'closed by default');
+        T.assert(App.ui.folder.chipHtml().indexOf('data-action="folder-panel"') !== -1,
+          'the chip itself opens the controls, so they are reachable when connected too');
+        App.ui.folder._st.panel = true;
+        App.ui.folder._st.label = 'CH Project';
+        var html = App.ui.folder.bannerHtml();
+        T.assert(html.indexOf('Change folder') !== -1);
+        T.assert(html.indexOf('Disconnect') !== -1);
+        App.ui.folder._reset();
+      });
+
+      t.test('Save to folder writes at once, and snapshots regardless of the 5-minute floor', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function (clk) {
+          return boot().then(function (h) {
+            h.override = '{"v":1}';
+            return App.ui.folder.saveNow().then(function (ok) {
+              T.assertEqual(ok, true);
+              T.assertEqual(h.files()['project.json'], '{"v":1}', 'written at once, without waiting 60s');
+              T.assertEqual(snapsIn(h).length, 0, 'nothing to snapshot on a genesis write');
+
+              // Seconds later — far inside the floor an automatic write would respect.
+              clk.advance(30 * 1000);
+              h.override = '{"v":2}';
+              return App.ui.folder.saveNow();
+            }).then(function () {
+              T.assertEqual(h.files()['project.json'], '{"v":2}');
+              T.assertEqual(snapsIn(h).length, 1,
+                'a DELIBERATE save is a point worth rolling back to, floor or no floor');
+              T.assertEqual(h.files()[snapsIn(h)[0]], '{"v":1}', 'and it holds the superseded document');
+
+              // ...whereas the automatic path still respects the floor.
+              clk.advance(30 * 1000);
+              h.override = '{"v":3}';
+              App.ui.folder.schedule();
+              return App.ui.folder.flush();
+            }).then(function () {
+              T.assertEqual(h.files()['project.json'], '{"v":3}');
+              T.assertEqual(snapsIn(h).length, 1, 'the timed write took no second snapshot');
+            });
+          });
+        });
+      });
+
+      t.test('Save to folder on an unchanged document writes nothing', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          return boot().then(function (h) {
+            h.override = '{"v":1}';
+            return App.ui.folder.saveNow()
+              .then(function () { return App.ui.folder.saveNow(); })
+              .then(function () {
+                T.assertEqual(snapsIn(h).length, 0, 'identical bytes are not worth a version');
+              });
+          });
+        });
+      });
+
+      t.test('Save to folder refuses while a divergence is unresolved', function () {
+        return withClock('2026-08-18T00:00:00.000Z', function () {
+          return boot().then(function (h) {
+            h.override = '{"v":1}';
+            App.ui.folder._st.diverged = 'theirs';
+            return App.ui.folder.saveNow().then(function (r) {
+              T.assertEqual(r, null, 'nothing written until the user chooses a side');
+              T.assertEqual(h.files()['project.json'], undefined);
+              App.ui.folder._st.diverged = null;
             });
           });
         });

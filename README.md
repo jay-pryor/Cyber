@@ -79,6 +79,10 @@ and not connecting locks nothing.
   project.corrupt-<stamp>.json     a project that could not be read, moved aside — never overwritten
 ```
 
+- **Save to folder** in the top bar writes immediately and restarts the timer, and snapshots even
+  when one is not due — a save you chose is a point worth rolling back to. The folder **chip**
+  beside the project name is a button: click it for the folder's name, **Change folder** and
+  **Disconnect**, from any state.
 - **Reconnecting is normal.** Browsers remember the folder but drop write permission on restart, so
   every session after the first starts with a one-click **Reconnect**. Until then the app is
   read-only — the one moment you might otherwise think your edits were being saved.
@@ -89,6 +93,9 @@ and not connecting locks nothing.
   refused and you choose: keep yours, take theirs, or save yours separately. All three snapshot the
   side being replaced first. A OneDrive conflict copy (`project-yourname.json`) is reported and left
   alone.
+- **A folder that moves is handled.** If OneDrive moves, renames or re-syncs the folder, the tool
+  says so and asks you to pick it again rather than failing quietly. Nothing is lost — the work
+  stays open and **Save project** still downloads it.
 - **Offline works.** Set the folder to *Always keep on this device* in OneDrive, or Files On-Demand
   can leave snapshots and outputs unreadable while you are off the network.
 
