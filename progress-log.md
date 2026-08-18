@@ -27,6 +27,7 @@ Process per task (build phase): **build → review → devise tests → log defe
 | 14 | v2.2: Report Design — markdown documents | ✅ complete | levels + auto-numbering; authored sections; cross-refs; formatting profiles; templates; preview; one `.md` |
 | 15 | v3.0: links, table wording, header/footer, generation | ✅ complete | references resolve to real PDF links; controls auto-link; per-table title rows and column headings; header/footer pane; `/[Tag]` placeholders; paged preview |
 | 16 | v3.1: the box shows what it holds | ✅ complete | rich-text boxes with reference chips, in paragraphs and table cells; the report's composition saved with the project; optional captions; first-column styling visible and document-wide; a title row no longer shrinks its table |
+| 17 | v3.2: folder storage (TF.1–TF.13) | 🟡 in progress | connect to a OneDrive folder; 60s idle / 180s capped canonical write; ~5s IndexedDB draft; rolling snapshots with 5-min floor and newest-40 retention; unpacked `Outputs/`; divergence refused not clobbered. **Awaits hand-verification in real Edge against a synced folder** — see `folder-storage-requirements.md` §13.2 |
 
 Legend: ⬜ not started · 🟡 in progress · ✅ complete · 🔴 blocked
 
@@ -3563,3 +3564,65 @@ the input reference and is byte-deterministic. 116/116 self-tests pass.
 
 **Result:** 123/123 self-tests pass; all programmatic DOD items verified. Build complete pending the
 two documented manual checks.
+
+---
+
+### 2026-08-18 — Phase 17 (v3.2): folder storage — 🟡 IN PROGRESS (TF.1–TF.12 built; hand-verification outstanding)
+
+Specified in `folder-storage-requirements.md`. Single-user, single-project, rollback-oriented. The
+larger content-addressed store in `config-store-requirements.md` is explicitly **not** being built
+and is incompatible with this one — see its §1.3.
+
+**Harness change (prerequisite).** `App.test.run()` now resolves a promise and awaits any test that
+returns a thenable; it was strictly synchronous and every storage test is async. The 170-odd
+existing suites needed no edit — a test returning a non-thenable is treated as finished the moment
+it returns. Concurrent `run()` calls are serialised, because under `#selftest` in jsdom there are
+two callers (bootstrap and `tools/run-selftests.js`) and the suites share global `App` state.
+`tools/run-selftests.js` updated to await.
+
+**Built:**
+- `App.util.idbKv` (TF.1) — namespaced IndexedDB k/v; holds the directory handle and the draft only.
+- `App.storage` (TF.2/3) — STATUS/CODES vocabulary, normalised `{code,message,cause}` errors, path
+  helpers. `listDir` is a *directory* listing, not a prefix match, so the two drivers cannot drift.
+- `App.storage.driverMemory` (TF.2) — the reason any of this is testable, with fault injection.
+- `App.storage.driverFsa` (TF.3) — File System Access API, kept deliberately thin because it is the
+  only module that cannot be tested headlessly.
+- `App.storage.folder` (TF.4) — layout, snapshot policy (5-min floor, newest 40), prune, quarantine
+  by copy-then-delete, the divergence guard, unpacked `Outputs/`, conflict-copy detection.
+- `App.storage.writer` (TF.5) — 60s idle / 180s cap, coalescing, single looping drain, no retry spin.
+- `App.ui.folder` (TF.6/8/9/11) — the single seam to the UI: connect/reconnect/recovery/divergence
+  screens, status chip, rollback list, read-only gate.
+- `App.ui.app` wiring (TF.6/7/8) — chip and banners in the shell, `folder-locked` gate, flush on
+  `visibilitychange` + `beforeunload`, draft moved from `localStorage` to IndexedDB at ~5s.
+- `App.ui.views.generate` (TF.10) — artifacts written unpacked to `Outputs/<device>/<command>/` when
+  connected, zip download when not; the Activity log always says which.
+- Help gained a **Project folder** section (TF.12); `CLAUDE.md` invariants amended for browser
+  storage, FSA-is-not-network, and the recorded shared-origin risk.
+
+**Decisions worth remembering:**
+- Unconnected is a fully usable state. The reference design says gate until writable; here that
+  would be a regression, since the tool has always worked standalone and keeps manual save/load.
+  `NEEDS_PERMISSION`/`ERROR`/recovery *do* gate — those are the states where the user would
+  otherwise believe edits were being saved.
+- The 180s cap is not decoration: with a pure 60s idle debounce, editing that never pauses a full
+  minute would never write at all.
+- The slow cadence exists to keep SharePoint version history meaningful. It records a version per
+  change and prunes the oldest at its limit; a half-second autosave would burn hundreds of
+  meaningless versions in an afternoon.
+
+**Defects found during the build:** one — with no File System Access API, `init()` returned early
+without a re-render, leaving the shell showing the "Connect a folder" banner painted before init
+ran, whose button could only do nothing. Fixed by refreshing before the early return; caught by a
+jsdom mount check rather than by the suite, since `#selftest` returns before `mount()`.
+
+**Result:** 1100/1100 embedded self-tests pass (10 new suites, ~45 new tests, all above the driver
+line against `driverMemory`). The app mounts clean in jsdom with no console errors.
+
+**Outstanding — TF.13 hand-verification.** `showDirectoryPicker()` cannot be driven headlessly, so
+`driverFsa` is unverified. Per `folder-storage-requirements.md` §13.2, check by hand in real Edge
+against a OneDrive-synced folder: genesis into an empty folder; reconnect after a full browser
+restart takes exactly one click; a stale handle (folder renamed underneath) degrades correctly;
+SharePoint records a version per canonical write and the swap file does not persist; an offline
+dehydrated snapshot read produces the specific message rather than a generic error. Two-machine
+concurrency is out of scope by decision — the divergence guard is written to fail safe, not proven
+by test.

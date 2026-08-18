@@ -38,7 +38,8 @@ Built to `android-ch-config-tool-build-spec-v2.0.md` (normative). The deliverabl
    table — a decision, a rationale, a rename, a delete, a bulk apply — up to 20 steps, one click per
    action however many rows that action touched. It is per table and per session: nothing is written
    to the project file, so save often as well.
-9. **Save project** — the downloaded JSON is the single source of truth (keep it in SharePoint).
+9. **Save project** — the downloaded JSON is the single source of truth (keep it in SharePoint). Or
+   **connect a folder** (below) and it saves itself.
 10. When a device is fully decided, use the **Generate** tab. Implementation and Verification produce
    `.zip` bundles; Reporting, Control and **Procedure** produce a single `.md` each, composed in the
    **Report Design** workspace and converted to PDF with `pandoc report.md -o report.pdf`.
@@ -63,10 +64,42 @@ Captured externally (the tool never runs `adb`); the Onboard tab shows these too
 > dropped on load and the Activity drawer says exactly what went. Save the project to make the
 > removal permanent.
 
+## Project folder (optional)
+
+Connect the tool to a folder — in practice a OneDrive/SharePoint-synced one — and it loads and saves
+itself there. Edge/Chromium only, and entirely optional: **Save project** works exactly as before,
+and not connecting locks nothing.
+
+```
+<project folder>/
+  ch-config-tool.html              the tool
+  project.json                     written 60s after your last change, and at least every 3 minutes
+  Snapshots/                       previous versions: ≤ 1 per 5 minutes, newest 40 (~3.5h of rollback)
+  Outputs/<device>/<command>/      generated scripts and reports, unpacked
+  project.corrupt-<stamp>.json     a project that could not be read, moved aside — never overwritten
+```
+
+- **Reconnecting is normal.** Browsers remember the folder but drop write permission on restart, so
+  every session after the first starts with a one-click **Reconnect**. Until then the app is
+  read-only — the one moment you might otherwise think your edits were being saved.
+- **The cadence is deliberately slow.** OneDrive records a version per change and prunes the oldest
+  at its limit; a save-every-keystroke design would burn hundreds of meaningless versions in an
+  afternoon. Use **Roll back** in the top bar for the last few hours, OneDrive's own history beyond.
+- **It refuses to clobber.** If `project.json` changed since the tool last wrote it, the write is
+  refused and you choose: keep yours, take theirs, or save yours separately. All three snapshot the
+  side being replaced first. A OneDrive conflict copy (`project-yourname.json`) is reported and left
+  alone.
+- **Offline works.** Set the folder to *Always keep on this device* in OneDrive, or Files On-Demand
+  can leave snapshots and outputs unreadable while you are off the network.
+
+Full specification: `folder-storage-requirements.md`.
+
 ## Outputs
 
 The two **script** commands produce **one deterministic `.zip`** (plus a `manifest.json` with per-file
-SHA-256 and the decision snapshot used). The three **document** commands produce **one deterministic
+SHA-256 and the decision snapshot used) — or, with a folder connected, the same files written
+unpacked into `Outputs/`, since the throttling that made a single zip necessary applies only to
+downloads. The three **document** commands produce **one deterministic
 `.md`**, with no zip and no manifest — the provenance the manifest carried (tool and version, device,
 generated-at, project SHA-256) is written into the document's own YAML metadata block, where a reader
 of the finished PDF can see it.

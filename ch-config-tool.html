@@ -17802,6 +17802,7 @@
       { id: 'generate', label: 'Generating output' },
       { id: 'design', label: 'Report Design' },
       { id: 'saving', label: 'Saving & recovery' },
+      { id: 'folder', label: 'Project folder' },
       { id: 'reference', label: 'Reference' }
     ];
 
@@ -18487,7 +18488,7 @@
         p('While you work, the app keeps a local draft in the browser as <strong>crash insurance only</strong>. It is not the record. ' +
           'If a draft is found when the app opens, a banner offers <strong>Restore draft</strong> or <strong>Discard</strong>. ' +
           'A restored draft counts as unsaved, so save it to make it real. Saving clears the draft.') +
-        note('Local storage can be unavailable when running from a file:// path. If so the app carries on without a draft — which is exactly why the downloaded project file is the record.') +
+        note('Browser storage can be unavailable when running from a file:// path. If so the app carries on without a draft — which is exactly why the downloaded project file, or a connected folder, is the record. See <strong>Project folder</strong> for saving into a folder automatically.') +
         h(3, 'Other top-bar controls') +
         deftable(['Control', 'Effect'], [
           ['<strong>Export CSV</strong>', 'Downloads the current data tab as shown.'],
@@ -18495,6 +18496,42 @@
           ['<strong>🌙 Dark / ☀ Light</strong>', 'Switches theme. Display only — it never affects generated output.'],
           ['<strong>Self-tests</strong>', 'Opens the built-in test suite in a new tab.']
         ]);
+    }
+
+    function secFolder() {
+      return h(2, 'Project folder') +
+        p('Connect the tool to a folder and it saves itself into that folder as you work. ' +
+          'Put that folder in OneDrive and you also get version history and backup from a service your organisation already runs. ' +
+          'This is optional — everything below is in addition to <strong>Save project</strong>, which keeps working exactly as before.') +
+        h(3, 'Connecting') +
+        ul([
+          'Click <strong>Connect a folder</strong> in the banner and choose the project&rsquo;s folder. One project per folder.',
+          'Every time you reopen the tool afterwards, you will see a <strong>Reconnect</strong> button. That is normal, not a fault: browsers remember the folder but deliberately drop write permission when they restart. One click restores it.',
+          'Until you reconnect, the app is <strong>read-only</strong>. That is on purpose — it is the one moment where you might otherwise believe your edits were being saved when they were not.',
+          'Not connected at all is a perfectly normal way to work. Nothing is locked, and <strong>Save project</strong> is still there.'
+        ]) +
+        h(3, 'What lands in the folder') +
+        deftable(['Path', 'What it is'], [
+          ['<code>project.json</code>', 'The project. Written 60 seconds after your last change, and at least every 3 minutes while you keep working.'],
+          ['<code>Snapshots/</code>', 'Previous versions, taken at most once every 5 minutes, newest 40 kept — roughly three and a half hours of rollback.'],
+          ['<code>Outputs/</code>', 'Generated scripts and reports, unpacked, under <code>Outputs/&lt;device&gt;/&lt;command&gt;/</code>. Nothing here is ever deleted by the app — housekeeping is yours.'],
+          ['<code>project.corrupt-&hellip;.json</code>', 'A project file that could not be read, moved aside rather than overwritten.']
+        ]) +
+        h(3, 'Rolling back') +
+        p('<strong>Roll back</strong> in the top bar lists the snapshots newest first. Restoring one snapshots your current state first, so a rollback is itself undoable. ' +
+          'For anything older than the snapshots go, use OneDrive&rsquo;s own version history on <code>project.json</code>.') +
+        note('The save cadence is deliberately slow. OneDrive records a version every time the file changes and prunes the oldest once it hits its limit, so a save-every-keystroke design would burn hundreds of meaningless versions in an afternoon and push the ones worth keeping off the end of the list.') +
+        h(3, 'Working offline') +
+        ul([
+          'Everything works offline — the tool reads and writes the local copy of the folder, and OneDrive syncs it when you are back on the network.',
+          'Version history only appears once the folder has synced, so an offline session will not show new versions in SharePoint yet.',
+          'Set the folder to <strong>Always keep on this device</strong> in OneDrive. Otherwise Files On-Demand can leave snapshots and outputs as placeholders that cannot be read while you are offline.'
+        ]) +
+        h(3, 'If the folder changes underneath you') +
+        p('If <code>project.json</code> changed since this tool last wrote it — a second machine, a second tab, or a synced edit — the write is <strong>refused</strong> rather than allowed to overwrite. ' +
+          'A banner offers three ways out, and none of them throws anything away: <strong>Keep mine</strong> snapshots their version first, ' +
+          '<strong>Take theirs</strong> snapshots yours first, and <strong>Save mine separately</strong> downloads yours and leaves the folder alone.') +
+        note('If two people save at the same moment, OneDrive itself may write a conflict copy beside the original, named something like project-yourname.json. The tool reports any such file and never touches it.');
     }
 
     function secReference() {
@@ -18552,7 +18589,7 @@
     var RENDERERS = {
       overview: secOverview, start: secStart, onboard: secOnboard, tables: secTables,
       custom: secCustom, devices: secDevices, controls: secControls, generate: secGenerate, design: secDesign,
-      saving: secSaving, reference: secReference
+      saving: secSaving, folder: secFolder, reference: secReference
     };
 
     function render(project) {
