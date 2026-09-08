@@ -97,77 +97,13 @@
     /** The stable logical filename each document command produces. */
     var DOC_FILENAMES = { reporting: 'report.md', control: 'control-report.md', procedure: 'procedure.md' };
 
-    /* =========================================================================
-     * GEN-TAB: `/[Tag]` — a placeholder filled in at generate time.
-     *
-     * Write `/[Date]` in a heading, an introduction, a table cell, a footer — anywhere
-     * you type text — and the Generate pane lists it once with a box beside it. What you
-     * put in the box replaces every occurrence in the document.
-     *
-     * Found and replaced on the FINISHED markdown, not on the strings that went into it,
-     * and that is the whole design. A tag can appear in any of a dozen places — a
-     * section heading, a section name, an introduction, a table's title row, a column
-     * heading, a paragraph, a hand-authored cell, a header slot — and threading a
-     * substitution through all of them is a dozen chances to miss one. The document is
-     * the one place they have all arrived at, so it is the one place this happens.
-     *
-     * Both escaped and unescaped forms are matched, because both occur: prose reaches
-     * the .md through MD.text and comes out as `/\[Date\]`, while the same tag inside a
-     * code span is verbatim. The body is deliberately narrow — letters, digits, spaces,
-     * `_` and `-`, up to 40 characters — so that a `/[` inside a captured device value
-     * cannot be mistaken for one.
-     */
-    var TAG_RE = /\/(\\?)\[([A-Za-z0-9 _-]{1,40})(\\?)\]/g;
-
-    /** Every distinct tag in a document, in the order it is first written. */
-    function findTags(md) {
-      var seen = {}, out = [], m;
-      TAG_RE.lastIndex = 0;
-      while ((m = TAG_RE.exec(String(md == null ? '' : md))) !== null) {
-        var name = m[2];
-        if (!seen[name]) { seen[name] = true; out.push(name); }
-      }
-      return out;
-    }
-
-    /**
-     * Replace each tag with what the operator typed for it.
-     *
-     * A tag with no value is LEFT AS IT IS rather than blanked. A document with
-     * `/[Date]` still printed in it is obviously unfinished; one with a silent gap where
-     * the date should be reads as complete and is not — the same rule the rest of this
-     * file follows for a missing cross-reference and an unstated omission.
-     *
-     * The replacement is escaped, because it is text somebody typed arriving in a
-     * document that is markdown on its way to LaTeX. It is escaped ONCE, here, on the
-     * same rule as everything else. This is the BODY's escaper: the one place a
-     * placeholder can land that is NOT markdown is a header or footer slot, and those
-     * are filled in before the profile is compiled (see taggedProfile), so by the time
-     * this runs there is nothing left in the preamble for it to get wrong.
-     */
-    /**
-     * GEN-TAB: the name the operator gave the file, made safe to be one.
-     *
-     * A filename typed into a box reaches `download`'s `a[download]` attribute, so it is
-     * reduced to characters that cannot mean anything to a filesystem or a shell — no
-     * separators, no traversal, no leading dot. Blank (or nothing left after that) falls
-     * back to the device-and-timestamp name every other artifact uses.
-     */
-    function docFilename(name) {
-      var s = String(name == null ? '' : name).trim().replace(/\.md$/i, '');
-      s = s.replace(/[^A-Za-z0-9 ._-]+/g, '-').replace(/^[.\-]+/, '').replace(/\s+/g, ' ').trim();
-      return s ? s + '.md' : '';
-    }
-
-    function applyTags(md, values, raw) {
-      values = values || {};
-      return String(md == null ? '' : md).replace(TAG_RE, function (whole, e1, name) {
-        var v = values[name];
-        if (v === undefined || v === null || !String(v).length) return whole;
-        // `raw` for a header or footer slot, which is escaped later and for LaTeX.
-        return raw ? String(v) : MD.text(String(v));
-      });
-    }
+    /* GEN-TAB: the `/[Tag]` placeholder machinery is App.docGen's — nothing in it
+     * knows what a device is. Aliased here so the call sites in this closure, and the
+     * suites written against App.generate, are unchanged. */
+    var TAG_RE = App.docGen.TAG_RE;
+    var findTags = App.docGen.findTags;
+    var applyTags = App.docGen.applyTags;
+    var docFilename = App.docGen.docFilename;
 
     /**
      * Assemble, render and package a document.

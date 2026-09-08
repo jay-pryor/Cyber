@@ -74,6 +74,12 @@
             App.registry.getPlatform(p.platformProfileId),
             G.relevanceFilter(run && run.categories ? { relevance: run.categories } : null));
         },
+        /* What the workspace previews and what its Generate button emits. The module
+         * assembles the blocks; only the host knows how to package them into a file. */
+        build: function (subjectId, opts) { return G.buildReport(P(), subjectId, opts); },
+        // REF-2: which words in a table become links, and where they land. CH links
+        // every mention of a control to its coverage row.
+        linkTerms: function (blocks) { return G.controlLinkTerms(P(), blocks); },
         filter: {
           id: 'relevance', label: 'Security Relevance',
           categories: function () {

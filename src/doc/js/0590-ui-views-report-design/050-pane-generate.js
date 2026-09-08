@@ -22,12 +22,12 @@
       var ready = H().subject.ready(selId);
       var o = opts();
       var built = null;
-      try { built = App.generate.buildReport(project, selId, Object.assign({}, o, { tags: {} })); } catch (e) { built = null; }
-      var tags = built ? App.generate.findTags(built.text || '') : [];
+      try { built = H().build ? H().build(selId, Object.assign({}, o, { tags: {} })) : null; } catch (e) { built = null; }
+      var tags = built ? App.docGen.findTags(built.text || '') : [];
       var values = o.tags || {};
       var unfilled = tags.filter(function (t) { return !String(values[t] || '').trim(); });
 
-      var name = App.generate.docFilename(o.filename);
+      var name = App.docGen.docFilename(o.filename);
       var tagRows = tags.length
         ? tags.map(function (t) {
             var v = String(values[t] || '');
@@ -110,7 +110,7 @@
       var selId = selectedDeviceId(project);
       if (!selId) return { html: '<p class="muted">No device selected.</p>', outline: [] };
       try {
-        var out = App.generate.buildReport(project, selId, opts());
+        var out = H().build ? H().build(selId, opts()) : null;
         if (!out || !out.text) return { html: '<p class="muted">Nothing to preview.</p>', outline: [] };
         // SEC-4: the per-LEVEL page breaks live in the profile and reach the PDF as
         // titlesec's own hook, so there is no `\newpage` in the markdown for the

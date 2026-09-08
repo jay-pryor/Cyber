@@ -148,7 +148,7 @@
       var colOpts = opts.columns || {};
       var visible = (columns || []).filter(function (c) { return columnOn(c, colOpts); });
       // TBL-1: the key column is addressable like any other, so its heading can be
-      // reworded too. `_key` is the id App.generate.sectionColumns already gives it.
+      // reworded too. `_key` is the id App.docGen.sectionColumns already gives it.
       var cols = [Object.assign({ id: '_key' }, keyCol)].concat(visible);
 
       function rowsFor(list) {

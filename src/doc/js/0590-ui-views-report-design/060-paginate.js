@@ -147,7 +147,7 @@
 
     /** RPT-3: persist a reorder — move one block id by a step, or before another. */
     function moveSection(project, id, delta, beforeId) {
-      var ids = App.generate.hostBlocks(H(), opts()).map(function (b) { return b.id; });
+      var ids = App.docGen.reportBlocks(H(), opts()).map(function (b) { return b.id; });
       var from = ids.indexOf(id);
       if (from === -1) return;
       var to;

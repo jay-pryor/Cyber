@@ -271,9 +271,14 @@
       // 8: the filter axis CH declares to the module — which category a row is in,
       // and the predicate a run is narrowed by.
       relevanceKeyOf: relevanceKeyOf, relevanceFilter: relevanceFilter,
-      // 8: the host-driven generator the three shims above sit on.
-      hostBlocks: hostBlocks, hostColumns: hostColumns, hostContent: hostContent,
-      filterCounts: filterCounts,
+      /* 7d: the generator itself is App.docGen now, in the module tree. These four
+       * forward to it. CH has 190-odd suites and a Generate tab written against
+       * App.generate, and churning them would only obscure whether the move changed
+       * anything — which it must not have. */
+      hostBlocks: function (h, o) { return App.docGen.reportBlocks(h, o); },
+      hostColumns: function (h, b, o) { return App.docGen.sectionColumns(h, b, o); },
+      hostContent: function (h, b, o, c, m) { return App.docGen.sectionContent(h, b, o, c, m); },
+      filterCounts: function (h, r) { return App.docGen.filterCounts(h, r); },
       // v2.2: exposed so the designer's live preview renders the SAME document the
       // Generate button downloads, rather than a second approximation of it.
       emitDocument: emitDocument,

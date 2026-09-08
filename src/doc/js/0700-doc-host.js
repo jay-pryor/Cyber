@@ -42,6 +42,13 @@
           if (typeof host.subject[k] !== 'function') errs.push('host.subject.' + k + ' must be a function');
         });
       }
+      // build() is what the workspace previews and what its Generate button emits;
+      // linkTerms() is how a host says which words in a table become links. Both
+      // optional: without build() the preview says so, without linkTerms() nothing
+      // links, and neither stops a document being produced.
+      ['build', 'linkTerms'].forEach(function (k) {
+        if (host[k] !== undefined && typeof host[k] !== 'function') errs.push('host.' + k + ' must be a function');
+      });
       if (host.filter) {
         ['categories', 'categoryOf'].forEach(function (k) {
           if (typeof host.filter[k] !== 'function') errs.push('host.filter.' + k + ' must be a function');

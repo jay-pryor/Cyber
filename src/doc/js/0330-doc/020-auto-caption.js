@@ -267,7 +267,7 @@
           : (b.body || '');
         /* CTR-1: a HAND-AUTHORED section's centring, which never reached the document.
          *
-         * A generated section is centred by App.generate.sectionContent, which is where
+         * A generated section is centred by App.docGen.sectionContent, which is where
          * its body is built. A custom section's body is built HERE, from its parts, and
          * nothing centred it — so the switch worked in the per-section preview (which
          * centres it itself) and did nothing in the .md. Exactly the sections people

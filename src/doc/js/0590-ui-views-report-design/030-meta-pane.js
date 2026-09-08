@@ -63,7 +63,7 @@
      * different content in each ("Package" against "Package removed").
      */
     function tableWordingEditor(project, block) {
-      var cols = App.generate.hostColumns(H(), block, opts());
+      var cols = App.docGen.sectionColumns(H(), block, opts());
       if (!cols || !cols.all.length) return '';
       // One editor per table the section will produce: one per group, or — for a
       // section that splits its tables on an axis of its own — one per key the
@@ -197,7 +197,7 @@
         // OPT-1: the column and group ticks are on the section ROW now, not here — see
         // optionsMenu. What stays is the width strip, which is drawn against whatever
         // those ticks have left switched on.
-        var cols = App.generate.hostColumns(H(), block, opts());
+        var cols = App.docGen.sectionColumns(H(), block, opts());
         if (cols && cols.all.length) out.push(widthStrip(project, block.id, cols.all, block.widths));
         out.push('<p class="muted rd-hint">This section\'s content is generated from the register. Its <strong>columns</strong>' +
           (block.groups ? ' and <strong>groups</strong>' : '') + ' are on the &#9776; button beside it in the list, so they can be changed without leaving whatever pane you are on. ' +

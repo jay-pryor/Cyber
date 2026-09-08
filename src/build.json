@@ -376,10 +376,18 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
+        "doc/js/0730-doc-gen.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
         "app/js/0350-generate/010-tool-version.js",
         "app/js/0350-generate/020-child-caption.js",
         "app/js/0350-generate/030-report-blocks.js",
-        "app/js/0350-generate/035-host-blocks.js",
         "app/js/0350-generate/040-build-control-report.js"
       ]
     },

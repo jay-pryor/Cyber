@@ -50,14 +50,14 @@ _DEFINES = re.compile(r"^\s*App\.([A-Za-z0-9_.]+)\s*=", re.M)
 _NAMESPACE_GUARD = re.compile(r"^\s*App\.([A-Za-z0-9_.]+)\s*=\s*App\.\1\s*\|\|", re.M)
 _REFERENCES = re.compile(r"App\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)")
 
-# Names src/doc/ is still allowed to reach for while the extraction is in progress,
-# each removed by a task in
-# docs/superpowers/plans/2026-09-08-document-designer-module.md.
-# This set only ever SHRINKS; the final task asserts it is empty. Counts are the
-# violations outstanding when the trees were split, kept so progress is legible.
-BOUNDARY_DEBT = {
-    "generate",           # 20 — the half of App.generate that becomes App.docGen
-}
+# Names src/doc/ was allowed to reach for while the extraction was in progress. It is
+# EMPTY, and the check below fails the build if anything is put back into it: the whole
+# point of the extraction is that the module names nothing the application owns, and an
+# allowlist with one entry in it is how that becomes untrue again.
+#
+# If you are here because a new module file needs something from src/app/, the answer is
+# a member on the host contract (App.docHost), not an entry here.
+BOUNDARY_DEBT = set()
 
 
 def load_manifest(path=None):
@@ -176,9 +176,12 @@ def check_boundary():
     enforces outlives one written in a document.
     """
     problems = []
-    # NB: BOUNDARY_DEBT being non-empty is NOT an error while the extraction is in
-    # progress — that is what the set is for. The final task empties it and adds the
-    # assertion that it stays empty.
+    if BOUNDARY_DEBT:
+        problems.append(
+            "boundary: BOUNDARY_DEBT is not empty (" + ", ".join(sorted(BOUNDARY_DEBT)) + "). "
+            "The extraction is finished; what src/doc/ needs from src/app/ belongs on the "
+            "host contract, not on an allowlist."
+        )
     app_names = set()
     for path in sorted((SRC / APP_TREE).rglob("*.js")) if (SRC / APP_TREE).is_dir() else []:
         text = _strip_comments(path.read_text(encoding="utf-8"))

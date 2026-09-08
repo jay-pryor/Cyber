@@ -71,7 +71,7 @@
         var dflt = true;
         if (map === 'columns') {
           var block = (outlineNow(P()).blocks || []).filter(function (b) { return (b.dsId || b.kind) === ds; })[0];
-          var cols = block ? App.generate.hostColumns(H(), block, opts()) : null;
+          var cols = block ? App.docGen.sectionColumns(H(), block, opts()) : null;
           var col = ((cols && cols.optional) || []).filter(function (c) { return c.id === key; })[0];
           dflt = !col || col.defaultOff !== true;
         }

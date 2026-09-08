@@ -97,7 +97,7 @@
       App.docHost.sections({ subjectId: selId, categories: null }).forEach(function (pv) {
         if (typeof pv.rows === 'function') rows = rows.concat(pv.rows());
       });
-      return App.generate.filterCounts(h, rows);
+      return App.docGen.filterCounts(h, rows);
     }
     function selectedDeviceId() { return App.docSession.selectedSubjectId(); }
     function bag(project) { return (project && project.report) || {}; }
@@ -117,7 +117,7 @@
     function outlineNow(project) {
       // The device goes in: GUIDE-1 exists only when something on THIS device diverges,
       // so the section list would otherwise offer a section the document will not have.
-      var blocks = App.generate.hostBlocks(H(),
+      var blocks = App.docGen.reportBlocks(H(),
         Object.assign({}, opts(), { deviceId: selectedDeviceId(project) }));
       var profile = App.docFormat.resolve(project);
       return {
@@ -166,7 +166,7 @@
      * @returns {string} '' when the section has nothing to choose
      */
     function optionsMenu(project, b) {
-      var cols = App.generate.hostColumns(H(), b, opts());
+      var cols = App.docGen.sectionColumns(H(), b, opts());
       var optional = (cols && cols.optional) || [];
       var groups = b.groups || [];
       if (!optional.length && !groups.length) return '';

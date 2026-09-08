@@ -81,7 +81,7 @@
     }
 
     function reportBlocks(project, platform, opts) {
-      return hostBlocks(chHost(project, platform, opts), opts);
+      return App.docGen.reportBlocks(chHost(project, platform, opts), opts);
     }
 
     /**
@@ -98,7 +98,7 @@
      */
     function sectionColumns(project, block, opts) {
       var platform = App.registry.getPlatform(project.platformProfileId);
-      return hostColumns(chHost(project, platform, opts), block, opts);
+      return App.docGen.sectionColumns(chHost(project, platform, opts), block, opts);
     }
 
     /**
@@ -113,7 +113,7 @@
      */
     function sectionContent(project, deviceId, platform, b, opts, ctx, metaRows) {
       var host = chHost(project, platform, Object.assign({ deviceId: deviceId }, opts || {}));
-      return hostContent(host, b, opts, ctx, deviceConfig(project, deviceId) ? (metaRows || []) : null);
+      return App.docGen.sectionContent(host, b, opts, ctx, deviceConfig(project, deviceId) ? (metaRows || []) : null);
     }
 
     /**

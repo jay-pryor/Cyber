@@ -230,7 +230,7 @@
     /**
      * RD-8: the selected section, rendered on its own.
      *
-     * Built from `App.generate.sectionContent` — the same call `buildReport` makes for
+     * Built from `App.docGen.sectionContent` — the same call the host's own generator makes for
      * that block — then through the same markdown renderer as the full preview. So
      * what a section's tab shows and what the section looks like in the finished
      * document come from one code path and cannot drift.
@@ -289,10 +289,10 @@
         var ctx = H().subject.context(selId, generatedUtc);
         var metaRows = H().subject.chosenMeta(selId, generatedUtc);
         var o = Object.assign({}, opts(), { deviceId: selId });
-        o.linkTerms = App.generate.controlLinkTerms(project, view.blocks);
+        o.linkTerms = H().linkTerms ? H().linkTerms(view.blocks) : null;
         o.providers = runSections(selId);
         var filled = view.blocks.map(function (b) {
-          return App.generate.hostContent(H(), b, o, ctx, metaRows);
+          return App.docGen.sectionContent(H(), b, o, ctx, metaRows);
         });
         return Object.assign({}, view, { resolved: App.doc.outline(filled, {
           baseLevel: 1,
@@ -314,7 +314,7 @@
       return {
         resolveRef: App.doc.refResolver(view.resolved, tables),
         tables: tables,
-        linkTerms: App.generate.controlLinkTerms(project, view.blocks),
+        linkTerms: H().linkTerms ? H().linkTerms(view.blocks) : null,
         metrics: App.docFormat.tableMetrics(view.profile),
         styleFor: function (part) {
           return App.docFormat.tableStyle(view.profile, { head: part.styleHead === true, firstColumn: part.styleFirstColumn === true });
@@ -331,7 +331,7 @@
      * "Packages as at /[Date]" previewed with the raw tag while the document it is a
      * preview OF said the date. One line, and the two agree again.
      */
-    function withTags(md) { return App.generate.applyTags(md, opts().tags); }
+    function withTags(md) { return App.docGen.applyTags(md, opts().tags); }
 
     /** SEC-1/REF-1: a generated section's introduction, numbered and reference-resolved. */
     function introMd(project, block, resolved) {
@@ -348,7 +348,7 @@
       try {
         var generatedUtc = H().clock.nowIso();
         var ctx = H().subject.context(selId, generatedUtc);
-        var filled = App.generate.hostContent(H(), block,
+        var filled = App.docGen.sectionContent(H(), block,
           Object.assign({}, opts(), { deviceId: selId, providers: runSections(selId) }), ctx,
           H().subject.chosenMeta(selId, generatedUtc));
         // Numbered as it will actually be numbered, so the preview reads as the page.

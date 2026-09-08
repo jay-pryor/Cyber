@@ -1,12 +1,20 @@
-    /* -------------------------------------------------------------------------
-     * 8: the host-driven half of the generator.
-     *
-     * Nothing below knows what a device, a dataset or a control is. It is handed a
-     * HOST — where state is read, what the time is, what sections are on offer — and
-     * turns that into the blocks a document is made of, the columns each will print
-     * and the markdown each contains. CH's own reportBlocks/sectionColumns/
-     * sectionContent are three thin shims over these, so the two cannot drift.
-     * ---------------------------------------------------------------------- */
+  /* =============================================================================
+   * MODULE: App.docGen — DOC-GEN: the document, built from a host's declarations
+   * PURPOSE: Turn what a HOST declares — its sections, its subject, its filter —
+   *          into the blocks a document is made of, the columns each block prints
+   *          and the markdown each block contains. This is the generator half of
+   *          the module: the designer shows what this produces, and the host's
+   *          own Generate button emits it.
+   * PURITY:  pure. No DOM, no I/O, no clock — the time arrives on the context.
+   * DEPENDS: App.docHost, App.docBlocks, App.docProviders, App.docFormat, App.doc,
+   *          App.report, App.md
+   * INVARIANTS: nothing in here knows what a device, a dataset or a control is.
+   *             Everything specific to the app it is attached to arrives through a
+   *             provider or through the host, which is what lets the same code
+   *             generate CH's hardening report and something else entirely.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
 
     /** The host's sections for a run, whether it declared an array or a function. */
     function sectionsOf(host, run) {
@@ -173,7 +181,7 @@
       var centred = bag.centred || {};
       var tableText = bag.tables || {}, breaks = bag.pageBreak || {}, noToc = bag.noToc || {};
       var space = bag.space || {};   // SPC-1
-      return applySectionOrder(d, bag.order).map(function (b) {
+      return App.docBlocks.applySectionOrder(d, bag.order).map(function (b) {
         // NAM-2: a GENERATED section's heading is editable too. It has to be: once a
         // name and a heading are two different strings, a section whose name is a
         // shorthand needs somewhere to say what the long form actually is — and
@@ -305,13 +313,13 @@
         // which is written by the headings this document has already emitted — so a
         // contents section placed at the end lists the same document as one at the
         // front, and neither needs to be told what is in it.
-        out = Object.assign({}, b, { body: MD.rawLatex('\\chContents') });
+        out = Object.assign({}, b, { body: App.md.rawLatex('\\chContents') });
       } else if (b.kind === 'meta') {
-        var metaText = tableWording(b, '_all');
+        var metaText = App.docBlocks.tableWording(b, '_all');
         out = Object.assign({}, b, { body: metaRows
           ? App.report.metaTable(metaRows,
-              Object.assign(withWording(tblOpts, metaText, capText),
-                { headings: headingsFor(['field', 'value'], ['Field', 'Value'], metaText.columns) }))
+              Object.assign(App.docBlocks.withWording(tblOpts, metaText, capText),
+                { headings: App.docBlocks.headingsFor(['field', 'value'], ['Field', 'Value'], metaText.columns) }))
           : '' });
       } else if (providerOf(opts, b.id, null, host)) {
         /* 8: every generated section arrives here. Registers, control coverage and
@@ -352,12 +360,97 @@
       // Centring is applied to the BODY, not the heading: a centred heading is a
       // formatting-profile decision, and centring the heading here would fight it.
       if (b.centre) {
-        if (out.body) out = Object.assign({}, out, { body: MD.centred(out.body) });
+        if (out.body) out = Object.assign({}, out, { body: App.md.centred(out.body) });
         if (out.children && out.children.length) {
           out = Object.assign({}, out, { children: out.children.map(function (c) {
-            return Object.assign({}, c, { body: c.body ? MD.centred(c.body) : c.body });
+            return Object.assign({}, c, { body: c.body ? App.md.centred(c.body) : c.body });
           }) });
         }
       }
       return out;
     }
+
+    /* =========================================================================
+     * GEN-TAB: `/[Tag]` — a placeholder filled in at generate time.
+     *
+     * Write `/[Date]` in a heading, an introduction, a table cell, a footer — anywhere
+     * you type text — and the Generate pane lists it once with a box beside it. What you
+     * put in the box replaces every occurrence in the document.
+     *
+     * Found and replaced on the FINISHED markdown, not on the strings that went into it,
+     * and that is the whole design. A tag can appear in any of a dozen places — a
+     * section heading, a section name, an introduction, a table's title row, a column
+     * heading, a paragraph, a hand-authored cell, a header slot — and threading a
+     * substitution through all of them is a dozen chances to miss one. The document is
+     * the one place they have all arrived at, so it is the one place this happens.
+     *
+     * Both escaped and unescaped forms are matched, because both occur: prose reaches
+     * the .md through MD.text and comes out as `/\[Date\]`, while the same tag inside a
+     * code span is verbatim. The body is deliberately narrow — letters, digits, spaces,
+     * `_` and `-`, up to 40 characters — so that a `/[` inside a captured device value
+     * cannot be mistaken for one.
+     */
+    var TAG_RE = /\/(\\?)\[([A-Za-z0-9 _-]{1,40})(\\?)\]/g;
+
+    /** Every distinct tag in a document, in the order it is first written. */
+    function findTags(md) {
+      var seen = {}, out = [], m;
+      TAG_RE.lastIndex = 0;
+      while ((m = TAG_RE.exec(String(md == null ? '' : md))) !== null) {
+        var name = m[2];
+        if (!seen[name]) { seen[name] = true; out.push(name); }
+      }
+      return out;
+    }
+
+    /**
+     * Replace each tag with what the operator typed for it.
+     *
+     * A tag with no value is LEFT AS IT IS rather than blanked. A document with
+     * `/[Date]` still printed in it is obviously unfinished; one with a silent gap where
+     * the date should be reads as complete and is not — the same rule the rest of this
+     * file follows for a missing cross-reference and an unstated omission.
+     *
+     * The replacement is escaped, because it is text somebody typed arriving in a
+     * document that is markdown on its way to LaTeX. It is escaped ONCE, here, on the
+     * same rule as everything else. This is the BODY's escaper: the one place a
+     * placeholder can land that is NOT markdown is a header or footer slot, and those
+     * are filled in before the profile is compiled (see taggedProfile), so by the time
+     * this runs there is nothing left in the preamble for it to get wrong.
+     */
+    /**
+     * GEN-TAB: the name the operator gave the file, made safe to be one.
+     *
+     * A filename typed into a box reaches `download`'s `a[download]` attribute, so it is
+     * reduced to characters that cannot mean anything to a filesystem or a shell — no
+     * separators, no traversal, no leading dot. Blank (or nothing left after that) falls
+     * back to the device-and-timestamp name every other artifact uses.
+     */
+    function docFilename(name) {
+      var s = String(name == null ? '' : name).trim().replace(/\.md$/i, '');
+      s = s.replace(/[^A-Za-z0-9 ._-]+/g, '-').replace(/^[.\-]+/, '').replace(/\s+/g, ' ').trim();
+      return s ? s + '.md' : '';
+    }
+
+    function applyTags(md, values, raw) {
+      values = values || {};
+      return String(md == null ? '' : md).replace(TAG_RE, function (whole, e1, name) {
+        var v = values[name];
+        if (v === undefined || v === null || !String(v).length) return whole;
+        // `raw` for a header or footer slot, which is escaped later and for LaTeX.
+        return raw ? String(v) : App.md.text(String(v));
+      });
+    }
+
+    App.docGen = {
+      // The three the host's own generator is a shim over.
+      reportBlocks: hostBlocks, sectionColumns: hostColumns, sectionContent: hostContent,
+      // How many rows sit in each of the host's filter categories.
+      filterCounts: filterCounts,
+      // GEN-TAB: `/[Tag]` placeholders — finding them, filling them, naming the file.
+      findTags: findTags, applyTags: applyTags, docFilename: docFilename, TAG_RE: TAG_RE,
+      // Exposed for a host that assembles its own run: the sections for a run, and
+      // the provider behind one block.
+      sectionsOf: sectionsOf, providerOf: providerOf
+    };
+  })(App);
