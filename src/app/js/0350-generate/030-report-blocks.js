@@ -166,11 +166,12 @@
       if (block.kind === 'dataset') {
         var adapter = App.registry.getDataset(project.platformProfileId, block.dsId);
         if (!adapter) return null;
-        // The key column's label is the adapter's business and is not exported, so it is
-        // read back from the section the adapter itself builds — one source, not two.
-        var probe = adapter.renderReportSection([], {}, { columns: {}, groups: {} });
-        var head = firstHeaderRow(probe.body || ((probe.children || [])[0] || {}).body || '');
-        return pack([{ id: '_key', label: head[0] || 'Key' }], (adapter.reportColumns || []).filter(function (c) { return c.optional; }));
+        // KEY-1: the key column is DECLARED. It used to be recovered by rendering an
+        // empty section and scraping the first pipe-table header row out of the result,
+        // which returned nothing at all for an adapter whose section is not a pipe
+        // table — a trap for the next dataset rather than for these three.
+        var key = adapter.keyColumn || { id: '_key', label: 'Key' };
+        return pack([{ id: '_key', label: key.label }], (adapter.reportColumns || []).filter(function (c) { return c.optional; }));
       }
       if (block.kind === 'control') return pack([{ id: 'control', label: 'Control' }], CONTROL_COLUMNS);
       if (block.kind === 'meta') return pack([{ id: 'field', label: 'Field' }, { id: 'value', label: 'Value' }], []);
@@ -179,16 +180,6 @@
           { id: 'narrative', label: 'How it departs, and why' }], []);
       }
       return null;
-    }
-
-    /** The header cells of the first table in a rendered body (pipe or grid form). */
-    function firstHeaderRow(md) {
-      var lines = String(md == null ? '' : md).split('\n');
-      for (var i = 0; i < lines.length; i++) {
-        if (!/^\|/.test(lines[i])) continue;
-        return lines[i].slice(1, -1).split('|').map(function (c) { return c.trim().replace(/^\*\*|\*\*$/g, ''); });
-      }
-      return [];
     }
 
     /** RPT-2: the Security Relevance categories in report order — unset comes last. */

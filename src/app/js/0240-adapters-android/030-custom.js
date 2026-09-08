@@ -146,8 +146,10 @@
         { id: 'rationale', label: 'Rationale', optional: true, defaultOff: true, w: 2, get: function (it) { return it.rationale || ''; } },
         { id: 'rollback', label: 'Rollback', optional: true, defaultOff: true, w: 2, get: function (it) { return it.rollback || ''; } }
       ],
+      // KEY-1: declared, so the designer can name the column without rendering it.
+      keyColumn: { id: '_key', label: 'Action Name', w: 2, get: function (it) { return it.key; } },
       renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection(this.label, { label: 'Action Name', w: 2, get: function (it) { return it.key; } },
+        return App.report.buildSection(this.label, this.keyColumn,
           this.reportColumns, items, opts || {}, ctx, null);
       }
       // No parseAssignment: there is no capture format to bulk-import from, and the

@@ -124,8 +124,11 @@
         { id: 'control', label: 'Control', optional: true, w: 2, get: function (it, ctx) { return controlTitles(it.controlRefs, ctx); } },
         { id: 'rationale', label: 'Rationale', optional: true, defaultOff: true, w: 3, get: function (it) { return it.rationale || ''; } }
       ],
+      // KEY-1: declared, not recovered by rendering the section and reading its first
+      // header cell back out of the markdown.
+      keyColumn: { id: '_key', label: 'Package', w: 2, get: function (it) { return it.key; } },
       renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection('Packages', { label: 'Package', w: 2, get: function (it) { return it.key; } }, this.reportColumns, items, opts || {}, ctx, this.reportGroups);
+        return App.report.buildSection('Packages', this.keyColumn, this.reportColumns, items, opts || {}, ctx, this.reportGroups);
       },
       // ---- bulk assignment (spec §18.2): a CSV of package,action,description ----
       assignmentHint: 'CSV with a header row starting exactly "package,action,description", optionally followed by "rationale" and then "relevance". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas), column 4 (optional) = rationale, column 5 (optional) = HIGH|MEDIUM|LOW|REPORT|IRRELEVANT (or blank).',
@@ -323,8 +326,10 @@
         { id: 'control', label: 'Control', optional: true, w: 2, get: function (it, ctx) { return controlTitles(it.controlRefs, ctx); } },
         { id: 'rationale', label: 'Rationale', optional: true, defaultOff: true, w: 2, get: function (it) { return it.rationale || ''; } }
       ],
+      // KEY-1: the policy prefix is stripped for display, which is the getter's job.
+      keyColumn: { id: '_key', label: 'Path', w: 2, get: function (it) { return stripPolicyPrefix(it.key); } },
       renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection('Tactical', { label: 'Path', w: 2, get: function (it) { return stripPolicyPrefix(it.key); } }, this.reportColumns, items, opts || {}, ctx, null);
+        return App.report.buildSection('Tactical', this.keyColumn, this.reportColumns, items, opts || {}, ctx, null);
       },
       /** Captured value/type per leaf path, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
