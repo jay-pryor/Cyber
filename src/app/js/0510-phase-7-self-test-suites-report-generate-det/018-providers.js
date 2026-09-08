@@ -17,14 +17,31 @@
       T.assert(ids.indexOf('guidelines') !== -1, 'guideline deviations are not offered');
     });
 
+    /* 8: the registers are offered the same way, so a document is built from ONE list
+     * of sections rather than from a dataset loop with two special cases bolted on. */
+    s.test('the registers are offered as sections too', function () {
+      var ids = run().sections.map(function (x) { return x.id; });
+      T.assert(ids.indexOf('ds:android.packages') !== -1, 'the packages register is not offered: ' + ids.join(','));
+    });
+
     s.test('each conforms to the provider contract', function () {
       run().sections.forEach(function (pv) {
         T.assertEqual(typeof pv.id, 'string');
         T.assertEqual(typeof pv.label, 'string');
-        T.assertEqual(typeof pv.render, 'function', pv.id + ': no render');
-        T.assertEqual(typeof pv.available, 'function', pv.id + ': no available');
         T.assert(pv.keyColumn && pv.keyColumn.label, pv.id + ': no keyColumn');
+        T.assert(Array.isArray(pv.columns), pv.id + ': no columns');
+        // render() and available() are the OPTIONAL halves: a section that is a plain
+        // table declares neither, which is the case the contract exists to make easy.
+        if (pv.render !== undefined) T.assertEqual(typeof pv.render, 'function', pv.id + ': render is not a function');
+        if (pv.available !== undefined) T.assertEqual(typeof pv.available, 'function', pv.id + ': available is not a function');
       });
+    });
+
+    s.test('a declarative section supplies rows instead of rendering them', function () {
+      var pk = run().sections.filter(function (x) { return x.id === 'ds:android.packages'; })[0];
+      T.assertEqual(pk.render, undefined, 'a register should need no render()');
+      T.assertEqual(typeof pk.rows, 'function', 'a register must supply its rows');
+      T.assert(pk.rows().length > 0, 'the packages register produced no rows');
     });
 
     s.test('guidelines declares itself unavailable when nothing diverges', function () {

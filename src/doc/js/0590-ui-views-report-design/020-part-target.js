@@ -84,7 +84,7 @@
         '</div>';
     }
 
-    function tableEditor(project, platform, sec, part, i, n) {
+    function tableEditor(project, sec, part, i, n) {
       var head = part.header || [], rows = part.rows || [], align = part.align || [];
       var widths = (part.widths && part.widths.length === head.length) ? part.widths : null;
       var auto = !widths;
@@ -104,7 +104,7 @@
       var ths = head.map(function (h, c) {
         var pct = widths ? Math.round(widths[c] * 1000) / 10 : Math.round(1000 / head.length) / 10;
         // RTX-2: a heading is prose like any other cell, so it takes the same box.
-        return '<th>' + richBox(project, platform,
+        return '<th>' + richBox(project,
             'data-rd-cell="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '" data-rd-row="-1" data-rd-col="' + c + '"' +
             ' aria-label="Column ' + (c + 1) + ' heading"', h, 'rd-cellbox') +
           '<span class="rd-colbar">' +
@@ -120,7 +120,7 @@
       var trs = rows.map(function (r, ri) {
         var tall = App.docStore.rowTall(part, ri);
         return '<tr>' + head.map(function (_, c) {
-          return '<td>' + richBox(project, platform,
+          return '<td>' + richBox(project,
             'data-rd-cell="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '" data-rd-row="' + ri + '" data-rd-col="' + c + '"' +
             ' aria-label="Row ' + (ri + 1) + ' column ' + (c + 1) + '"', r[c], 'rd-cellbox') + '</td>';
         }).join('') + '<td class="rd-rowdel">' +
@@ -152,7 +152,7 @@
           // a layout, does not want "Table 7:" underneath it.
           cb('data-rd-part-flag="noCaption" data-rd-part="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '"', 'No caption', part.noCaption === true) +
           partControls(sec, part, i, n) + '</div>' +
-        refMenu(project, platform, sec, part) +
+        refMenu(project, sec, part) +
         (part.noCaption === true
           ? '<p class="muted rd-part-note">Uncaptioned, so this table takes no number and cannot be cross-referenced.</p>'
           : '<input class="rd-cap" value="' + esc(part.caption || '') + '" data-rd-caption="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '" placeholder="Table caption — left blank, the section’s heading is used" aria-label="Table caption">') +
@@ -245,13 +245,13 @@
      * true one, and a styled table shows its styling. Anything less would be a second
      * renderer, and a second renderer is a second answer.
      */
-    function customPreview(project, platform, block) {
+    function customPreview(project, block) {
       try {
         // Filled, so a reference to a register table resolves here exactly as it will
         // in the document rather than reading "[missing reference]".
-        var view = filledView(project, platform);
+        var view = filledView(project);
         var resolved = view.resolved.filter(function (r) { return r.id === block.id; })[0];
-        var ctx = docCtx(project, platform, view);
+        var ctx = docCtx(project, view);
         // `centred` so a part inside a centred section is not wrapped twice — the same
         // ctx App.doc.render builds, so the preview and the document agree.
         var body = App.doc.renderParts(block.parts || [],
@@ -280,19 +280,19 @@
      * section preview), because filling every section is the expensive half of
      * generating.
      */
-    function filledView(project, platform) {
-      var view = outlineNow(project, platform);
+    function filledView(project) {
+      var view = outlineNow(project);
       var selId = selectedDeviceId(project);
       if (!selId) return view;
       try {
-        var dc = latest(project).filter(function (c) { return c.id === selId; })[0];
-        var generatedUtc = App.util.clock.nowIso();
-        var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
+        var generatedUtc = H().clock.nowIso();
+        var ctx = H().subject.context(selId, generatedUtc);
+        var metaRows = H().subject.chosenMeta(selId, generatedUtc);
         var o = Object.assign({}, opts(), { deviceId: selId });
         o.linkTerms = App.generate.controlLinkTerms(project, view.blocks);
-        o.providers = App.generate.hostSections(project, selId, platform, null);
+        o.providers = runSections(selId);
         var filled = view.blocks.map(function (b) {
-          return App.generate.sectionContent(project, selId, platform, b, o, ctx, App.generate.deviceMeta(project, dc, generatedUtc));
+          return App.generate.hostContent(H(), b, o, ctx, metaRows);
         });
         return Object.assign({}, view, { resolved: App.doc.outline(filled, {
           baseLevel: 1,
@@ -309,7 +309,7 @@
      * real table index, the real control link terms. Built once here so a per-section
      * preview and the whole-document preview cannot answer differently.
      */
-    function docCtx(project, platform, view) {
+    function docCtx(project, view) {
       var tables = App.doc.tableIndex(view.resolved);
       return {
         resolveRef: App.doc.refResolver(view.resolved, tables),
@@ -334,27 +334,25 @@
     function withTags(md) { return App.generate.applyTags(md, opts().tags); }
 
     /** SEC-1/REF-1: a generated section's introduction, numbered and reference-resolved. */
-    function introMd(project, platform, block, resolved) {
+    function introMd(project, block, resolved) {
       if (!String(block.intro || '').trim()) return '';
-      var body = MD.rich(block.intro, docCtx(project, platform, filledView(project, platform)));
+      var body = MD.rich(block.intro, docCtx(project, filledView(project)));
       if (!body) return '';
       return (resolved && resolved.introNumber) ? MD.text(resolved.introNumber) + ' ' + body : body;
     }
 
-    function sectionPreview(project, platform, block) {
-      if (block && block.kind === 'custom') return customPreview(project, platform, block);
+    function sectionPreview(project, block) {
+      if (block && block.kind === 'custom') return customPreview(project, block);
       var selId = selectedDeviceId(project);
       if (!selId) return '<p class="muted">No device selected — nothing to preview.</p>';
       try {
-        var dc = latest(project).filter(function (c) { return c.id === selId; })[0];
-        var generatedUtc = App.util.clock.nowIso();
-        var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
-        var filled = App.generate.sectionContent(project, selId, platform, block,
-          Object.assign({}, opts(), { deviceId: selId,
-            providers: App.generate.hostSections(project, selId, platform, null) }), ctx,
-          App.generate.deviceMeta(project, dc, generatedUtc));
+        var generatedUtc = H().clock.nowIso();
+        var ctx = H().subject.context(selId, generatedUtc);
+        var filled = App.generate.hostContent(H(), block,
+          Object.assign({}, opts(), { deviceId: selId, providers: runSections(selId) }), ctx,
+          H().subject.chosenMeta(selId, generatedUtc));
         // Numbered as it will actually be numbered, so the preview reads as the page.
-        var resolved = outlineNow(project, platform).resolved.filter(function (r) { return r.id === block.id; })[0];
+        var resolved = outlineNow(project).resolved.filter(function (r) { return r.id === block.id; })[0];
         var md = App.md.join([
           // The HEADING, not the name (NAM-1): `resolved` already carries the heading as
           // `title`, and forcing the label in here was showing the section list's
@@ -365,7 +363,7 @@
           // so the preview cannot show a different one. REF-1: rendered through the real
           // document ctx, so a cross-reference in an introduction reads here exactly as
           // it will on the page rather than as "[missing reference]".
-          introMd(project, platform, block, resolved),
+          introMd(project, block, resolved),
           filled.body || '',
           (filled.children || []).map(function (c) {
             var lvl = Math.min((resolved ? resolved.level : 1) + 1, 4);

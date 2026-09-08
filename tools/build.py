@@ -59,12 +59,8 @@ BOUNDARY_DEBT = {
     "store",              # 51 — docStore/docTemplates writes; becomes host.commit/getState
     "generate",           # 20 — the half of App.generate that becomes App.docGen
     "ui.activity",        # 9  — the log sink; becomes host.log
-    "registry",           # 5  — dataset/platform lookup; becomes host.sections
     "util.clock",         # 4  — becomes host.clock
     "ui.views.generate",  # 4  — the shared session bag; inverted into the module
-    "completeness",       # 2  — readiness gate; becomes host.subject.ready
-    "ui.tables",          # 1  — a relevance chip; becomes a plain label
-    "ui.model",           # 1  — the candidate list; becomes host.subject.list
 }
 
 

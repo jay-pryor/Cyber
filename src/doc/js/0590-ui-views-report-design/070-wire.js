@@ -6,7 +6,6 @@
       _ctx = ctx;
       var dom = App.util.dom;
       var P = function () { return App.store.getProject(); };
-      var PL = function () { var p = P(); return p ? App.registry.getPlatform(p.platformProfileId) : null; };
 
       dom.on(ctx.root, 'click', '[data-rd-open]', function () {
         _rd.open = true; dirty(); ctx.refreshMain();
@@ -54,8 +53,10 @@
       });
       dom.on(ctx.root, 'change', '[data-rd-ds-all]', function (e, el) {
         var dsId = el.getAttribute('data-rd-ds-all'), p = P(); if (!p) return;
-        var a = App.registry.getDataset(p.platformProfileId, dsId);
-        var groups = (a && a.reportGroups && a.reportGroups.options) || [];
+        // The groups come off the BLOCK, which is where the host already declared them
+        // — asking the registry for the adapter meant knowing what a dataset was.
+        var block = (outlineNow(p).blocks || []).filter(function (b) { return b.dsId === dsId; })[0];
+        var groups = (block && block.groups) || [];
         quietly(function () {
           groups.forEach(function (g) {
             logIssues(App.docStore.setReportInclude('datasetSections', dsId, g.value, el.checked, true));
@@ -69,8 +70,8 @@
         // declaration rather than assumed to be "on".
         var dflt = true;
         if (map === 'columns') {
-          var block = (outlineNow(P(), PL()).blocks || []).filter(function (b) { return (b.dsId || b.kind) === ds; })[0];
-          var cols = block ? App.generate.sectionColumns(P(), block, opts()) : null;
+          var block = (outlineNow(P()).blocks || []).filter(function (b) { return (b.dsId || b.kind) === ds; })[0];
+          var cols = block ? App.generate.hostColumns(H(), block, opts()) : null;
           var col = ((cols && cols.optional) || []).filter(function (c) { return c.id === key; })[0];
           dflt = !col || col.defaultOff !== true;
         }
@@ -104,13 +105,13 @@
         dirty(); repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-up]', function (e, el) {
-        var p = P(), pl = PL(); if (!p || !pl) return;
-        quietly(function () { moveSection(p, pl, el.getAttribute('data-rd-up'), -1); });
+        var p = P(); if (!p) return;
+        quietly(function () { moveSection(p, el.getAttribute('data-rd-up'), -1); });
         dirty(); repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-down]', function (e, el) {
-        var p = P(), pl = PL(); if (!p || !pl) return;
-        quietly(function () { moveSection(p, pl, el.getAttribute('data-rd-down'), 1); });
+        var p = P(); if (!p) return;
+        quietly(function () { moveSection(p, el.getAttribute('data-rd-down'), 1); });
         dirty(); repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-reset-order]', function () {
@@ -221,9 +222,9 @@
       dom.on(ctx.root, 'drop', '[data-rd-block]', function (e, el) {
         e.preventDefault();
         el.classList.remove('drop-target');
-        var target = el.getAttribute('data-rd-block'), p = P(), pl = PL();
-        if (p && pl && _dragId && _dragId !== target) {
-          quietly(function () { moveSection(p, pl, _dragId, 0, target); });
+        var target = el.getAttribute('data-rd-block'), p = P();
+        if (p && _dragId && _dragId !== target) {
+          quietly(function () { moveSection(p, _dragId, 0, target); });
           dirty(); repaint();
         }
         _dragId = null;

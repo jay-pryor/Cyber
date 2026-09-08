@@ -146,8 +146,8 @@
     function dirty() { _rd.preview = null; }
 
     /** RPT-3: persist a reorder — move one block id by a step, or before another. */
-    function moveSection(project, platform, id, delta, beforeId) {
-      var ids = App.generate.reportBlocks(project, platform, opts()).map(function (b) { return b.id; });
+    function moveSection(project, id, delta, beforeId) {
+      var ids = App.generate.hostBlocks(H(), opts()).map(function (b) { return b.id; });
       var from = ids.indexOf(id);
       if (from === -1) return;
       var to;
@@ -277,8 +277,7 @@
     /** The document's reference resolver, for re-rendering a box after an edit. */
     function boxHtml(tokens) {
       var p = App.store.getProject();
-      var pl = p ? App.registry.getPlatform(p.platformProfileId) : null;
-      return RT.toHtml(tokens, { resolveRef: p && pl ? refResolver(p, pl) : null });
+      return RT.toHtml(tokens, { resolveRef: p && H() ? refResolver(p) : null });
     }
 
     /** Remember where the caret is, in tokens, so a repaint cannot take it away. */

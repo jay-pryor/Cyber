@@ -1,10 +1,11 @@
     /** META-1: the include/exclude ticks for the Device Config Information rows. */
     function metaPane(project) {
       var selId = selectedDeviceId(project);
-      var dc = latest(project).filter(function (c) { return c.id === selId; })[0];
-      if (!dc) return '<p class="muted">No device selected.</p>';
+      if (!selId) return '<p class="muted">No device selected.</p>';
       var chosen = (bag(project).meta) || {};
-      var rows = App.generate.metaFields(project, dc, App.util.clock.nowIso());
+      // Every row the host CAN state, ticked or not — this is the picker, so a row
+      // switched off still has to appear in it.
+      var rows = H().subject.meta(selId);
       return '<div class="rd-fieldset"><strong>Rows</strong>' +
         '<p class="muted">Which lines of provenance this block carries. Saved with the project, so it travels in a report template.</p>' +
         rows.map(function (r) {
@@ -62,16 +63,16 @@
      * different content in each ("Package" against "Package removed").
      */
     function tableWordingEditor(project, block) {
-      var cols = App.generate.sectionColumns(project, block, opts());
+      var cols = App.generate.hostColumns(H(), block, opts());
       if (!cols || !cols.all.length) return '';
-      // One editor per table the section will produce: one per group, one per register
-      // for the divergence section, or a single unnamed one for everything else.
+      // One editor per table the section will produce: one per group, or — for a
+      // section that splits its tables on an axis of its own — one per key the
+      // PROVIDER names. The divergence section splits per register, which is a fact
+      // about that section and not about documents, so it is the provider that says so.
       var keys = (block.groups || []).filter(function (g) { return g.included; })
         .map(function (g) { return { key: g.value, label: g.label }; });
-      if (block.kind === 'guidelines') {
-        keys = ((App.registry.getPlatform(project.platformProfileId) || {}).datasets || [])
-          .map(function (ds) { return { key: ds.id, label: ds.label }; });
-      }
+      var pv = providerFor(block);
+      if (!keys.length && pv && typeof pv.tableKeys === 'function') keys = pv.tableKeys();
       if (!keys.length) keys = [{ key: '_all', label: '' }];
       var stored = block.tables || {};
       var body = keys.map(function (k) {
@@ -129,7 +130,7 @@
     }
 
     /** SEC-1: prose between this section's heading and its generated table. */
-    function introField(project, platform, block) {
+    function introField(project, block) {
       /* REF-1: the same toolbar a hand-authored paragraph has.
        *
        * An introduction is a paragraph in the same token markup, rendered by the same
@@ -144,8 +145,8 @@
           '<button type="button" class="rd-tb" data-rd-ref-open="' + esc('intro:' + block.id) + '"' +
             ' title="Insert a cross-reference that survives renaming and reordering">\ud83d\udd17 Link</button>' +
         '</span></div>' +
-        (refOpen ? refMenuFor(project, platform, block.id, 'data-rd-ref-block="' + esc(block.id) + '"') : '') +
-        richBox(project, platform, 'data-rd-intro="' + esc(block.id) + '"' +
+        (refOpen ? refMenuFor(project, block.id, 'data-rd-ref-block="' + esc(block.id) + '"') : '') +
+        richBox(project, 'data-rd-intro="' + esc(block.id) + '"' +
           ' aria-label="Introduction for ' + esc(block.label) + '"', block.intro, '',
           'Optional. A blank line starts a new paragraph.') +
         hostileHint(block.intro || '') +
@@ -173,7 +174,7 @@
         '</div>';
     }
 
-    function paneSection(project, platform, view) {
+    function paneSection(project, view) {
       var id = _rd.selected;
       if (!id) return '<p class="muted">Pick a section on the left to open it.</p>';
       var block = view.blocks.filter(function (b) { return b.id === id; })[0];
@@ -189,21 +190,21 @@
         }
         out.push(nameField(block, block.defaultTitle));
         out.push(centreToggle(project, block, view.resolved.filter(function (r) { return r.id === block.id; })[0]));
-        out.push(introField(project, platform, block));
+        out.push(introField(project, block));
         out.push(tableWordingEditor(project, block));
         out.push(tableStyleField(project, block));
         if (block.kind === 'meta') out.push(metaPane(project));
         // OPT-1: the column and group ticks are on the section ROW now, not here — see
         // optionsMenu. What stays is the width strip, which is drawn against whatever
         // those ticks have left switched on.
-        var cols = App.generate.sectionColumns(project, block, opts());
+        var cols = App.generate.hostColumns(H(), block, opts());
         if (cols && cols.all.length) out.push(widthStrip(project, block.id, cols.all, block.widths));
         out.push('<p class="muted rd-hint">This section\'s content is generated from the register. Its <strong>columns</strong>' +
           (block.groups ? ' and <strong>groups</strong>' : '') + ' are on the &#9776; button beside it in the list, so they can be changed without leaving whatever pane you are on. ' +
           'Add a <strong>custom section</strong> if you need prose or a table of your own.</p>');
         out.push('<div class="rd-fieldset rd-secprev-wrap"><strong>Preview</strong>' +
           '<p class="muted">This section as it will appear, for the selected device.</p>' +
-          sectionPreview(project, platform, block) + '</div>');
+          sectionPreview(project, block) + '</div>');
         return out.join('');
       }
 
@@ -212,8 +213,8 @@
       if (!sec) return '<p class="muted">That section is no longer in the document.</p>';
       var parts = sec.parts || [];
       var body = parts.map(function (p, i) {
-        if (p.kind === 'para') return paraEditor(project, platform, sec, p, i, parts.length);
-        if (p.kind === 'table') return tableEditor(project, platform, sec, p, i, parts.length);
+        if (p.kind === 'para') return paraEditor(project, sec, p, i, parts.length);
+        if (p.kind === 'table') return tableEditor(project, sec, p, i, parts.length);
         if (p.kind === 'rule') return simplePart(sec, p, i, parts.length, 'Horizontal line', 'A rule across the page.');
         if (p.kind === 'space') return spaceEditor(sec, p, i, parts.length);
         return simplePart(sec, p, i, parts.length, 'Page break', 'Forces what follows onto a new page.');
@@ -237,7 +238,7 @@
         '</div>' +
         '<div class="rd-fieldset rd-secprev-wrap"><strong>Preview</strong>' +
           '<p class="muted">This section as it will appear, numbered as it will be numbered.</p>' +
-          sectionPreview(project, platform, block) + '</div>' +
+          sectionPreview(project, block) + '</div>' +
         '</div>';
     }
 
@@ -246,8 +247,7 @@
     // ======================================================================
 
     function omittedByRelevance(project, selId) {
-      if (!selId || !App.generate || !App.generate.relevanceCounts) return 0;
-      var counts = App.generate.relevanceCounts(project, selId);
+      var counts = categoryCounts(selId);
       var map = opts().relevance || {};
       var n = 0;
       Object.keys(counts).forEach(function (k) { if (map[k] === false) n += counts[k]; });
@@ -255,12 +255,15 @@
     }
 
     function paneRelevance(project) {
-      var G = App.generate, selId = selectedDeviceId(project);
-      var counts = selId ? G.relevanceCounts(project, selId) : {};
+      var selId = selectedDeviceId(project);
+      var counts = categoryCounts(selId);
       var map = opts().relevance || {};
-      var rows = G.relevanceKeys().map(function (k) {
-        var on = map[k] !== false, num = counts[k] || 0, label = G.relevanceLabel(k);
-        var chip = k === G.REL_UNSET ? '<span class="muted">' + esc(label) + '</span>' : App.ui.tables.relevanceBadge(k);
+      var rows = ((H().filter && H().filter.categories()) || []).map(function (c) {
+        var k = c.key, on = map[k] !== false, num = counts[k] || 0, label = c.label;
+        // The category's own name, styled by the host's stylesheet if it wants to.
+        // It used to borrow CH's register badge, which is a component of the app's
+        // data tables and has no business being reachable from in here.
+        var chip = '<span class="rd-cat rd-cat-' + esc(String(k).toLowerCase()) + '">' + esc(label) + '</span>';
         return '<label class="rpt-rel"><input type="checkbox" data-rd-rel="' + esc(k) + '"' + (on ? ' checked' : '') +
           ' aria-label="Include ' + esc(label) + ' items"> ' + chip + '<span class="rpt-rel-count">' + num + ' item' + (num === 1 ? '' : 's') + '</span></label>';
       }).join('');

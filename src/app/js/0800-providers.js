@@ -20,6 +20,10 @@
     function control(project, deviceId, platform, keep) {
       return {
         id: 'control',
+        // The block's KIND, which is how the designer keys this section's column and
+        // group ticks. Declared, not inferred: a provider that did not name one would
+        // silently key its ticks under something no stored project has ever used.
+        kind: 'control',
         label: 'Control coverage',
         keyColumn: { id: 'control', label: 'Control' },
         columns: App.generate.CONTROL_COLUMNS,
@@ -39,6 +43,7 @@
     function guidelines(project, deviceId, platform, keep) {
       return {
         id: 'guidelines',
+        kind: 'guidelines',
         label: 'Deviations from Security Guidelines',
         keyColumn: { id: 'item', label: 'Item' },
         columns: [
@@ -50,6 +55,14 @@
         // host can answer.
         available: function () {
           return App.generate.hasGuidelineDeviations(project, deviceId, platform, keep);
+        },
+        /* This section splits its tables per REGISTER, which is neither a group in the
+         * module's sense nor a single table. A provider that divides its output on an
+         * axis of its own names the pieces here, so the wording editor can offer a
+         * title, a caption and column headings for each. */
+        tableKeys: function () {
+          var pl = platform || App.registry.getPlatform(project && project.platformProfileId);
+          return ((pl && pl.datasets) || []).map(function (ds) { return { key: ds.id, label: ds.label }; });
         },
         render: function (rows, ctx, opts) {
           return {

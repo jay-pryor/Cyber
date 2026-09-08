@@ -5,11 +5,15 @@
    *          under which formatting profile — plus the live preview and the template
    *          catalogues. Replaces the old "Report options" modal.
    * PURITY:  UI/DOM
-   * DEPENDS: App.generate, App.doc, App.docFormat, App.docStore, App.docTemplates,
-   *          App.ui.mdPreview, App.ui.views.generate (session options), App.store
-   * INVARIANTS: everything shown is derived from App.generate.reportBlocks and
-   *             App.doc.outline — the same two calls the generator itself makes — so
-   *             the panel cannot describe a document the generator would not produce.
+   * DEPENDS: App.docHost (the host contract), App.generate, App.doc, App.docFormat,
+   *          App.docStore, App.docTemplates, App.ui.mdPreview,
+   *          App.ui.views.generate (session options), App.store
+   * INVARIANTS: everything shown is derived from hostBlocks and App.doc.outline — the
+   *             same two calls the generator itself makes — so the panel cannot
+   *             describe a document the generator would not produce. Everything it
+   *             knows about the APP it is attached to arrives through App.docHost:
+   *             which subjects there are, which is ready, what sections are on offer
+   *             and what the rows are filtered by.
    * ============================================================================= */
   (function (App) {
     'use strict';
@@ -68,9 +72,35 @@
     function opts() { return App.ui.views.generate.reportOptions(App.store.getProject()); }
     /** The per-run half, which is still a live object and still written to directly. */
     function session() { return App.ui.views.generate._gen.report; }
-    function latest(project) { return App.ui.model.getLatestConfigs(project); }
+    /* The subjects the document could be about, as the HOST describes them. A
+     * subject is {id, label, sublabel} to the module; `config` is whatever the host
+     * needs handed back to it, and only the host ever reads it. */
+    function H() { return App.docHost.get(); }
+    function latest() { var h = H(); return (h && h.subject) ? h.subject.list() : []; }
+    /** The host's declaration for one block, unbound — labels, columns, table keys. */
+    function providerFor(block) {
+      var id = block && block.id;
+      return App.docHost.sections(null).filter(function (x) { return x && x.id === id; })[0] || null;
+    }
+    /** The host's sections BOUND to what is being previewed, filter and all. */
+    function runSections(selId) {
+      return App.docHost.sections({ subjectId: selId, categories: opts().relevance || null });
+    }
+    /**
+     * How many rows sit in each of the host's filter categories, for the omission note
+     * and the tick list beside it. Counted UNFILTERED — the whole point is to say how
+     * many the filter is leaving out.
+     */
+    function categoryCounts(selId) {
+      var h = H(); if (!h || !selId || !h.filter) return {};
+      var rows = [];
+      App.docHost.sections({ subjectId: selId, categories: null }).forEach(function (pv) {
+        if (typeof pv.rows === 'function') rows = rows.concat(pv.rows());
+      });
+      return App.generate.filterCounts(h, rows);
+    }
     function selectedDeviceId(project) {
-      var g = App.ui.views.generate._gen, l = latest(project);
+      var g = App.ui.views.generate._gen, l = latest();
       if (g.deviceId && l.some(function (c) { return c.id === g.deviceId; })) return g.deviceId;
       return l.length ? l[0].id : null;
     }
@@ -88,10 +118,10 @@
     }
 
     /** Blocks + their resolved levels/numbers — the same pair the generator uses. */
-    function outlineNow(project, platform) {
+    function outlineNow(project) {
       // The device goes in: GUIDE-1 exists only when something on THIS device diverges,
       // so the section list would otherwise offer a section the document will not have.
-      var blocks = App.generate.reportBlocks(project, platform,
+      var blocks = App.generate.hostBlocks(H(),
         Object.assign({}, opts(), { deviceId: selectedDeviceId(project) }));
       var profile = App.docFormat.resolve(project);
       return {
@@ -140,7 +170,7 @@
      * @returns {string} '' when the section has nothing to choose
      */
     function optionsMenu(project, b) {
-      var cols = App.generate.sectionColumns(project, b, opts());
+      var cols = App.generate.hostColumns(H(), b, opts());
       var optional = (cols && cols.optional) || [];
       var groups = b.groups || [];
       if (!optional.length && !groups.length) return '';
@@ -167,7 +197,7 @@
         (open ? '<span class="rd-optmenu">' + body + '</span>' : '') + '</span>';
     }
 
-    function renderSectionList(project, platform, view) {
+    function renderSectionList(project, view) {
       var byId = {};
       view.resolved.forEach(function (r) { if (!r.parentId) byId[r.id] = r; });
 
@@ -248,8 +278,8 @@
      * `resolveRef` is the document's own resolver — the same one App.doc renders with —
      * so a chip reads exactly what the PDF will print, renumbering included.
      * ---------------------------------------------------------------------- */
-    function refResolver(project, platform) {
-      try { return docCtx(project, platform, filledView(project, platform)).resolveRef; }
+    function refResolver(project) {
+      try { return docCtx(project, filledView(project)).resolveRef; }
       catch (e) { return null; }        // a half-built document must not break the editor
     }
 
@@ -257,11 +287,11 @@
      * @param {string} attrs   the data attributes identifying what this box writes to
      * @param {string} tokens  the stored token text
      */
-    function richBox(project, platform, attrs, tokens, cls, placeholder) {
+    function richBox(project, attrs, tokens, cls, placeholder) {
       return '<div class="rd-rich ' + (cls || '') + '" contenteditable="true" role="textbox"' +
         ' aria-multiline="true" spellcheck="true" data-rd-rich ' + attrs +
         (placeholder ? ' data-rd-ph="' + esc(placeholder) + '"' : '') + '>' +
-        App.ui.richText.toHtml(tokens || '', { resolveRef: refResolver(project, platform) }) + '</div>';
+        App.ui.richText.toHtml(tokens || '', { resolveRef: refResolver(project) }) + '</div>';
     }
 
     /* RTX-1: the four formatting buttons, wherever prose is written. `host` is the data
@@ -307,9 +337,9 @@
     /**
      * @param {string} host  the data attributes identifying the box being written into
      */
-    function refMenuFor(project, platform, ownId, host) {
+    function refMenuFor(project, ownId, host) {
       // Filled, so the register tables are in the list — see filledView.
-      var view = filledView(project, platform);
+      var view = filledView(project);
       var tables = App.doc.tableIndex(view.resolved);
       var targets = App.doc.refTargets(view.resolved, tables).filter(function (t) { return t.id !== ownId; });
       if (!targets.length) return '<div class="rd-refmenu"><em>Nothing to link to yet.</em></div>';
@@ -329,13 +359,13 @@
         }).join('') + '</div>';
     }
 
-    function refMenu(project, platform, sec, part) {
+    function refMenu(project, sec, part) {
       if (_rd.refFor !== part.id) return '';
-      return refMenuFor(project, platform, sec.id,
+      return refMenuFor(project, sec.id,
         'data-rd-part="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '"');
     }
 
-    function paraEditor(project, platform, sec, part, i, n) {
+    function paraEditor(project, sec, part, i, n) {
       var host = 'data-rd-part="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '"';
       return '<div class="rd-part" draggable="true" data-rd-partrow="' + esc(part.id) + '">' +
         '<div class="rd-part-head"><span class="rd-part-kind">Paragraph</span>' +
@@ -344,8 +374,8 @@
           '</span>' +
           cb('data-rd-part-flag="centre" ' + host, 'Centre', part.centre === true) +
           partControls(sec, part, i, n) + '</div>' +
-        refMenu(project, platform, sec, part) +
-        richBox(project, platform, 'data-rd-text="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '"',
+        refMenu(project, sec, part) +
+        richBox(project, 'data-rd-text="' + esc(part.id) + '" data-rd-sec="' + esc(sec.id) + '"',
           part.text, '', 'Write the paragraph. Enter is a line break; a blank line starts a new paragraph.') +
         hostileHint(part.text || '') + '</div>';
     }

@@ -17,6 +17,76 @@
       window.addEventListener('unhandledrejection', function (e) { report((e && e.reason && (e.reason.message || e.reason)) || 'promise rejection'); });
     }
 
+    /**
+     * The document module is given its host EXPLICITLY (design D-host).
+     *
+     * Everything the designer and the generator need from CH arrives through this one
+     * object: where state is read and written, what the time is, what sections are on
+     * offer, what the document is about and how its rows are filtered. Nothing is
+     * ambient any more, which is what lets the module be lifted into another app —
+     * and what lets a test drive it with a host built inline.
+     *
+     * commit() matters most: routing the designer's writes through App.store._commit
+     * is what keeps undo/redo, the dirty flag and the folder autosave working, none of
+     * which the module knows about.
+     */
+    function installDocHost() {
+      var G = App.generate;
+      function P() { return App.store.getProject(); }
+      App.docHost.set({
+        getState: P,
+        commit: function (mutator) { App.store._commit(mutator); },
+        clock: App.util.clock,
+        log: function (level, message) { App.ui.activity.log(level, message); },
+        subject: {
+          list: function () {
+            return App.ui.model.getLatestConfigs(P()).map(function (c) {
+              return { id: c.id, label: c.name, sublabel: c.model, config: c };
+            });
+          },
+          ready: function (id) { return App.completeness.deviceReady(P(), id); },
+          meta: function (id, generatedUtc) {
+            var dc = (P().deviceConfigs || []).filter(function (c) { return c.id === id; })[0];
+            return dc ? G.metaFields(P(), dc, generatedUtc || App.util.clock.nowIso()) : [];
+          },
+          /* The render context every column getter is handed. It is the HOST's shape
+           * — CH's getters read ctx.project and ctx.device — so the module asks for
+           * one rather than assembling it out of parts it would have to understand. */
+          context: function (id, generatedUtc) {
+            var p = P();
+            return { device: (p.deviceConfigs || []).filter(function (c) { return c.id === id; })[0] || null,
+                     project: p, toolVersion: App.ui.app.TOOL_VERSION,
+                     generatedUtc: generatedUtc || App.util.clock.nowIso(), command: 'reporting' };
+          },
+          chosenMeta: function (id, generatedUtc) {
+            var dc = (P().deviceConfigs || []).filter(function (c) { return c.id === id; })[0];
+            return dc ? G.deviceMeta(P(), dc, generatedUtc || App.util.clock.nowIso()) : null;
+          },
+          metaLabel: 'Device Config Information'
+        },
+        /* Bound per RUN, not registered once: each provider closes over the device and
+         * the filter it is describing, so the module never has to carry them. Called
+         * with no run, the same providers come back unbound — their declarations are
+         * all the designer needs to draw a section it is not yet generating. */
+        sections: function (run) {
+          var p = P(); if (!p) return [];
+          return G.hostSections(p, run && run.subjectId,
+            App.registry.getPlatform(p.platformProfileId),
+            G.relevanceFilter(run && run.categories ? { relevance: run.categories } : null));
+        },
+        filter: {
+          id: 'relevance', label: 'Security Relevance',
+          categories: function () {
+            return G.relevanceKeys().map(function (k) {
+              return { key: k, label: G.relevanceLabel(k),
+                       defaultOn: App.ui.views.generate.REPORT_RELEVANCE_DEFAULT[k] !== false };
+            });
+          },
+          categoryOf: function (row) { return G.relevanceKeyOf(row); }
+        }
+      });
+    }
+
     function boot() {
       var root = document.getElementById('root');
       var isSelfTest = window.location.hash.replace('#', '') === 'selftest';
@@ -26,6 +96,8 @@
       if (App.platforms && App.platforms.androidAdb && !App.registry.hasPlatform('android-adb')) {
         App.registry.registerPlatform(App.platforms.androidAdb);
       }
+
+      installDocHost();
 
       if (isSelfTest) {
         App.test.runAndRender(root);

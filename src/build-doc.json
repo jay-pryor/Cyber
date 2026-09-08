@@ -96,6 +96,15 @@
       "close": "",
       "gap": "\n",
       "paths": [
+        "doc/js/0700-doc-host.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
         "doc/js/0710-doc-providers.js"
       ]
     },

@@ -16,10 +16,10 @@
      * slot, in a column heading and in a paragraph all arrive in the same string in the
      * end, and nothing short of the end sees all three.
      */
-    function paneGenerate(project, platform, view) {
+    function paneGenerate(project, view) {
       var selId = selectedDeviceId(project);
       if (!selId) return '<p class="muted">No device selected — nothing to generate.</p>';
-      var ready = App.completeness.deviceReady(project, selId);
+      var ready = H().subject.ready(selId);
       var o = opts();
       var built = null;
       try { built = App.generate.buildReport(project, selId, Object.assign({}, o, { tags: {} })); } catch (e) { built = null; }
@@ -200,21 +200,21 @@
     // assembly
     // ======================================================================
 
-    function inner(project, platform) {
+    function inner(project) {
       var selId = selectedDeviceId(project);
-      var dc = latest(project).filter(function (c) { return c.id === selId; })[0];
-      var ready = selId ? App.completeness.deviceReady(project, selId) : false;
-      var view = outlineNow(project, platform);
+      var subj = latest().filter(function (c) { return c.id === selId; })[0];
+      var ready = selId ? H().subject.ready(selId) : false;
+      var view = outlineNow(project);
       var included = view.blocks.filter(function (b) { return b.included; }).length;
       var omitted = omittedByRelevance(project, selId);
 
       var paneBody =
-        _rd.pane === 'section' ? paneSection(project, platform, view) :
+        _rd.pane === 'section' ? paneSection(project, view) :
         _rd.pane === 'relevance' ? paneRelevance(project) :
         _rd.pane === 'formatting' ? paneFormatting(project) :
         _rd.pane === 'headerfooter' ? paneHeaderFooter(project) :
         _rd.pane === 'templates' ? paneTemplates(project) :
-        _rd.pane === 'generate' ? paneGenerate(project, platform, view) :
+        _rd.pane === 'generate' ? paneGenerate(project, view) :
         panePreview(project);
 
       var tabs = PANES.map(function (p) {
@@ -224,10 +224,10 @@
 
       return '<div class="modal modal-full" role="dialog" aria-modal="true" aria-label="Report Design">' +
         '<div class="modal-head"><div><h3>Report Design</h3>' +
-          '<div class="modal-sub">' + (dc ? esc(dc.name) + ' — what the document contains, in what order, and how it looks.' : 'No device selected.') + '</div></div>' +
+          '<div class="modal-sub">' + (subj ? esc(subj.label) + ' — what the document contains, in what order, and how it looks.' : 'No device selected.') + '</div></div>' +
           '<button type="button" class="modal-close" data-rd-close aria-label="Close">×</button></div>' +
         '<div class="modal-body"><div class="rpt-body rd-layout">' +
-          renderSectionList(project, platform, view) +
+          renderSectionList(project, view) +
           '<div class="rd-right"><div class="rd-tabs">' + tabs + '</div>' +
             '<div class="rpt-pane rd-pane">' + paneBody + '</div></div>' +
         '</div></div>' +
@@ -247,9 +247,9 @@
     }
 
     /** @returns {string} the workspace, or '' when closed. */
-    function render(project, platform) {
-      if (!_rd.open || !project || !platform) return '';
-      return '<div class="modal-overlay overlay-full" id="rd-modal-host" data-rd-modal>' + inner(project, platform) + '</div>';
+    function render(project) {
+      if (!_rd.open || !project || !H()) return '';
+      return '<div class="modal-overlay overlay-full" id="rd-modal-host" data-rd-modal>' + inner(project) + '</div>';
     }
 
     /**
@@ -265,13 +265,12 @@
       var host = document.getElementById('rd-modal-host');
       if (!host) return false;
       var project = App.store.getProject(); if (!project) return false;
-      var platform = App.registry.getPlatform(project.platformProfileId);
-      if (!platform) return false;
+      if (!H()) return false;
       var body = host.querySelector('.modal-body');
       var top = body ? body.scrollTop : 0;
       var pane = host.querySelector('.rd-pane');
       var paneTop = pane ? pane.scrollTop : 0;
-      host.innerHTML = inner(project, platform);
+      host.innerHTML = inner(project);
       var again = host.querySelector('.modal-body');
       if (again) again.scrollTop = top;
       var pane2 = host.querySelector('.rd-pane');

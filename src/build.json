@@ -349,6 +349,15 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
+        "doc/js/0700-doc-host.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
         "doc/js/0710-doc-providers.js"
       ]
     },
@@ -370,6 +379,7 @@
         "app/js/0350-generate/010-tool-version.js",
         "app/js/0350-generate/020-child-caption.js",
         "app/js/0350-generate/030-report-blocks.js",
+        "app/js/0350-generate/035-host-blocks.js",
         "app/js/0350-generate/040-build-control-report.js"
       ]
     },
@@ -542,6 +552,7 @@
         "app/js/0510-phase-7-self-test-suites-report-generate-det/016-key-column.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/017-meta-rows.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/018-providers.js",
+        "app/js/0510-phase-7-self-test-suites-report-generate-det/019-subject-filter.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/020-t11-v1-3-generation-customisation.js"
       ]
     },

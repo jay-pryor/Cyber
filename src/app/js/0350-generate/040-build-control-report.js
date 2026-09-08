@@ -242,10 +242,14 @@
      * run rather than registered once, so each provider closes over the project,
      * device and filter it is describing — the module never has to carry them. */
     function hostSections(project, deviceId, platform, keep) {
-      return [
+      var pl = platform || App.registry.getPlatform(project && project.platformProfileId);
+      var ds = ((pl && pl.datasets) || []).map(function (d) {
+        return providerFor(App.registry.getDataset(project.platformProfileId, d.id), project, deviceId, keep);
+      }).filter(Boolean);
+      return ds.concat([
         App.providers.control(project, deviceId, platform, keep),
         App.providers.guidelines(project, deviceId, platform, keep)
-      ];
+      ]);
     }
 
     App.generate = {
@@ -264,6 +268,12 @@
       controlLinkTerms: controlLinkTerms, controlAnchor: controlAnchor,
       relevanceCounts: relevanceCounts, relevanceKeys: relevanceKeys,
       relevanceLabel: relevanceLabel, REL_UNSET: REL_UNSET,
+      // 8: the filter axis CH declares to the module — which category a row is in,
+      // and the predicate a run is narrowed by.
+      relevanceKeyOf: relevanceKeyOf, relevanceFilter: relevanceFilter,
+      // 8: the host-driven generator the three shims above sit on.
+      hostBlocks: hostBlocks, hostColumns: hostColumns, hostContent: hostContent,
+      filterCounts: filterCounts,
       // v2.2: exposed so the designer's live preview renders the SAME document the
       // Generate button downloads, rather than a second approximation of it.
       emitDocument: emitDocument,
