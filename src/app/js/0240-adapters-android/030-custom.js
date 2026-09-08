@@ -148,10 +148,6 @@
       ],
       // KEY-1: declared, so the designer can name the column without rendering it.
       keyColumn: { id: '_key', label: 'Action Name', w: 2, get: function (it) { return it.key; } },
-      renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection(this.label, this.keyColumn,
-          this.reportColumns, items, opts || {}, ctx, null);
-      }
       // No parseAssignment: there is no capture format to bulk-import from, and the
       // Devices tab discovers that by the absence of the hook (spec §18.2).
     };

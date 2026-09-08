@@ -153,6 +153,22 @@
      * @returns {?{fixed:Array<{id,label}>, optional:Array<{id,label}>, all:Array<{id,label}>}}
      *          null for a hand-authored section, whose parts carry their own columns
      */
+    /* An ADAPTER is not a PROVIDER. The adapter is CH's: it carries `columns` for the
+     * Data tab's editable table and `reportColumns` for the document, which are
+     * different sets of different things. The module's contract knows only `columns`,
+     * meaning the ones the document prints — so the adapter is presented as a provider
+     * here rather than renamed into one, which would have quietly emptied the Data tabs. */
+    function providerFor(adapter) {
+      if (!adapter) return null;
+      return {
+        id: adapter.id,
+        label: adapter.label,
+        keyColumn: adapter.keyColumn,
+        columns: adapter.reportColumns || [],
+        groups: adapter.reportGroups || null
+      };
+    }
+
     function sectionColumns(project, block, opts) {
       opts = opts || {};
       if (!block || block.kind === 'custom') return null;
@@ -258,10 +274,10 @@
       } else {
         var adapter = App.registry.getDataset(project.platformProfileId, b.dsId);
         var items = gatherKept(project, deviceId, b.dsId, keep);
-        var r = adapter.renderReportSection(items, ctx, Object.assign({
+        var r = App.docProviders.renderSection(providerFor(adapter), items, ctx, Object.assign({
           columns: (opts.columns || {})[b.dsId], groups: (opts.datasetSections || {})[b.dsId] || {},
-          // TBL-1: the per-table wording, which the adapter passes straight through to
-          // App.report.buildSection — an adapter never has to know it exists (DOD-11).
+          // TBL-1: the per-table wording, passed straight through to buildSection —
+          // a provider never has to know it exists (DOD-11).
           tables: b.tables || null
         }, tblOpts));
         out = Object.assign({}, b, { body: r.body, children: r.children });

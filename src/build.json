@@ -349,6 +349,15 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
+        "doc/js/0710-doc-providers.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
         "app/js/0350-generate/010-tool-version.js",
         "app/js/0350-generate/020-child-caption.js",
         "app/js/0350-generate/030-report-blocks.js",
@@ -614,6 +623,15 @@
         "doc/js/0590-ui-views-report-design/060-paginate.js",
         "doc/js/0590-ui-views-report-design/070-wire.js",
         "doc/js/0590-ui-views-report-design/080-app-ui-app-ui.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/010-providers.js"
       ]
     },
     {

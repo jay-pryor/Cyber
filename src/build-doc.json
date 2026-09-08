@@ -96,6 +96,15 @@
       "close": "",
       "gap": "\n",
       "paths": [
+        "doc/js/0710-doc-providers.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
         "doc/js/0550-doc-store/010-p.js",
         "doc/js/0550-doc-store/020-set-block-table-style.js",
         "doc/js/0550-doc-store/030-add-column.js",
@@ -144,6 +153,15 @@
         "doc/js/0590-ui-views-report-design/060-paginate.js",
         "doc/js/0590-ui-views-report-design/070-wire.js",
         "doc/js/0590-ui-views-report-design/080-app-ui-app-ui.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/010-providers.js"
       ]
     }
   ]

@@ -8469,9 +8469,6 @@
       // KEY-1: declared, not recovered by rendering the section and reading its first
       // header cell back out of the markdown.
       keyColumn: { id: '_key', label: 'Package', w: 2, get: function (it) { return it.key; } },
-      renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection('Packages', this.keyColumn, this.reportColumns, items, opts || {}, ctx, this.reportGroups);
-      },
       // ---- bulk assignment (spec §18.2): a CSV of package,action,description ----
       assignmentHint: 'CSV with a header row starting exactly "package,action,description", optionally followed by "rationale" and then "relevance". Column 1 = package name (a leading "package:" is allowed), column 2 = keep|disable|remove, column 3 = description (may be quoted / contain commas), column 4 (optional) = rationale, column 5 (optional) = HIGH|MEDIUM|LOW|REPORT|IRRELEVANT (or blank).',
       /** @param {string} raw @returns {{assignments:Array,warnings:Issue[],errors:Issue[]}} */
@@ -8670,9 +8667,6 @@
       ],
       // KEY-1: the policy prefix is stripped for display, which is the getter's job.
       keyColumn: { id: '_key', label: 'Path', w: 2, get: function (it) { return stripPolicyPrefix(it.key); } },
-      renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection('Tactical', this.keyColumn, this.reportColumns, items, opts || {}, ctx, null);
-      },
       /** Captured value/type per leaf path, to prefill the decision editor (UI only). */
       capturedDefaults: function (snap) {
         var out = {};
@@ -8838,10 +8832,6 @@
       ],
       // KEY-1: declared, so the designer can name the column without rendering it.
       keyColumn: { id: '_key', label: 'Action Name', w: 2, get: function (it) { return it.key; } },
-      renderReportSection: function (items, ctx, opts) {
-        return App.report.buildSection(this.label, this.keyColumn,
-          this.reportColumns, items, opts || {}, ctx, null);
-      }
       // No parseAssignment: there is no capture format to bulk-import from, and the
       // Devices tab discovers that by the absence of the hook (spec §18.2).
     };
@@ -12383,6 +12373,61 @@
 
   <script>
   /* =============================================================================
+   * MODULE: App.docProviders — the declarative half of the section contract
+   * PURPOSE: Turn a section PROVIDER — a declaration of rows, a key column and
+   *          columns — into rendered markdown, so a host that only wants a table
+   *          does not have to write the code that draws one. A provider may still
+   *          supply render() for anything a table cannot express.
+   * PURITY:  pure. No DOM, no I/O, no clock.
+   * DEPENDS: App.report
+   * INVARIANTS: renderSection is the ONLY path from a provider to markdown, so a
+   *             declared section and a hand-rendered one cannot come to disagree
+   *             about captioning, styling or column widths.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    /**
+     * @param {Object} provider  a section provider: {label, keyColumn, columns,
+     *                           groups?, render?}
+     * @param {Array}  rows      the rows this section is to show
+     * @param {Object} ctx       render context, passed to every column getter
+     * @param {Object} opts      caption / style / width options from the block
+     * @returns {{body: string, children: Array}}
+     */
+    function renderSection(provider, rows, ctx, opts) {
+      if (!provider) return { body: '', children: [] };
+
+      // The escape hatch, and the reason it stays: control coverage groups by control
+      // and sub-groups by dataset, which buildSection's single grouping axis cannot
+      // express. Declaring columns covers the ordinary case, not every case.
+      if (typeof provider.render === 'function') {
+        return normalise(provider.render(rows || [], ctx || {}, opts || {}));
+      }
+
+      var key = provider.keyColumn ||
+        { id: '_key', label: 'Key', get: function (r) { return r.key; } };
+      return normalise(App.report.buildSection(
+        provider.label, key, provider.columns || [],
+        rows || [], opts || {}, ctx || {}, provider.groups || null
+      ));
+    }
+
+    /* buildSection already returns {body, children} — '' plus children when grouped,
+     * a table plus [] when not. A hand-written render() is somebody else's code, so
+     * it is held to the same shape here rather than everywhere downstream. */
+    function normalise(out) {
+      if (out == null) return { body: '', children: [] };
+      if (typeof out === 'string') return { body: out, children: [] };
+      return { body: out.body || '', children: out.children || [] };
+    }
+
+    App.docProviders = { renderSection: renderSection };
+  }(App));
+  </script>
+
+  <script>
+  /* =============================================================================
    * MODULE: App.generate
    * PURPOSE: Orchestrate the three INDEPENDENT generators (spec §7, §10): gather a
    *          device's applicable+complete items per dataset, call adapter generators
@@ -13206,6 +13251,22 @@
      * @returns {?{fixed:Array<{id,label}>, optional:Array<{id,label}>, all:Array<{id,label}>}}
      *          null for a hand-authored section, whose parts carry their own columns
      */
+    /* An ADAPTER is not a PROVIDER. The adapter is CH's: it carries `columns` for the
+     * Data tab's editable table and `reportColumns` for the document, which are
+     * different sets of different things. The module's contract knows only `columns`,
+     * meaning the ones the document prints — so the adapter is presented as a provider
+     * here rather than renamed into one, which would have quietly emptied the Data tabs. */
+    function providerFor(adapter) {
+      if (!adapter) return null;
+      return {
+        id: adapter.id,
+        label: adapter.label,
+        keyColumn: adapter.keyColumn,
+        columns: adapter.reportColumns || [],
+        groups: adapter.reportGroups || null
+      };
+    }
+
     function sectionColumns(project, block, opts) {
       opts = opts || {};
       if (!block || block.kind === 'custom') return null;
@@ -13311,10 +13372,10 @@
       } else {
         var adapter = App.registry.getDataset(project.platformProfileId, b.dsId);
         var items = gatherKept(project, deviceId, b.dsId, keep);
-        var r = adapter.renderReportSection(items, ctx, Object.assign({
+        var r = App.docProviders.renderSection(providerFor(adapter), items, ctx, Object.assign({
           columns: (opts.columns || {})[b.dsId], groups: (opts.datasetSections || {})[b.dsId] || {},
-          // TBL-1: the per-table wording, which the adapter passes straight through to
-          // App.report.buildSection — an adapter never has to know it exists (DOD-11).
+          // TBL-1: the per-table wording, passed straight through to buildSection —
+          // a provider never has to know it exists (DOD-11).
           tables: b.tables || null
         }, tblOpts));
         out = Object.assign({}, b, { body: r.body, children: r.children });
@@ -33260,6 +33321,65 @@
   </script>
 
   <!-- ===== v2.2 SELF-TEST SUITES (Report Design: markdown · outline · templates) ===== -->
+  <script>
+  /* =============================================================================
+   * SUITES: the document module's own tests
+   * PURPOSE: Everything here runs with NO host application present. These are the
+   *          suites that ship inside doc-designer.js, so the module can be trusted
+   *          by a host that is not the CH Config Tool.
+   * INVARIANTS: nothing in this block may reference a name src/app/ owns — the
+   *             build enforces it. A fixture is a literal, never a project built
+   *             through somebody's store.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+    var T = App.test;
+
+    /* ===== SUITES: declarative section rendering (PROV-1) ===== */
+
+    /* A provider that declares its rows, its key column and its columns should not
+     * also have to write the code that turns them into a table. All three CH adapters
+     * implemented renderReportSection as a single pass-through to App.report
+     * .buildSection with their own declared columns — boilerplate the module can do
+     * once, and one more thing for a new host to get wrong. */
+    T.suite('PROV-1 a provider that declares its columns needs no render function', function (s) {
+      var provider = {
+        id: 'demo', label: 'Demo',
+        keyColumn: { id: '_key', label: 'Thing', w: 2, get: function (r) { return r.key; } },
+        columns: [{ id: 'note', label: 'Note', w: 3, get: function (r) { return r.note; } }],
+        rows: function () { return [{ key: 'b', note: 'second' }, { key: 'a', note: 'first' }]; }
+      };
+
+      s.test('the module builds the table when render is absent', function () {
+        var out = App.docProviders.renderSection(provider, provider.rows(), {}, {});
+        T.assert(out && typeof out.body === 'string', 'no body produced');
+        T.assert(out.body.indexOf('Thing') !== -1, 'the key column heading is missing');
+        T.assert(out.body.indexOf('Note') !== -1, 'the declared column heading is missing');
+        T.assert(out.body.indexOf('first') !== -1, 'a row is missing');
+      });
+
+      s.test('rows come out in the order buildSection has always put them in', function () {
+        var body = App.docProviders.renderSection(provider, provider.rows(), {}, {}).body;
+        T.assert(body.indexOf('first') < body.indexOf('second'), 'rows are not sorted by key');
+      });
+
+      s.test('an explicit render function still wins', function () {
+        var own = Object.assign({}, provider, {
+          render: function () { return { body: 'HAND WRITTEN', children: [] }; }
+        });
+        T.assertEqual(App.docProviders.renderSection(own, [], {}, {}).body, 'HAND WRITTEN');
+      });
+
+      s.test('every result has the same shape, grouped or not', function () {
+        var out = App.docProviders.renderSection(provider, provider.rows(), {}, {});
+        T.assert(Array.isArray(out.children), 'children must always be an array');
+        var none = App.docProviders.renderSection(null, [], {}, {});
+        T.assertEqual(none.body, '', 'a missing provider must not throw');
+      });
+    });
+  })(App);
+  </script>
+
   <script>
   (function (App) {
     'use strict';
