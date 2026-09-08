@@ -30,4 +30,38 @@ expect "a file in no manifest is an orphan" 1 python3 tools/build.py --check
 rm -f "$probe"
 expect "removing it restores a clean build" 0 python3 tools/build.py --check
 
+
+# --- the module boundary ---------------------------------------------------
+# Exit code alone cannot tell "failed because of the boundary" from "failed
+# because the probe file is also an orphan", so these assert on the message.
+expect_msg() { # expect_msg <desc> <substring> <cmd...>
+  local desc="$1" want="$2"; shift 2
+  local out; out=$("$@" 2>&1)
+  if printf '%s' "$out" | grep -q -- "$want"; then
+    echo "  ok: $desc"
+  else
+    echo "FAIL: $desc (no '$want' in output)"; fail=1
+  fi
+}
+
+mkdir -p src/app/js src/doc/js
+printf 'App.probeThing = {};\n' > src/app/js/9997-app-probe.js
+printf '(function (App) { var x = App.probeThing; }(App));\n' > src/doc/js/9998-doc-probe.js
+expect_msg "a src/doc file referencing a src/app name is a boundary violation" \
+  "boundary:" python3 tools/build.py --check
+
+# A DEPENDS: banner naming an app module is documentation, not a reference.
+printf '/* DEPENDS: App.probeThing */\n(function (App) { var y = 1; }(App));\n' \
+  > src/doc/js/9998-doc-probe.js
+out=$(python3 tools/build.py --check 2>&1)
+if printf '%s' "$out" | grep -q "boundary:"; then
+  echo "FAIL: a mention inside a comment must not count as a reference"; fail=1
+else
+  echo "  ok: a mention inside a comment is not a reference"
+fi
+
+rm -f src/app/js/9997-app-probe.js src/doc/js/9998-doc-probe.js
+rmdir src/app/js src/app src/doc/js src/doc 2>/dev/null
+expect "removing the probes restores a clean build" 0 python3 tools/build.py --check
+
 exit $fail

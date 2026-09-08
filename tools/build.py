@@ -25,6 +25,7 @@ Usage:
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -35,6 +36,18 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 MANIFEST = SRC / "build.json"
 EXEMPTIONS = SRC / "line-cap-exemptions.txt"
+
+APP_TREE = "app"
+DOC_TREE = "doc"
+
+# `App.foo = ` / `App.foo.bar = ` — where a module publishes its exported surface.
+_DEFINES = re.compile(r"^\s*App\.([A-Za-z0-9_.]+)\s*=", re.M)
+_REFERENCES = re.compile(r"App\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)")
+
+# Names src/doc/ is still allowed to reach for, each removed by a task in
+# docs/superpowers/plans/2026-09-08-document-designer-module.md.
+# This set only ever shrinks. The final task asserts it is empty.
+BOUNDARY_DEBT = set()
 
 
 def load_manifest(path=None):
@@ -133,6 +146,52 @@ def check_closures(manifest):
     return problems
 
 
+def _strip_comments(text):
+    """Block and line comments removed, so a DEPENDS: banner is not a reference.
+
+    Crude by design: it does not track string literals. A false positive here is a
+    build failure naming a file and a line, which costs a moment to inspect; a false
+    negative would let the boundary rot silently, which costs the module.
+    """
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+    return re.sub(r"^\s*//.*$", "", text, flags=re.M)
+
+
+def check_boundary():
+    """No file under src/doc/ may reference a name that src/app/ defines.
+
+    This is what keeps the document module reusable. The dependency runs one way:
+    the application hands the module an explicit host object, and the module never
+    reaches back. Enforced here rather than by convention, because a rule a script
+    enforces outlives one written in a document.
+    """
+    problems = []
+    if BOUNDARY_DEBT:
+        problems.append(
+            "boundary: BOUNDARY_DEBT is non-empty — the extraction is incomplete. "
+            f"Still allowed: {sorted(BOUNDARY_DEBT)}"
+        )
+
+    app_names = set()
+    for path in sorted((SRC / APP_TREE).rglob("*.js")) if (SRC / APP_TREE).is_dir() else []:
+        for m in _DEFINES.finditer(_strip_comments(path.read_text(encoding="utf-8"))):
+            app_names.add(m.group(1).split(".")[0])
+    if not app_names:
+        return problems
+
+    for path in sorted((SRC / DOC_TREE).rglob("*.js")) if (SRC / DOC_TREE).is_dir() else []:
+        rel = path.relative_to(SRC)
+        for n, line in enumerate(_strip_comments(path.read_text(encoding="utf-8")).splitlines(), 1):
+            for m in _REFERENCES.finditer(line):
+                root = m.group(1).split(".")[0]
+                if root in app_names and root not in BOUNDARY_DEBT:
+                    problems.append(
+                        f"boundary: {rel}:{n} references App.{root}, which src/app/ owns. "
+                        "The module must receive this through its host contract instead."
+                    )
+    return problems
+
+
 def check_rules(manifest, paths):
     """Cap enforcement + orphan detection. Returns a list of problems."""
     cap = manifest.get("lineCap", 500)
@@ -165,6 +224,7 @@ def check_rules(manifest, paths):
         problems.append(f"stale exemption: {stale} no longer exists — remove it from the allowlist")
 
     problems.extend(check_closures(manifest))
+    problems.extend(check_boundary())
 
     return problems
 
