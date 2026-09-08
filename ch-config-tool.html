@@ -13370,7 +13370,7 @@
      *
      * @returns {Object} the block, plus `body` (markdown) and/or `children`
      */
-    function sectionContent(project, deviceId, platform, b, opts, ctx, generatedUtc) {
+    function sectionContent(project, deviceId, platform, b, opts, ctx, metaRows) {
       opts = opts || {};
       var keep = relevanceFilter(opts);
       var dc = (project.deviceConfigs || []).filter(function (c) { return c.id === deviceId; })[0];
@@ -13400,7 +13400,7 @@
       } else if (b.kind === 'meta') {
         var metaText = tableWording(b, '_all');
         out = Object.assign({}, b, { body: dc
-          ? App.report.metaTable(deviceMeta(project, dc, generatedUtc),
+          ? App.report.metaTable(metaRows || [],
               Object.assign(withWording(tblOpts, metaText, capText),
                 { headings: headingsFor(['field', 'value'], ['Field', 'Value'], metaText.columns) }))
           : '' });
@@ -13469,7 +13469,8 @@
       // will actually be emitted — a document without the coverage section gets no links
       // rather than a page of links to a section that is not in it.
       bopts.linkTerms = controlLinkTerms(project, blocks);
-      var prepared = blocks.map(function (b) { return sectionContent(project, deviceId, platform, b, bopts, ctx, generatedUtc); });
+      var metaRows = deviceMeta(project, dc, generatedUtc);
+      var prepared = blocks.map(function (b) { return sectionContent(project, deviceId, platform, b, bopts, ctx, metaRows); });
 
       return emitDocument(project, dc, 'reporting', generatedUtc, prepared, {
         linkTerms: bopts.linkTerms,
@@ -22021,6 +22022,36 @@
       var cols = App.generate.sectionColumns(p, { kind: 'dataset', dsId: 'android.packages' }, {});
       T.assertEqual(cols.fixed[0].id, '_key');
       T.assertEqual(cols.fixed[0].label, 'Package');
+    });
+  });
+
+  /* ===== SUITES: the metadata rows are handed in (META-2) ===== */
+
+  /* sectionContent used to build the provenance table by calling deviceMeta(project,
+   * dc, generatedUtc) itself — reaching into the project for a CH shape from inside
+   * the code that is to become module code. The rows are passed in now, so the module
+   * prints whatever its host says the document's provenance is. */
+  T.suite('META-2 the provenance rows are supplied, not derived', function (s) {
+    function metaBlock(p, rows) {
+      var pl = App.registry.getPlatform('android-adb');
+      var block = App.generate.reportBlocks(p, pl, { deviceId: 'dev-m1' })
+        .filter(function (b) { return b.kind === 'meta'; })[0];
+      return App.generate.sectionContent(p, 'dev-m1', pl, block, { deviceId: 'dev-m1' }, {}, rows);
+    }
+
+    s.test('the rows handed in are the rows printed', function () {
+      var out = metaBlock(readyProject(), [{ id: 'x', label: 'Commissioned by', value: 'Someone' }]);
+      T.assert(out.body.indexOf('Commissioned by') !== -1, 'the supplied label is missing');
+      T.assert(out.body.indexOf('Someone') !== -1, 'the supplied value is missing');
+    });
+
+    s.test('nothing about the device is consulted for them', function () {
+      var out = metaBlock(readyProject(), [{ id: 'x', label: 'Only', value: 'This' }]);
+      T.assertEqual(out.body.indexOf('Gold'), -1, 'the device name leaked into a supplied table');
+    });
+
+    s.test('no rows means no table rather than a thrown error', function () {
+      T.assertEqual(typeof metaBlock(readyProject(), []).body, 'string');
     });
   });
     T.suite('T11 (v1.3) generation customisation', function (s) {
@@ -31317,7 +31348,7 @@
         var o = Object.assign({}, opts(), { deviceId: selId });
         o.linkTerms = App.generate.controlLinkTerms(project, view.blocks);
         var filled = view.blocks.map(function (b) {
-          return App.generate.sectionContent(project, selId, platform, b, o, ctx, generatedUtc);
+          return App.generate.sectionContent(project, selId, platform, b, o, ctx, App.generate.deviceMeta(project, dc, generatedUtc));
         });
         return Object.assign({}, view, { resolved: App.doc.outline(filled, {
           baseLevel: 1,
@@ -31375,7 +31406,8 @@
         var generatedUtc = App.util.clock.nowIso();
         var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
         var filled = App.generate.sectionContent(project, selId, platform, block,
-          Object.assign({}, opts(), { deviceId: selId }), ctx, generatedUtc);
+          Object.assign({}, opts(), { deviceId: selId }), ctx,
+          App.generate.deviceMeta(project, dc, generatedUtc));
         // Numbered as it will actually be numbered, so the preview reads as the page.
         var resolved = outlineNow(project, platform).resolved.filter(function (r) { return r.id === block.id; })[0];
         var md = App.md.join([
@@ -36605,7 +36637,8 @@
         var p = App.store.getProject(), pl = App.registry.getPlatform('android-adb');
         var prepared = App.generate.reportBlocks(p, pl, { deviceId: 'dev-m1' });
         var idx = App.doc.tableIndex(App.doc.outline(prepared.map(function (b) {
-          return App.generate.sectionContent(p, 'dev-m1', pl, b, { deviceId: 'dev-m1' }, {}, '2026-01-01T00:00:00.000Z');
+          return App.generate.sectionContent(p, 'dev-m1', pl, b, { deviceId: 'dev-m1' }, {},
+            App.generate.deviceMeta(p, App.ui.model.getLatestConfigs(p)[0], '2026-01-01T00:00:00.000Z'));
         }), { baseLevel: 1 }));
         T.assertEqual(idx.length, caps.length, 'one index entry per printed caption');
         T.assertEqual(idx[idx.length - 1].number, String(caps.length), 'and they end on the same number');

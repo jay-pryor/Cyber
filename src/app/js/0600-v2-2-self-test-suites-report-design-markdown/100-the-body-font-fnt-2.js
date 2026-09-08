@@ -278,7 +278,8 @@
         var p = App.store.getProject(), pl = App.registry.getPlatform('android-adb');
         var prepared = App.generate.reportBlocks(p, pl, { deviceId: 'dev-m1' });
         var idx = App.doc.tableIndex(App.doc.outline(prepared.map(function (b) {
-          return App.generate.sectionContent(p, 'dev-m1', pl, b, { deviceId: 'dev-m1' }, {}, '2026-01-01T00:00:00.000Z');
+          return App.generate.sectionContent(p, 'dev-m1', pl, b, { deviceId: 'dev-m1' }, {},
+            App.generate.deviceMeta(p, App.ui.model.getLatestConfigs(p)[0], '2026-01-01T00:00:00.000Z'));
         }), { baseLevel: 1 }));
         T.assertEqual(idx.length, caps.length, 'one index entry per printed caption');
         T.assertEqual(idx[idx.length - 1].number, String(caps.length), 'and they end on the same number');

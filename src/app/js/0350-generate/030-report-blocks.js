@@ -231,7 +231,7 @@
      *
      * @returns {Object} the block, plus `body` (markdown) and/or `children`
      */
-    function sectionContent(project, deviceId, platform, b, opts, ctx, generatedUtc) {
+    function sectionContent(project, deviceId, platform, b, opts, ctx, metaRows) {
       opts = opts || {};
       var keep = relevanceFilter(opts);
       var dc = (project.deviceConfigs || []).filter(function (c) { return c.id === deviceId; })[0];
@@ -261,7 +261,7 @@
       } else if (b.kind === 'meta') {
         var metaText = tableWording(b, '_all');
         out = Object.assign({}, b, { body: dc
-          ? App.report.metaTable(deviceMeta(project, dc, generatedUtc),
+          ? App.report.metaTable(metaRows || [],
               Object.assign(withWording(tblOpts, metaText, capText),
                 { headings: headingsFor(['field', 'value'], ['Field', 'Value'], metaText.columns) }))
           : '' });
@@ -330,7 +330,8 @@
       // will actually be emitted — a document without the coverage section gets no links
       // rather than a page of links to a section that is not in it.
       bopts.linkTerms = controlLinkTerms(project, blocks);
-      var prepared = blocks.map(function (b) { return sectionContent(project, deviceId, platform, b, bopts, ctx, generatedUtc); });
+      var metaRows = deviceMeta(project, dc, generatedUtc);
+      var prepared = blocks.map(function (b) { return sectionContent(project, deviceId, platform, b, bopts, ctx, metaRows); });
 
       return emitDocument(project, dc, 'reporting', generatedUtc, prepared, {
         linkTerms: bopts.linkTerms,
