@@ -438,7 +438,7 @@
       "type": "script",
       "open": "  <script>\n",
       "close": "  </script>\n",
-      "gap": "\n  <!-- === UI VIEWS fully populated (onboard · generate · devices · help). === -->\n\n",
+      "gap": "\n  <!-- === UI VIEWS fully populated (onboard \u00b7 generate \u00b7 devices \u00b7 help). === -->\n\n",
       "paths": [
         "js/0440-ui-views-help/010-esc.js",
         "js/0440-ui-views-help/020-sec-controls.js",
@@ -472,7 +472,7 @@
       "type": "script",
       "open": "  <script>\n",
       "close": "  </script>\n",
-      "gap": "\n  <!-- ===== PHASE-4 SELF-TEST SUITES (diff · validation · store onboarding) ===== -->\n",
+      "gap": "\n  <!-- ===== PHASE-4 SELF-TEST SUITES (diff \u00b7 validation \u00b7 store onboarding) ===== -->\n",
       "paths": [
         "js/0470-phase-3-self-test-suites-ui-model-ui-tables.js"
       ]
@@ -481,7 +481,7 @@
       "type": "script",
       "open": "  <script>\n",
       "close": "  </script>\n",
-      "gap": "\n  <!-- ===== PHASE-5 SELF-TEST SUITES (completeness · store decisions · editors · gating) ===== -->\n",
+      "gap": "\n  <!-- ===== PHASE-5 SELF-TEST SUITES (completeness \u00b7 store decisions \u00b7 editors \u00b7 gating) ===== -->\n",
       "paths": [
         "js/0480-phase-4-self-test-suites-diff-validation-sto.js"
       ]
@@ -499,7 +499,7 @@
       "type": "script",
       "open": "  <script>\n",
       "close": "  </script>\n",
-      "gap": "\n  <!-- ===== PHASE-7 SELF-TEST SUITES (report · generate · determinism) ===== -->\n",
+      "gap": "\n  <!-- ===== PHASE-7 SELF-TEST SUITES (report \u00b7 generate \u00b7 determinism) ===== -->\n",
       "paths": [
         "js/0500-phase-6-self-test-suites-devices-view.js"
       ]
@@ -511,6 +511,7 @@
       "gap": "\n  <!-- ===== REVIEW-3 SELF-TEST SUITES ===== -->\n",
       "paths": [
         "js/0510-phase-7-self-test-suites-report-generate-det/010-report-markdown-builders-v2-2.js",
+        "js/0510-phase-7-self-test-suites-report-generate-det/015-golden-output-regression.js",
         "js/0510-phase-7-self-test-suites-report-generate-det/020-t11-v1-3-generation-customisation.js"
       ]
     },
@@ -527,7 +528,7 @@
       "type": "script",
       "open": "  <script>\n",
       "close": "  </script>\n",
-      "gap": "\n  <!-- ===== PHASE-9 SELF-TEST SUITES (v1.1: dark mode · set-from-files · controls) ===== -->\n",
+      "gap": "\n  <!-- ===== PHASE-9 SELF-TEST SUITES (v1.1: dark mode \u00b7 set-from-files \u00b7 controls) ===== -->\n",
       "paths": [
         "js/0530-phase-8-self-test-suites-dod-11-portability.js"
       ]
@@ -602,7 +603,7 @@
       "type": "script",
       "open": "  <script>\n",
       "close": "  </script>\n",
-      "gap": "\n  <!-- ===== v2.2 SELF-TEST SUITES (Report Design: markdown · outline · templates) ===== -->\n",
+      "gap": "\n  <!-- ===== v2.2 SELF-TEST SUITES (Report Design: markdown \u00b7 outline \u00b7 templates) ===== -->\n",
       "paths": [
         "js/0590-ui-views-report-design/010-esc.js",
         "js/0590-ui-views-report-design/020-part-target.js",
