@@ -249,7 +249,7 @@
         T.assertEqual(stored(), null, 'a filename is an answer for this run, not a property of the report');
         var o = App.ui.views.generate.reportOptions(App.store.getProject());
         T.assertEqual(o.filename, 'run-1', 'and it still reaches the generator');
-        g.report = { filename: '', tags: {} };
+        App.docSession.set({ filename: '', tags: {} });
       });
 
       s.test('CLS-1 the classification banner is a property of the document, not of the run', function () {

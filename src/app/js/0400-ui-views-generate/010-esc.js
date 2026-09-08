@@ -14,7 +14,7 @@
     // v1.3 (§20.2): four independent, session-only option blocks. Include-maps default
     // to "included" on a missing key; boolean toggles default to false.
     var _gen = {
-      deviceId: null, scriptsAsTxt: false, openOptions: {},
+      scriptsAsTxt: false, openOptions: {},
       // RPT-2: `relevance` is an include-map over the Security Relevance vocabulary
       // (missing key ⇒ included, as every other generator include-map). IRRELEVANT
       // starts EXCLUDED: an item marked "not security-significant at all" is exactly
@@ -32,7 +32,7 @@
        * what a report contains is a property of the report, not an answer for one run.
        * What is left here is what genuinely belongs to one run: the filename and the
        * `/[Tag]` values. */
-      report: { filename: '', tags: {} },
+
       control: { includeUncontrolled: false },
       implementation: { datasets: {}, actions: {} },
       verification: { datasets: {}, onlyDeviations: false, csvResults: false },
@@ -76,19 +76,26 @@
       return (((project || App.store.getProject() || {}).report) || {}).classification === true;
     }
 
+    /* SESS-1: the run half of the session belongs to the document module now — the
+     * designer is what decides it, and it was being written to from over there while
+     * living over here. Both names stay as properties onto the module's session, so
+     * every read in this file and in a dozen suites is unchanged. */
+    Object.defineProperty(_gen, 'report', { enumerable: true, get: function () { return App.docSession.get(); } });
+    Object.defineProperty(_gen, 'deviceId', {
+      enumerable: true,
+      get: function () { return App.docSession.get().subjectId; },
+      set: function (v) { App.docSession.set({ subjectId: v }); }
+    });
+
+    /* RPT-2: IRRELEVANT ships EXCLUDED — an item marked "not security-significant at
+     * all" is exactly what nobody wants to read a page of, and the report states the
+     * omission. Declared here, on the filter axis CH gives the document module, and
+     * read back off it wherever the default is needed. */
     var REPORT_RELEVANCE_DEFAULT = { IRRELEVANT: false };
-    function reportOptions(project) {
-      var bag = (project || App.store.getProject() || {}).report || {};
-      var stored = bag.options || {};
-      return Object.assign({}, _gen.report, {
-        sections: stored.sections || {},
-        datasetSections: stored.datasetSections || {},
-        columns: stored.columns || {},
-        relevance: Object.assign({}, REPORT_RELEVANCE_DEFAULT, stored.relevance || {}),
-        // CLS-1: from the PROJECT now, so it survives a reload and travels with the file.
-        classification: bag.classification === true
-      });
-    }
+    /* OPT-2: the module assembles this now — it is the module's own state, bar the
+     * filter defaults above, which arrive through host.filter. CH keeps the name
+     * because the Generate tab and a dozen suites call it. */
+    function reportOptions(project) { return App.docSession.options(project || App.store.getProject()); }
 
     var COMMANDS = [
       { id: 'implementation', label: 'Implementation', build: 'buildImplementation', block: 'implementation' },

@@ -12459,7 +12459,85 @@
       if (_host && typeof _host.log === 'function') _host.log(issue);
     }
 
+    /* -------------------------------------------------------------------------
+     * The ephemeral description of ONE generation run: which subject it is about,
+     * what the file will be called, and the answers to its /[Tag] placeholders.
+     *
+     * NOT persisted, and deliberately so — a tag value is typically today's date or
+     * the name of the person issuing the document, and the point of a placeholder is
+     * that the same design produces a different document each time. Everything about
+     * what the report is MADE of lives in the project instead.
+     *
+     * It belongs to the module because the designer is what decides it. It used to
+     * live in CH's Generate tab as a plain object the designer reached in and wrote
+     * to — two views sharing one mutable bag with no owner, which is how a key nobody
+     * declared ends up in the generator's options.
+     * ---------------------------------------------------------------------- */
+    var _session = { subjectId: null, filename: '', tags: {} };
+    var SESSION_KEYS = Object.keys(_session);
+
+    function sessionGet() { return _session; }
+
+    /** Only declared keys, because a typo that silently sticks is worse than a throw. */
+    function sessionSet(patch) {
+      Object.keys(patch || {}).forEach(function (k) {
+        if (SESSION_KEYS.indexOf(k) === -1) {
+          throw new Error('docSession: unknown key "' + k + '" (expected one of ' + SESSION_KEYS.join(', ') + ')');
+        }
+        _session[k] = patch[k];
+      });
+      return _session;
+    }
+
+    /* What describes one RUN, as distinct from what is selected in the workspace.
+     * Kept apart because the run half travels into the generator's options, and a
+     * subject id in there would quietly outrank the device the caller asked for. */
+    function sessionRun() { return { filename: _session.filename, tags: _session.tags }; }
+
+    /** The subject the document is about: the host's, if the session's has gone. */
+    function selectedSubjectId() {
+      var h = _host;
+      if (!h || !h.subject) return null;
+      var list = h.subject.list() || [];
+      if (_session.subjectId && list.some(function (c) { return c.id === _session.subjectId; })) return _session.subjectId;
+      return list.length ? list[0].id : null;
+    }
+
+    /**
+     * OPT-2: everything the generator is told about this document, in one object.
+     *
+     * Two halves, and the split is the whole point. What the report is MADE OF —
+     * which sections, which groups, which columns, which of the filter's categories —
+     * is stored WITH the project, because it is a decision about the report. The
+     * filename and the tag answers are this run's, and are not stored at all.
+     *
+     * READ-ONLY: assembled fresh on every call. Writing to what it returns changes
+     * nothing; the maps are written through App.docStore.setReportInclude and the run
+     * fields through App.docSession.set.
+     */
+    function sessionOptions(state) {
+      var st = state || (_host && _host.getState()) || {};
+      var bag = st.report || {};
+      var stored = bag.options || {};
+      // A filter category that ships OFF says so itself, so the module never has to
+      // hold an opinion about which of the host's categories is the awkward one.
+      var rel = {};
+      if (_host && _host.filter) {
+        _host.filter.categories().forEach(function (c) { if (c.defaultOn === false) rel[c.key] = false; });
+      }
+      return Object.assign({}, sessionRun(), {
+        sections: stored.sections || {},
+        datasetSections: stored.datasetSections || {},
+        columns: stored.columns || {},
+        relevance: Object.assign(rel, stored.relevance || {}),
+        // CLS-1: from the PROJECT, so it survives a reload and travels with the file.
+        classification: bag.classification === true
+      });
+    }
+
     App.docHost = { set: set, get: get, validate: validate, sections: sections, log: log };
+    App.docSession = { get: sessionGet, set: sessionSet, run: sessionRun, options: sessionOptions,
+                       selectedSubjectId: selectedSubjectId, KEYS: SESSION_KEYS };
   }(App));
   </script>
 
@@ -16046,7 +16124,7 @@
     // v1.3 (§20.2): four independent, session-only option blocks. Include-maps default
     // to "included" on a missing key; boolean toggles default to false.
     var _gen = {
-      deviceId: null, scriptsAsTxt: false, openOptions: {},
+      scriptsAsTxt: false, openOptions: {},
       // RPT-2: `relevance` is an include-map over the Security Relevance vocabulary
       // (missing key ⇒ included, as every other generator include-map). IRRELEVANT
       // starts EXCLUDED: an item marked "not security-significant at all" is exactly
@@ -16064,7 +16142,7 @@
        * what a report contains is a property of the report, not an answer for one run.
        * What is left here is what genuinely belongs to one run: the filename and the
        * `/[Tag]` values. */
-      report: { filename: '', tags: {} },
+
       control: { includeUncontrolled: false },
       implementation: { datasets: {}, actions: {} },
       verification: { datasets: {}, onlyDeviations: false, csvResults: false },
@@ -16108,19 +16186,26 @@
       return (((project || App.store.getProject() || {}).report) || {}).classification === true;
     }
 
+    /* SESS-1: the run half of the session belongs to the document module now — the
+     * designer is what decides it, and it was being written to from over there while
+     * living over here. Both names stay as properties onto the module's session, so
+     * every read in this file and in a dozen suites is unchanged. */
+    Object.defineProperty(_gen, 'report', { enumerable: true, get: function () { return App.docSession.get(); } });
+    Object.defineProperty(_gen, 'deviceId', {
+      enumerable: true,
+      get: function () { return App.docSession.get().subjectId; },
+      set: function (v) { App.docSession.set({ subjectId: v }); }
+    });
+
+    /* RPT-2: IRRELEVANT ships EXCLUDED — an item marked "not security-significant at
+     * all" is exactly what nobody wants to read a page of, and the report states the
+     * omission. Declared here, on the filter axis CH gives the document module, and
+     * read back off it wherever the default is needed. */
     var REPORT_RELEVANCE_DEFAULT = { IRRELEVANT: false };
-    function reportOptions(project) {
-      var bag = (project || App.store.getProject() || {}).report || {};
-      var stored = bag.options || {};
-      return Object.assign({}, _gen.report, {
-        sections: stored.sections || {},
-        datasetSections: stored.datasetSections || {},
-        columns: stored.columns || {},
-        relevance: Object.assign({}, REPORT_RELEVANCE_DEFAULT, stored.relevance || {}),
-        // CLS-1: from the PROJECT now, so it survives a reload and travels with the file.
-        classification: bag.classification === true
-      });
-    }
+    /* OPT-2: the module assembles this now — it is the module's own state, bar the
+     * filter defaults above, which arrive through host.filter. CH keeps the name
+     * because the Generate tab and a dozen suites call it. */
+    function reportOptions(project) { return App.docSession.options(project || App.store.getProject()); }
 
     var COMMANDS = [
       { id: 'implementation', label: 'Implementation', build: 'buildImplementation', block: 'implementation' },
@@ -22596,6 +22681,70 @@
       T.assertEqual(f.categoryOf({}), App.generate.REL_UNSET, 'an unset row still lands somewhere');
     });
   });
+
+  /* ===== SUITES: the designer owns the description of a run (SESS-1) ===== */
+
+  /* The filename, the tag answers and the selected subject used to live in CH's
+   * Generate tab as a plain object the designer reached in and wrote to — two views
+   * sharing one mutable bag with no owner. The module owns it; CH reads it. */
+  T.suite('SESS-1 the designer owns the description of a run', function (s) {
+    function reset() { App.docSession.set({ subjectId: null, filename: '', tags: {} }); }
+
+    s.test('the session is readable from the module', function () {
+      T.assert(App.docSession && typeof App.docSession.get === 'function', 'no App.docSession');
+      T.assertEqual(typeof App.docSession.get(), 'object');
+    });
+
+    s.test('a patch is visible to the host, not copied into it', function () {
+      reset();
+      App.docSession.set({ filename: 'run-a.md' });
+      T.assertEqual(App.docSession.get().filename, 'run-a.md');
+      T.assertEqual(App.ui.views.generate._gen.report.filename, 'run-a.md',
+        'the Generate tab is not reading through to the module session');
+      reset();
+    });
+
+    s.test('the Generate tab writes through to it too', function () {
+      reset();
+      App.ui.views.generate._gen.deviceId = 'dev-whatever';
+      T.assertEqual(App.docSession.get().subjectId, 'dev-whatever',
+        'the device picker wrote somewhere the module cannot see');
+      reset();
+    });
+
+    s.test('setting an unknown key is refused rather than silently kept', function () {
+      T.assertThrows(function () { App.docSession.set({ nonsense: 1 }); }, /nonsense/);
+      T.assertEqual('nonsense' in App.docSession.get(), false);
+    });
+
+    /* The run half and the selection half are deliberately separate: a subject id in
+     * the generator's options would outrank the device the caller actually passed. */
+    s.test('the run half carries no subject id', function () {
+      reset();
+      App.docSession.set({ subjectId: 'dev-m1', filename: 'x.md' });
+      T.assertDeepEqual(Object.keys(App.docSession.run()).sort(), ['filename', 'tags']);
+      T.assertEqual(App.docSession.options().subjectId, undefined,
+        'a subject id in the options would outrank the device buildReport was given');
+      reset();
+    });
+
+    s.test('a selection that no longer exists falls back to the first subject', function () {
+      readyProject();
+      App.docSession.set({ subjectId: 'dev-gone' });
+      var first = App.docHost.get().subject.list()[0];
+      T.assertEqual(App.docSession.selectedSubjectId(), first && first.id);
+      reset();
+    });
+
+    s.test('the options are the project half plus the run half, and nothing else', function () {
+      readyProject(); reset();
+      var keys = Object.keys(App.docSession.options()).sort();
+      T.assertDeepEqual(keys,
+        ['classification', 'columns', 'datasetSections', 'filename', 'relevance', 'sections', 'tags']);
+      T.assertEqual(App.docSession.options().relevance.IRRELEVANT, false,
+        'the category that ships off must still ship off');
+    });
+  });
     T.suite('T11 (v1.3) generation customisation', function (s) {
       var FIX = function () { return new Date('2026-01-01T00:00:00.000Z'); };
       function report(p, opts) {
@@ -28358,9 +28507,10 @@
     function rptReset() {
       var g = App.ui.views.generate._gen;
       // OPT-2: the include-maps live in the project now, so a reset of the SESSION block
-      // is only the three per-run fields.
-      g.report = { classification: false, filename: '', tags: {} };
-      g.deviceId = null;
+      // is only the per-run fields — and SESS-1 moved those into the document module,
+      // which owns them, so the reset goes through its API rather than over the top of
+      // the property CH exposes them through.
+      App.docSession.set({ subjectId: null, filename: '', tags: {} });
       // v2.2: open/closed, the selected section and the open pane belong to the
       // workspace module now, so a reset has to put those back too.
       App.ui.views.reportDesign.close();
@@ -31251,7 +31401,7 @@
    * PURITY:  UI/DOM
    * DEPENDS: App.docHost (the host contract), App.generate, App.doc, App.docFormat,
    *          App.docStore, App.docTemplates, App.ui.mdPreview,
-   *          App.ui.views.generate (session options), App.store
+   *          App.docSession (this run's filename and tag values)
    * INVARIANTS: everything shown is derived from hostBlocks and App.doc.outline — the
    *             same two calls the generator itself makes — so the panel cannot
    *             describe a document the generator would not produce. Everything it
@@ -31313,9 +31463,9 @@
      * READ-ONLY: it is assembled fresh on every call, so the four maps are written
      * through App.docStore.setReportInclude and the three session fields through
      * `session()` below. Mutating what this returns would change nothing. */
-    function opts() { return App.ui.views.generate.reportOptions(App.docHost.get().getState()); }
+    function opts() { return App.docSession.options(); }
     /** The per-run half, which is still a live object and still written to directly. */
-    function session() { return App.ui.views.generate._gen.report; }
+    function session() { return App.docSession.get(); }
     /* The subjects the document could be about, as the HOST describes them. A
      * subject is {id, label, sublabel} to the module; `config` is whatever the host
      * needs handed back to it, and only the host ever reads it. */
@@ -31343,11 +31493,7 @@
       });
       return App.generate.filterCounts(h, rows);
     }
-    function selectedDeviceId(project) {
-      var g = App.ui.views.generate._gen, l = latest();
-      if (g.deviceId && l.some(function (c) { return c.id === g.deviceId; })) return g.deviceId;
-      return l.length ? l[0].id : null;
-    }
+    function selectedDeviceId() { return App.docSession.selectedSubjectId(); }
     function bag(project) { return (project && project.report) || {}; }
     function customSection(project, id) {
       return (bag(project).sections || []).filter(function (s) { return s.id === id; })[0] || null;
@@ -33391,7 +33537,9 @@
         var k = el.getAttribute('data-rd-rel');
         // RPT-2: IRRELEVANT is the one category that starts excluded, so it is the one
         // whose default is `false` — including it is the departure worth recording.
-        var dflt = App.ui.views.generate.REPORT_RELEVANCE_DEFAULT[k] !== false;
+        // The category's own declared default, so a tick returned to it stores nothing.
+        var cat = ((H().filter && H().filter.categories()) || []).filter(function (c) { return c.key === k; })[0];
+        var dflt = !cat || cat.defaultOn !== false;
         include('relevance', k, null, el.checked, dflt);
       });
       // CLS-1: the classification banner is a decision about the DOCUMENT, so it is
@@ -37596,7 +37744,7 @@
         T.assertEqual(stored(), null, 'a filename is an answer for this run, not a property of the report');
         var o = App.ui.views.generate.reportOptions(App.store.getProject());
         T.assertEqual(o.filename, 'run-1', 'and it still reaches the generator');
-        g.report = { filename: '', tags: {} };
+        App.docSession.set({ filename: '', tags: {} });
       });
 
       s.test('CLS-1 the classification banner is a property of the document, not of the run', function () {

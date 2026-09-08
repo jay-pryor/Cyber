@@ -2,9 +2,10 @@
     function rptReset() {
       var g = App.ui.views.generate._gen;
       // OPT-2: the include-maps live in the project now, so a reset of the SESSION block
-      // is only the three per-run fields.
-      g.report = { classification: false, filename: '', tags: {} };
-      g.deviceId = null;
+      // is only the per-run fields — and SESS-1 moved those into the document module,
+      // which owns them, so the reset goes through its API rather than over the top of
+      // the property CH exposes them through.
+      App.docSession.set({ subjectId: null, filename: '', tags: {} });
       // v2.2: open/closed, the selected section and the open pane belong to the
       // workspace module now, so a reset has to put those back too.
       App.ui.views.reportDesign.close();

@@ -94,7 +94,9 @@
         var k = el.getAttribute('data-rd-rel');
         // RPT-2: IRRELEVANT is the one category that starts excluded, so it is the one
         // whose default is `false` — including it is the departure worth recording.
-        var dflt = App.ui.views.generate.REPORT_RELEVANCE_DEFAULT[k] !== false;
+        // The category's own declared default, so a tick returned to it stores nothing.
+        var cat = ((H().filter && H().filter.categories()) || []).filter(function (c) { return c.key === k; })[0];
+        var dflt = !cat || cat.defaultOn !== false;
         include('relevance', k, null, el.checked, dflt);
       });
       // CLS-1: the classification banner is a decision about the DOCUMENT, so it is

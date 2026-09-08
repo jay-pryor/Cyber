@@ -57,7 +57,6 @@ _REFERENCES = re.compile(r"App\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)")
 # violations outstanding when the trees were split, kept so progress is legible.
 BOUNDARY_DEBT = {
     "generate",           # 20 — the half of App.generate that becomes App.docGen
-    "ui.views.generate",  # 4  — the shared session bag; inverted into the module
 }
 
 

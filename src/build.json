@@ -553,6 +553,7 @@
         "app/js/0510-phase-7-self-test-suites-report-generate-det/017-meta-rows.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/018-providers.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/019-subject-filter.js",
+        "app/js/0510-phase-7-self-test-suites-report-generate-det/020-session.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/020-t11-v1-3-generation-customisation.js"
       ]
     },

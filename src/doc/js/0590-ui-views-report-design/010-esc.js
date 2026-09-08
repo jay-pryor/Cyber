@@ -7,7 +7,7 @@
    * PURITY:  UI/DOM
    * DEPENDS: App.docHost (the host contract), App.generate, App.doc, App.docFormat,
    *          App.docStore, App.docTemplates, App.ui.mdPreview,
-   *          App.ui.views.generate (session options), App.store
+   *          App.docSession (this run's filename and tag values)
    * INVARIANTS: everything shown is derived from hostBlocks and App.doc.outline — the
    *             same two calls the generator itself makes — so the panel cannot
    *             describe a document the generator would not produce. Everything it
@@ -69,9 +69,9 @@
      * READ-ONLY: it is assembled fresh on every call, so the four maps are written
      * through App.docStore.setReportInclude and the three session fields through
      * `session()` below. Mutating what this returns would change nothing. */
-    function opts() { return App.ui.views.generate.reportOptions(App.docHost.get().getState()); }
+    function opts() { return App.docSession.options(); }
     /** The per-run half, which is still a live object and still written to directly. */
-    function session() { return App.ui.views.generate._gen.report; }
+    function session() { return App.docSession.get(); }
     /* The subjects the document could be about, as the HOST describes them. A
      * subject is {id, label, sublabel} to the module; `config` is whatever the host
      * needs handed back to it, and only the host ever reads it. */
@@ -99,11 +99,7 @@
       });
       return App.generate.filterCounts(h, rows);
     }
-    function selectedDeviceId(project) {
-      var g = App.ui.views.generate._gen, l = latest();
-      if (g.deviceId && l.some(function (c) { return c.id === g.deviceId; })) return g.deviceId;
-      return l.length ? l[0].id : null;
-    }
+    function selectedDeviceId() { return App.docSession.selectedSubjectId(); }
     function bag(project) { return (project && project.report) || {}; }
     function customSection(project, id) {
       return (bag(project).sections || []).filter(function (s) { return s.id === id; })[0] || null;
