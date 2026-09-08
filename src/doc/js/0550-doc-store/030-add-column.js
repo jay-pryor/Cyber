@@ -2,7 +2,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var n = t.header.length;
         t.header.push('Column ' + (n + 1));
@@ -19,7 +19,7 @@
     }
     function removeColumn(sectionId, partId, at) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         // A table with no columns cannot render, so the last one is not removable.
         if (!t || !t.header || t.header.length <= 1 || at < 0 || at >= t.header.length) return;
@@ -47,7 +47,7 @@
       if (!(col >= 0 && col < n)) return err('No such column.', partId);
       var f = Number(fraction);
       if (!isFinite(f)) return err('A column width must be a number.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var cur = (Array.isArray(t.widths) && t.widths.length === n) ? t.widths.slice() : evenWidths(n);
         t.widths = applyWidth(cur, col, f, exact === true);
@@ -60,7 +60,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         delete t.widths;
       });
@@ -90,7 +90,7 @@
       if (!(col >= 0 && col < n)) return err('No such column.', blockId);
       var f = Number(fraction);
       if (!isFinite(f)) return err('A column width must be a number.', blockId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tableWidths = b.tableWidths || {};
         var stored = b.tableWidths[blockId];
@@ -103,7 +103,7 @@
     /** TW-2: hand a generated section's table back to automatic widths. */
     function clearBlockWidths(blockId) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         if (!b.tableWidths) return;
         delete b.tableWidths[blockId];
@@ -130,7 +130,7 @@
     function setAlign(sectionId, partId, col, value) {
       if (!P()) return errNoProject();
       if (['l', 'c', 'r'].indexOf(value) === -1) return err('Alignment must be l, c or r.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         if (t && t.align) t.align[col] = value;
       });
@@ -143,7 +143,7 @@
       if (!P()) return errNoProject();
       if (!String(name || '').trim()) return err('A formatting profile needs a name.');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.formats = b.formats || [];
         id = nextId('fmt', b.formats);
@@ -163,7 +163,7 @@
       if (id === 'standard') return err('The Standard profile cannot be edited. Duplicate it first.');
       var found = ((P().report && P().report.formats) || []).some(function (f) { return f.id === id; });
       if (!found) return err('Unknown formatting profile.', id);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var f = p.report.formats.filter(function (x) { return x.id === id; })[0];
         var merged = App.docFormat.normalise(Object.assign({}, f, patch || {}));
         delete merged.builtin;
@@ -176,7 +176,7 @@
     function removeFormat(id) {
       if (!P()) return errNoProject();
       if (id === 'standard') return err('The Standard profile cannot be removed.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.formats = (b.formats || []).filter(function (f) { return f.id !== id; });
         if (!b.formats.length) delete b.formats;
@@ -190,7 +190,7 @@
 
     function setFormatId(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         if (!id || id === 'standard') delete b.formatId; else b.formatId = String(id);
         if (!Object.keys(b).length) delete p.report;
@@ -212,7 +212,7 @@
       if (!s) return err('Unknown section.', sectionId);
       if (!String(name || '').trim()) return err('A section template needs a name.');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sectionTemplates = b.sectionTemplates || [];
         id = nextId('tpl', b.sectionTemplates);
@@ -228,7 +228,7 @@
 
     function removeSectionTemplate(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sectionTemplates = (b.sectionTemplates || []).filter(function (t) { return t.id !== id; });
         if (!b.sectionTemplates.length) delete b.sectionTemplates;
@@ -243,7 +243,7 @@
       var t = ((P().report && P().report.sectionTemplates) || []).filter(function (x) { return x.id === templateId; })[0];
       if (!t) return err('Unknown section template.', templateId);
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sections = b.sections || [];
         id = nextId('sec', b.sections);
@@ -269,7 +269,7 @@
       if (!P()) return errNoProject();
       if (!String(name || '').trim()) return err('A report template needs a name.');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.reportTemplates = b.reportTemplates || [];
         id = nextId('rpt', b.reportTemplates);
@@ -304,7 +304,7 @@
 
     function removeReportTemplate(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.reportTemplates = (b.reportTemplates || []).filter(function (t) { return t.id !== id; });
         if (!b.reportTemplates.length) delete b.reportTemplates;
@@ -323,7 +323,7 @@
       if (!P()) return errNoProject();
       var t = ((P().report && P().report.reportTemplates) || []).filter(function (x) { return x.id === id; })[0];
       if (!t) return err('Unknown report template.', id);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.order = (t.order || []).slice();
         b.levels = JSON.parse(JSON.stringify(t.levels || {}));

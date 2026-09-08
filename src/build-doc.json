@@ -190,6 +190,15 @@
       "paths": [
         "doc/js/0900-doc-suites/020-blocks.js"
       ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/030-host-object.js"
+      ]
     }
   ]
 }

@@ -7548,16 +7548,12 @@
      * reason the procedure's step order is (see setProcedureOrder above).
      * @param {string[]} order  section ids, in the order they should appear
      */
+    /* RPT-3: the document's own section order, written by the document module. CH
+     * keeps the name because the Generate tab and a dozen suites call it, but there is
+     * one implementation of the write, and it is the module's. */
     function setReportOrder(order) {
       if (!_project) return errNoProject();
-      var ids = (order || []).map(String);
-      commit(function (p) {
-        p.report = p.report || {};
-        p.report.order = ids;
-        if (!ids.length) delete p.report.order;
-        if (!Object.keys(p.report).length) delete p.report;
-      });
-      return { ok: true, issues: [] };
+      return App.docStore.setReportOrder(order);
     }
     /** @param {string} stepId @param {string} text prose for a whole-register step. */
     function setProcedureNote(stepId, text) {
@@ -12450,9 +12446,17 @@
       return (typeof s === 'function' ? s(run || null) : s) || [];
     }
 
-    /** The log sink, or a no-op. Keeps every call site free of a null check. */
-    function log(level, message) {
-      if (_host && typeof _host.log === 'function') _host.log(level, message);
+    /**
+     * The host's log sink, or a no-op.
+     *
+     * Takes an ISSUE — {severity, message, category?, location?} — because that is
+     * what the module already produces everywhere else, and a host that shows a
+     * warning differently from an error needs the severity, not a sentence with the
+     * word "warning" in it. A host that declares no sink simply loses the message,
+     * which is why every call site can be a bare statement with no null check.
+     */
+    function log(issue) {
+      if (_host && typeof _host.log === 'function') _host.log(issue);
     }
 
     App.docHost = { set: set, get: get, validate: validate, sections: sections, log: log };
@@ -28928,7 +28932,7 @@
    *          composition, and App.store is already the largest module in the file.
    * PURITY:  NOT pure (mutates the project) — but every id it mints is DERIVED, never
    *          random, so the same sequence of edits produces the same project bytes.
-   * DEPENDS: App.store (_commit), App.docFormat
+   * DEPENDS: App.docHost (getState/commit), App.docFormat
    * INVARIANTS: ids are stable for the life of the thing they name — renaming a
    *             section or reordering the document never re-mints one, because
    *             cross-references (DOC-3) are stored against exactly those ids.
@@ -28936,7 +28940,9 @@
   (function (App) {
     'use strict';
 
-    function P() { return App.store.getProject(); }
+    /* The project, read through the host — never off a store this module knows the
+     * name of. Everything below runs against whatever the host handed over. */
+    function P() { return App.docHost.get().getState(); }
     function errNoProject() { return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] }; }
     function err(msg, loc) { return { ok: false, issues: [{ category: 'validation', severity: 'error', message: msg, location: loc }] }; }
     function ok() { return { ok: true, issues: [] }; }
@@ -28974,6 +28980,25 @@
       return ((p.report && p.report.sections) || []).filter(function (s) { return s.id === id; })[0] || null;
     }
 
+    /**
+     * RPT-3: the order the sections are emitted in — block ids first, everything
+     * unnamed keeping its declared position behind them.
+     *
+     * An EMPTY list is the reset: it deletes the key rather than storing `[]`, so a
+     * project that was never reordered and one that was reordered back are the same
+     * bytes (DOD-7).
+     */
+    function setReportOrder(order) {
+      if (!P()) return errNoProject();
+      var ids = (order || []).map(String);
+      App.docHost.get().commit(function (p) {
+        bag(p).order = ids;
+        if (!ids.length) delete p.report.order;
+        if (!Object.keys(p.report).length) delete p.report;
+      });
+      return ok();
+    }
+
     // ---- DS-2: heading levels ------------------------------------------------
 
     /**
@@ -28988,7 +29013,7 @@
       if (lv !== null && [App.doc.TITLE_LEVEL, 1, 2, 3, 4, App.doc.BODY_LEVEL].indexOf(lv) === -1) {
         return err('Heading level must be 1-4, 5 for normal text, or 0 for an unnumbered title.');
       }
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.levels = b.levels || {};
         // Automatic is the ABSENT state rather than a stored null, so a section that
@@ -29020,7 +29045,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       if (BLOCK_FLAGS.indexOf(bagKey) === -1) return err('Unknown section flag "' + bagKey + '".');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b[bagKey] = b[bagKey] || {};
         if (on) b[bagKey][blockId] = true; else delete b[bagKey][blockId];
@@ -29045,7 +29070,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       var v = mmValue(mm);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.space = b.space || {};
         if (v > 0) b.space[blockId] = v; else delete b.space[blockId];
@@ -29081,7 +29106,7 @@
     /** The shape both of the above share: a document-level switch, stored as presence. */
     function setReportSwitch(key, on) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         if (on) b[key] = true; else delete b[key];
         if (!Object.keys(b).length) delete p.report;
@@ -29117,7 +29142,7 @@
     function setBlockIntroNumbered(blockId, on) {
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.introNumbered = b.introNumbered || {};
         if (on) b.introNumbered[blockId] = true; else delete b.introNumbered[blockId];
@@ -29143,7 +29168,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       var v = String(value == null ? '' : value);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b[bagKey] = b[bagKey] || {};
         if (v.trim()) b[bagKey][blockId] = v; else delete b[bagKey][blockId];
@@ -29182,7 +29207,7 @@
       if (!blockId || !tableKey) return err('A table is required.');
       if (field !== 'title' && field !== 'caption') return err('A table carries a "title" or a "caption".');
       var v = String(value == null ? '' : value);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tables = b.tables || {};
         var byBlock = b.tables[blockId] = b.tables[blockId] || {};
@@ -29206,7 +29231,7 @@
     function setTableNoCaption(blockId, tableKey, off) {
       if (!P()) return errNoProject();
       if (!blockId || !tableKey) return err('A table is required.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tables = b.tables || {};
         var byBlock = b.tables[blockId] = b.tables[blockId] || {};
@@ -29223,7 +29248,7 @@
       if (!P()) return errNoProject();
       if (!blockId || !tableKey || !colId) return err('A table column is required.');
       var v = String(label == null ? '' : label);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tables = b.tables || {};
         var byBlock = b.tables[blockId] = b.tables[blockId] || {};
@@ -29268,7 +29293,7 @@
       if (!P()) return errNoProject();
       if (INCLUDE_MAPS.indexOf(map) === -1) return err('Unknown report option map "' + map + '".');
       if (!key) return err('A report option needs something to apply to.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         var o = b.options = b.options || {};
         var m = o[map] = o[map] || {};
@@ -29294,7 +29319,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       if (which !== 'head' && which !== 'firstColumn') return err('Table styling is either "head" or "firstColumn".');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tableStyles = b.tableStyles || {};
         var e = b.tableStyles[blockId] = b.tableStyles[blockId] || {};
@@ -29318,7 +29343,7 @@
     function setMetaField(fieldId, on) {
       if (!P()) return errNoProject();
       if (!fieldId) return err('A field is required.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.meta = b.meta || {};
         if (on) delete b.meta[fieldId]; else b.meta[fieldId] = false;
@@ -29335,7 +29360,7 @@
       if (!P()) return errNoProject();
       opts = opts || {};
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sections = b.sections || [];
         id = nextId('sec', b.sections);
@@ -29352,7 +29377,7 @@
       if (!P()) return errNoProject();
       var s0 = findSection(P(), id);
       if (!s0) return err('Unknown section.', id);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, id);
         if (fields.title !== undefined) s.title = String(fields.title == null ? '' : fields.title);
       });
@@ -29361,7 +29386,7 @@
 
     function removeSection(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sections = (b.sections || []).filter(function (s) { return s.id !== id; });
         if (!b.sections.length) delete b.sections;
@@ -29421,7 +29446,7 @@
       if (!findSection(P(), sectionId)) return err('Unknown section.', sectionId);
       if (['para', 'table', 'rule', 'pagebreak', 'space'].indexOf(kind) === -1) return err('Unknown part type "' + kind + '".');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, sectionId);
         s.parts = s.parts || [];
         id = nextId('part', allParts(p));
@@ -29437,7 +29462,7 @@
       var s0 = findSection(P(), sectionId);
       if (!s0) return err('Unknown section.', sectionId);
       if (!(s0.parts || []).some(function (x) { return x.id === partId; })) return err('Unknown part.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var part = findSection(p, sectionId).parts.filter(function (x) { return x.id === partId; })[0];
         Object.keys(fields || {}).forEach(function (k) {
           if (k === 'id' || k === 'kind') return;             // identity is not editable
@@ -29458,7 +29483,7 @@
     function removePart(sectionId, partId) {
       if (!P()) return errNoProject();
       if (!findSection(P(), sectionId)) return err('Unknown section.', sectionId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, sectionId);
         s.parts = (s.parts || []).filter(function (x) { return x.id !== partId; });
       });
@@ -29473,7 +29498,7 @@
       if (!P()) return errNoProject();
       var s0 = findSection(P(), sectionId);
       if (!s0) return err('Unknown section.', sectionId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, sectionId), parts = s.parts || [];
         var from = parts.map(function (x) { return x.id; }).indexOf(partId);
         if (from === -1) return;
@@ -29504,7 +29529,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var v = String(value == null ? '' : value);
         if (row === -1) { t.header[col] = v; return; }
@@ -29519,7 +29544,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var blank = t.header.map(function () { return ''; });
         var i = (at === undefined || at === null || at < 0 || at > t.rows.length) ? t.rows.length : at;
@@ -29534,7 +29559,7 @@
     }
     function removeRow(sectionId, partId, at) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         if (t && t.rows && at >= 0 && at < t.rows.length) {
           t.rows.splice(at, 1);
@@ -29557,7 +29582,7 @@
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
       if (!(at >= 0 && at < (t0.rows || []).length)) return err('Unknown row.', String(at));
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var list = (Array.isArray(t.tallRows) && t.tallRows.length === t.rows.length)
           ? t.tallRows.map(function (v) { return v !== false; })
@@ -29651,7 +29676,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var n = t.header.length;
         t.header.push('Column ' + (n + 1));
@@ -29668,7 +29693,7 @@
     }
     function removeColumn(sectionId, partId, at) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         // A table with no columns cannot render, so the last one is not removable.
         if (!t || !t.header || t.header.length <= 1 || at < 0 || at >= t.header.length) return;
@@ -29696,7 +29721,7 @@
       if (!(col >= 0 && col < n)) return err('No such column.', partId);
       var f = Number(fraction);
       if (!isFinite(f)) return err('A column width must be a number.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var cur = (Array.isArray(t.widths) && t.widths.length === n) ? t.widths.slice() : evenWidths(n);
         t.widths = applyWidth(cur, col, f, exact === true);
@@ -29709,7 +29734,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         delete t.widths;
       });
@@ -29739,7 +29764,7 @@
       if (!(col >= 0 && col < n)) return err('No such column.', blockId);
       var f = Number(fraction);
       if (!isFinite(f)) return err('A column width must be a number.', blockId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tableWidths = b.tableWidths || {};
         var stored = b.tableWidths[blockId];
@@ -29752,7 +29777,7 @@
     /** TW-2: hand a generated section's table back to automatic widths. */
     function clearBlockWidths(blockId) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         if (!b.tableWidths) return;
         delete b.tableWidths[blockId];
@@ -29779,7 +29804,7 @@
     function setAlign(sectionId, partId, col, value) {
       if (!P()) return errNoProject();
       if (['l', 'c', 'r'].indexOf(value) === -1) return err('Alignment must be l, c or r.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         if (t && t.align) t.align[col] = value;
       });
@@ -29792,7 +29817,7 @@
       if (!P()) return errNoProject();
       if (!String(name || '').trim()) return err('A formatting profile needs a name.');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.formats = b.formats || [];
         id = nextId('fmt', b.formats);
@@ -29812,7 +29837,7 @@
       if (id === 'standard') return err('The Standard profile cannot be edited. Duplicate it first.');
       var found = ((P().report && P().report.formats) || []).some(function (f) { return f.id === id; });
       if (!found) return err('Unknown formatting profile.', id);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var f = p.report.formats.filter(function (x) { return x.id === id; })[0];
         var merged = App.docFormat.normalise(Object.assign({}, f, patch || {}));
         delete merged.builtin;
@@ -29825,7 +29850,7 @@
     function removeFormat(id) {
       if (!P()) return errNoProject();
       if (id === 'standard') return err('The Standard profile cannot be removed.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.formats = (b.formats || []).filter(function (f) { return f.id !== id; });
         if (!b.formats.length) delete b.formats;
@@ -29839,7 +29864,7 @@
 
     function setFormatId(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         if (!id || id === 'standard') delete b.formatId; else b.formatId = String(id);
         if (!Object.keys(b).length) delete p.report;
@@ -29861,7 +29886,7 @@
       if (!s) return err('Unknown section.', sectionId);
       if (!String(name || '').trim()) return err('A section template needs a name.');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sectionTemplates = b.sectionTemplates || [];
         id = nextId('tpl', b.sectionTemplates);
@@ -29877,7 +29902,7 @@
 
     function removeSectionTemplate(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sectionTemplates = (b.sectionTemplates || []).filter(function (t) { return t.id !== id; });
         if (!b.sectionTemplates.length) delete b.sectionTemplates;
@@ -29892,7 +29917,7 @@
       var t = ((P().report && P().report.sectionTemplates) || []).filter(function (x) { return x.id === templateId; })[0];
       if (!t) return err('Unknown section template.', templateId);
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sections = b.sections || [];
         id = nextId('sec', b.sections);
@@ -29918,7 +29943,7 @@
       if (!P()) return errNoProject();
       if (!String(name || '').trim()) return err('A report template needs a name.');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.reportTemplates = b.reportTemplates || [];
         id = nextId('rpt', b.reportTemplates);
@@ -29953,7 +29978,7 @@
 
     function removeReportTemplate(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.reportTemplates = (b.reportTemplates || []).filter(function (t) { return t.id !== id; });
         if (!b.reportTemplates.length) delete b.reportTemplates;
@@ -29972,7 +29997,7 @@
       if (!P()) return errNoProject();
       var t = ((P().report && P().report.reportTemplates) || []).filter(function (x) { return x.id === id; })[0];
       if (!t) return err('Unknown report template.', id);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.order = (t.order || []).slice();
         b.levels = JSON.parse(JSON.stringify(t.levels || {}));
@@ -30008,6 +30033,9 @@
 
     App.docStore = {
       nextId: nextId, blankPart: blankPart,
+      // RPT-3: the section order. It lived on App.store, which meant the module
+      // reached into the host to reorder its own document.
+      setReportOrder: setReportOrder,
       setBlockLevel: setBlockLevel, setBlockCentre: setBlockCentre, setMetaField: setMetaField,
       // SEC-4: per-section placement — centring, a page of its own, out of the contents.
       setBlockFlag: setBlockFlag,
@@ -30052,7 +30080,7 @@
    *          Owns the merge rule: an import ADDS, never replaces wholesale, and
    *          every collision is a decision the operator makes (TPL-3).
    * PURITY:  parse/validate/plan are pure; apply() writes through App.docStore.
-   * DEPENDS: App.docFormat, App.docStore, App.store, App.util.clock, App.util.stable
+   * DEPENDS: App.docHost (getState/clock), App.docFormat, App.docStore, App.util.stable
    * INVARIANTS: importing never removes something the project already had. The worst
    *             an import can do to existing work is overwrite an entry the operator
    *             explicitly chose to replace.
@@ -30120,7 +30148,7 @@
       var payload = {
         kind: K.kind,
         version: FORMAT_VERSION,
-        exportedUtc: App.util.clock.nowIso(),
+        exportedUtc: App.docHost.get().clock.nowIso(),
         items: JSON.parse(JSON.stringify(items))
       };
       return {
@@ -30252,12 +30280,12 @@
      * @returns {{ok:boolean, added:number, replaced:number, kept:number, issues:Issue[]}}
      */
     function apply(pl, decisions) {
-      if (!App.store.getProject()) return { ok: false, added: 0, replaced: 0, kept: 0, issues: [issue('error', 'No project loaded.', 'project')] };
+      if (!App.docHost.get().getState()) return { ok: false, added: 0, replaced: 0, kept: 0, issues: [issue('error', 'No project loaded.', 'project')] };
       decisions = decisions || {};
       var K = KINDS[pl.kindKey], bagName = K.bag;
       var added = 0, replaced = 0, kept = 0;
 
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         p.report = p.report || {};
         var list = p.report[bagName] = (p.report[bagName] || []);
 
@@ -31285,7 +31313,7 @@
      * READ-ONLY: it is assembled fresh on every call, so the four maps are written
      * through App.docStore.setReportInclude and the three session fields through
      * `session()` below. Mutating what this returns would change nothing. */
-    function opts() { return App.ui.views.generate.reportOptions(App.store.getProject()); }
+    function opts() { return App.ui.views.generate.reportOptions(App.docHost.get().getState()); }
     /** The per-run half, which is still a live object and still written to directly. */
     function session() { return App.ui.views.generate._gen.report; }
     /* The subjects the document could be about, as the HOST describes them. A
@@ -32913,7 +32941,7 @@
     function refresh() {
       var host = document.getElementById('rd-modal-host');
       if (!host) return false;
-      var project = App.store.getProject(); if (!project) return false;
+      var project = App.docHost.get().getState(); if (!project) return false;
       if (!H()) return false;
       var body = host.querySelector('.modal-body');
       var top = body ? body.scrollTop : 0;
@@ -33090,35 +33118,35 @@
         ids.splice(from, 1);
         ids.splice(to, 0, id);
       }
-      App.store.setReportOrder(ids);
+      App.docStore.setReportOrder(ids);
     }
 
     function logIssues(res) {
-      ((res && res.issues) || []).forEach(function (i) { App.ui.activity.log(i); });
+      ((res && res.issues) || []).forEach(function (i) { App.docHost.log(i); });
       return res;
     }
 
     // ---- import / export ------------------------------------------------------
 
     function doExport(kindKey) {
-      var project = App.store.getProject(); if (!project) return;
+      var project = App.docHost.get().getState(); if (!project) return;
       var f = App.docTemplates.exportFile(project, kindKey, null);
-      if (!f.count) { App.ui.activity.log({ severity: 'warning', message: 'Nothing to export.' }); return; }
+      if (!f.count) { App.docHost.log({ severity: 'warning', message: 'Nothing to export.' }); return; }
       App.util.dom.download(new Blob([f.text], { type: 'application/json' }), f.name);
-      App.ui.activity.log({ severity: 'success', message: 'Exported ' + f.count + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + ' to ' + f.name });
+      App.docHost.log({ severity: 'success', message: 'Exported ' + f.count + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + ' to ' + f.name });
     }
 
     function doImport(kindKey, file) {
       App.util.dom.readFileText(file).then(function (text) {
         var parsed = App.docTemplates.parseImport(text, kindKey);
-        parsed.issues.forEach(function (i) { App.ui.activity.log(i); });
+        parsed.issues.forEach(function (i) { App.docHost.log(i); });
         if (!parsed.ok) { repaint(); return; }
-        var project = App.store.getProject();
+        var project = App.docHost.get().getState();
         var plan = App.docTemplates.plan(project, kindKey, parsed.items);
         if (!plan.conflicts.length) {
           var res = App.docTemplates.apply(plan, {});
           dirty();
-          App.ui.activity.log({ severity: 'success', message: 'Imported ' + res.added + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + '.' });
+          App.docHost.log({ severity: 'success', message: 'Imported ' + res.added + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + '.' });
           repaint();
           return;
         }
@@ -33126,7 +33154,7 @@
         _rd.conflict = { kindKey: kindKey, plan: plan, decisions: {} };
         repaint();
       }).catch(function (e) {
-        App.ui.activity.log({ severity: 'error', message: 'Could not read that file: ' + (e && e.message) });
+        App.docHost.log({ severity: 'error', message: 'Could not read that file: ' + (e && e.message) });
       });
     }
 
@@ -33134,7 +33162,7 @@
       var c = _rd.conflict; if (!c) return;
       var res = App.docTemplates.apply(c.plan, c.decisions);
       dirty();
-      App.ui.activity.log({
+      App.docHost.log({
         severity: 'success',
         message: 'Imported ' + App.docTemplates.KINDS[c.kindKey].label.toLowerCase() + ': ' +
           res.added + ' added, ' + res.replaced + ' replaced, ' + res.kept + ' kept.'
@@ -33204,7 +33232,7 @@
 
     /** The document's reference resolver, for re-rendering a box after an edit. */
     function boxHtml(tokens) {
-      var p = App.store.getProject();
+      var p = App.docHost.get().getState();
       return RT.toHtml(tokens, { resolveRef: p && H() ? refResolver(p) : null });
     }
 
@@ -33274,7 +33302,7 @@
     function wire(ctx) {
       _ctx = ctx;
       var dom = App.util.dom;
-      var P = function () { return App.store.getProject(); };
+      var P = function () { return App.docHost.get().getState(); };
 
       dom.on(ctx.root, 'click', '[data-rd-open]', function () {
         _rd.open = true; dirty(); ctx.refreshMain();
@@ -33384,7 +33412,7 @@
         dirty(); repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-reset-order]', function () {
-        quietly(function () { App.store.setReportOrder([]); });
+        quietly(function () { App.docStore.setReportOrder([]); });
         dirty(); repaint();
       });
       dom.on(ctx.root, 'change', '[data-rd-centre]', function (e, el) {
@@ -33527,7 +33555,7 @@
         var name = window.prompt('Name this section template:', '');
         if (name == null || !name.trim()) return;
         logIssues(App.docStore.saveSectionTemplate(id, name));
-        App.ui.activity.log({ severity: 'success', message: 'Saved section template "' + name.trim() + '".' });
+        App.docHost.log({ severity: 'success', message: 'Saved section template "' + name.trim() + '".' });
         repaint();
       });
 
@@ -33895,7 +33923,7 @@
         var name = window.prompt('Name this report template:', '');
         if (name == null || !name.trim()) return;
         logIssues(App.docStore.saveReportTemplate(name));
-        App.ui.activity.log({ severity: 'success', message: 'Saved report template "' + name.trim() + '".' });
+        App.docHost.log({ severity: 'success', message: 'Saved report template "' + name.trim() + '".' });
         repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-rpt-use]', function (e, el) {
@@ -34081,6 +34109,83 @@
     s.test('CAP-4: no caption means no caption line, so the table takes no number', function () {
       var out = B.withWording({ captionId: 'x' }, { noCaption: true }, 'dflt');
       T.assertEqual(out.captionId, '', 'the caption id must be cleared, not merely blanked');
+    });
+  });
+  })(App);
+  </script>
+
+  <script>
+  (function (App) {
+    'use strict';
+    var T = App.test;
+
+  /* ===== SUITES: the host contract (HOSTOBJ-1) ===== */
+
+  /* The module used to reach for App.store, App.util.clock and App.ui.activity by
+   * name, which is another way of saying it could only ever run inside CH. Everything
+   * it needs from the outside world now arrives through one object it is handed. */
+  T.suite('HOSTOBJ-1 the module is driven by an explicit host object', function (s) {
+    function minimal() {
+      var state = { report: {} };
+      return {
+        getState: function () { return state; },
+        commit: function (m) { m(state); },
+        // Its own clock, not the app's: a host supplies the time, and a test that
+        // borrowed CH's would be proving less than it looks like it is proving.
+        clock: { nowIso: function () { return '2026-01-01T00:00:00.000Z'; } },
+        sections: []
+      };
+    }
+    /** Run body with `host` installed, and put the real one back whatever happens. */
+    function withHost(host, body) {
+      var was = App.docHost.get();
+      App.docHost.set(host);
+      try { return body(); } finally { if (was) App.docHost.set(was); }
+    }
+
+    s.test('a minimal host validates', function () {
+      T.assertDeepEqual(App.docHost.validate(minimal()), []);
+    });
+
+    s.test('a malformed host is refused, and says which member is wrong', function () {
+      var bad = minimal(); bad.clock = {};
+      T.assertThrows(function () { App.docHost.set(bad); }, /host\.clock/);
+      T.assert(App.docHost.get(), 'a refused host must not replace the one already installed');
+    });
+
+    s.test('an optional member is optional, but not half-declared', function () {
+      var half = minimal();
+      half.filter = { categories: function () { return []; } };      // no categoryOf
+      var errs = App.docHost.validate(half);
+      T.assertEqual(errs.length, 1);
+      T.assert(errs[0].indexOf('categoryOf') !== -1, errs[0]);
+    });
+
+    s.test('a mutation goes through the host commit, not through any store', function () {
+      var host = minimal(), seen = 0;
+      var wrapped = Object.assign({}, host, { commit: function (m) { seen += 1; host.commit(m); } });
+      withHost(wrapped, function () { App.docStore.addSection({ title: 'A section' }); });
+      T.assertEqual(seen, 1, 'docStore did not route its write through host.commit');
+      T.assertEqual((host.getState().report.sections || []).length, 1, 'the section did not land in the host state');
+    });
+
+    s.test('state is READ through the host too', function () {
+      var host = minimal(), reads = 0;
+      var wrapped = Object.assign({}, host, { getState: function () { reads += 1; return host.getState(); } });
+      withHost(wrapped, function () { App.docStore.setReportOrder(['a', 'b']); });
+      T.assert(reads > 0, 'docStore read the project from somewhere other than the host');
+      T.assertDeepEqual(host.getState().report.order, ['a', 'b']);
+    });
+
+    s.test('a host with no log sink loses the message rather than throwing', function () {
+      withHost(minimal(), function () {
+        App.docHost.log({ severity: 'error', message: 'nobody is listening' });
+      });
+    });
+
+    s.test('a host IS installed, and it validates', function () {
+      T.assert(App.docHost.get(), 'no host installed at boot');
+      T.assertDeepEqual(App.docHost.validate(App.docHost.get()), []);
     });
   });
   })(App);

@@ -264,7 +264,7 @@
     function refresh() {
       var host = document.getElementById('rd-modal-host');
       if (!host) return false;
-      var project = App.store.getProject(); if (!project) return false;
+      var project = App.docHost.get().getState(); if (!project) return false;
       if (!H()) return false;
       var body = host.querySelector('.modal-body');
       var top = body ? body.scrollTop : 0;

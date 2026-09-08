@@ -5,7 +5,7 @@
     function wire(ctx) {
       _ctx = ctx;
       var dom = App.util.dom;
-      var P = function () { return App.store.getProject(); };
+      var P = function () { return App.docHost.get().getState(); };
 
       dom.on(ctx.root, 'click', '[data-rd-open]', function () {
         _rd.open = true; dirty(); ctx.refreshMain();
@@ -115,7 +115,7 @@
         dirty(); repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-reset-order]', function () {
-        quietly(function () { App.store.setReportOrder([]); });
+        quietly(function () { App.docStore.setReportOrder([]); });
         dirty(); repaint();
       });
       dom.on(ctx.root, 'change', '[data-rd-centre]', function (e, el) {
@@ -258,7 +258,7 @@
         var name = window.prompt('Name this section template:', '');
         if (name == null || !name.trim()) return;
         logIssues(App.docStore.saveSectionTemplate(id, name));
-        App.ui.activity.log({ severity: 'success', message: 'Saved section template "' + name.trim() + '".' });
+        App.docHost.log({ severity: 'success', message: 'Saved section template "' + name.trim() + '".' });
         repaint();
       });
 
@@ -626,7 +626,7 @@
         var name = window.prompt('Name this report template:', '');
         if (name == null || !name.trim()) return;
         logIssues(App.docStore.saveReportTemplate(name));
-        App.ui.activity.log({ severity: 'success', message: 'Saved report template "' + name.trim() + '".' });
+        App.docHost.log({ severity: 'success', message: 'Saved report template "' + name.trim() + '".' });
         repaint();
       });
       dom.on(ctx.root, 'click', '[data-rd-rpt-use]', function (e, el) {

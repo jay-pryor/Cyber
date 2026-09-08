@@ -5,7 +5,7 @@
    *          Owns the merge rule: an import ADDS, never replaces wholesale, and
    *          every collision is a decision the operator makes (TPL-3).
    * PURITY:  parse/validate/plan are pure; apply() writes through App.docStore.
-   * DEPENDS: App.docFormat, App.docStore, App.store, App.util.clock, App.util.stable
+   * DEPENDS: App.docHost (getState/clock), App.docFormat, App.docStore, App.util.stable
    * INVARIANTS: importing never removes something the project already had. The worst
    *             an import can do to existing work is overwrite an entry the operator
    *             explicitly chose to replace.
@@ -73,7 +73,7 @@
       var payload = {
         kind: K.kind,
         version: FORMAT_VERSION,
-        exportedUtc: App.util.clock.nowIso(),
+        exportedUtc: App.docHost.get().clock.nowIso(),
         items: JSON.parse(JSON.stringify(items))
       };
       return {
@@ -205,12 +205,12 @@
      * @returns {{ok:boolean, added:number, replaced:number, kept:number, issues:Issue[]}}
      */
     function apply(pl, decisions) {
-      if (!App.store.getProject()) return { ok: false, added: 0, replaced: 0, kept: 0, issues: [issue('error', 'No project loaded.', 'project')] };
+      if (!App.docHost.get().getState()) return { ok: false, added: 0, replaced: 0, kept: 0, issues: [issue('error', 'No project loaded.', 'project')] };
       decisions = decisions || {};
       var K = KINDS[pl.kindKey], bagName = K.bag;
       var added = 0, replaced = 0, kept = 0;
 
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         p.report = p.report || {};
         var list = p.report[bagName] = (p.report[bagName] || []);
 

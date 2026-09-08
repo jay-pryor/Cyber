@@ -303,16 +303,12 @@
      * reason the procedure's step order is (see setProcedureOrder above).
      * @param {string[]} order  section ids, in the order they should appear
      */
+    /* RPT-3: the document's own section order, written by the document module. CH
+     * keeps the name because the Generate tab and a dozen suites call it, but there is
+     * one implementation of the write, and it is the module's. */
     function setReportOrder(order) {
       if (!_project) return errNoProject();
-      var ids = (order || []).map(String);
-      commit(function (p) {
-        p.report = p.report || {};
-        p.report.order = ids;
-        if (!ids.length) delete p.report.order;
-        if (!Object.keys(p.report).length) delete p.report;
-      });
-      return { ok: true, issues: [] };
+      return App.docStore.setReportOrder(order);
     }
     /** @param {string} stepId @param {string} text prose for a whole-register step. */
     function setProcedureNote(stepId, text) {

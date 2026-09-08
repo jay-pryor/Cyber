@@ -8,7 +8,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       if (which !== 'head' && which !== 'firstColumn') return err('Table styling is either "head" or "firstColumn".');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tableStyles = b.tableStyles || {};
         var e = b.tableStyles[blockId] = b.tableStyles[blockId] || {};
@@ -32,7 +32,7 @@
     function setMetaField(fieldId, on) {
       if (!P()) return errNoProject();
       if (!fieldId) return err('A field is required.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.meta = b.meta || {};
         if (on) delete b.meta[fieldId]; else b.meta[fieldId] = false;
@@ -49,7 +49,7 @@
       if (!P()) return errNoProject();
       opts = opts || {};
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sections = b.sections || [];
         id = nextId('sec', b.sections);
@@ -66,7 +66,7 @@
       if (!P()) return errNoProject();
       var s0 = findSection(P(), id);
       if (!s0) return err('Unknown section.', id);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, id);
         if (fields.title !== undefined) s.title = String(fields.title == null ? '' : fields.title);
       });
@@ -75,7 +75,7 @@
 
     function removeSection(id) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.sections = (b.sections || []).filter(function (s) { return s.id !== id; });
         if (!b.sections.length) delete b.sections;
@@ -135,7 +135,7 @@
       if (!findSection(P(), sectionId)) return err('Unknown section.', sectionId);
       if (['para', 'table', 'rule', 'pagebreak', 'space'].indexOf(kind) === -1) return err('Unknown part type "' + kind + '".');
       var id = null;
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, sectionId);
         s.parts = s.parts || [];
         id = nextId('part', allParts(p));
@@ -151,7 +151,7 @@
       var s0 = findSection(P(), sectionId);
       if (!s0) return err('Unknown section.', sectionId);
       if (!(s0.parts || []).some(function (x) { return x.id === partId; })) return err('Unknown part.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var part = findSection(p, sectionId).parts.filter(function (x) { return x.id === partId; })[0];
         Object.keys(fields || {}).forEach(function (k) {
           if (k === 'id' || k === 'kind') return;             // identity is not editable
@@ -172,7 +172,7 @@
     function removePart(sectionId, partId) {
       if (!P()) return errNoProject();
       if (!findSection(P(), sectionId)) return err('Unknown section.', sectionId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, sectionId);
         s.parts = (s.parts || []).filter(function (x) { return x.id !== partId; });
       });
@@ -187,7 +187,7 @@
       if (!P()) return errNoProject();
       var s0 = findSection(P(), sectionId);
       if (!s0) return err('Unknown section.', sectionId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var s = findSection(p, sectionId), parts = s.parts || [];
         var from = parts.map(function (x) { return x.id; }).indexOf(partId);
         if (from === -1) return;
@@ -218,7 +218,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var v = String(value == null ? '' : value);
         if (row === -1) { t.header[col] = v; return; }
@@ -233,7 +233,7 @@
       if (!P()) return errNoProject();
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var blank = t.header.map(function () { return ''; });
         var i = (at === undefined || at === null || at < 0 || at > t.rows.length) ? t.rows.length : at;
@@ -248,7 +248,7 @@
     }
     function removeRow(sectionId, partId, at) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         if (t && t.rows && at >= 0 && at < t.rows.length) {
           t.rows.splice(at, 1);
@@ -271,7 +271,7 @@
       var t0 = part(P(), sectionId, partId);
       if (!t0 || t0.kind !== 'table') return err('Unknown table.', partId);
       if (!(at >= 0 && at < (t0.rows || []).length)) return err('Unknown row.', String(at));
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var t = part(p, sectionId, partId);
         var list = (Array.isArray(t.tallRows) && t.tallRows.length === t.rows.length)
           ? t.tallRows.map(function (v) { return v !== false; })

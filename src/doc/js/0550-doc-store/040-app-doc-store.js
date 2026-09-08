@@ -1,5 +1,8 @@
     App.docStore = {
       nextId: nextId, blankPart: blankPart,
+      // RPT-3: the section order. It lived on App.store, which meant the module
+      // reached into the host to reorder its own document.
+      setReportOrder: setReportOrder,
       setBlockLevel: setBlockLevel, setBlockCentre: setBlockCentre, setMetaField: setMetaField,
       // SEC-4: per-section placement — centring, a page of its own, out of the contents.
       setBlockFlag: setBlockFlag,

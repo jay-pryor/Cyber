@@ -56,10 +56,7 @@ _REFERENCES = re.compile(r"App\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)")
 # This set only ever SHRINKS; the final task asserts it is empty. Counts are the
 # violations outstanding when the trees were split, kept so progress is legible.
 BOUNDARY_DEBT = {
-    "store",              # 51 — docStore/docTemplates writes; becomes host.commit/getState
     "generate",           # 20 — the half of App.generate that becomes App.docGen
-    "ui.activity",        # 9  — the log sink; becomes host.log
-    "util.clock",         # 4  — becomes host.clock
     "ui.views.generate",  # 4  — the shared session bag; inverted into the module
 }
 

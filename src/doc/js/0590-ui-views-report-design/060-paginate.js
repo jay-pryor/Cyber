@@ -162,35 +162,35 @@
         ids.splice(from, 1);
         ids.splice(to, 0, id);
       }
-      App.store.setReportOrder(ids);
+      App.docStore.setReportOrder(ids);
     }
 
     function logIssues(res) {
-      ((res && res.issues) || []).forEach(function (i) { App.ui.activity.log(i); });
+      ((res && res.issues) || []).forEach(function (i) { App.docHost.log(i); });
       return res;
     }
 
     // ---- import / export ------------------------------------------------------
 
     function doExport(kindKey) {
-      var project = App.store.getProject(); if (!project) return;
+      var project = App.docHost.get().getState(); if (!project) return;
       var f = App.docTemplates.exportFile(project, kindKey, null);
-      if (!f.count) { App.ui.activity.log({ severity: 'warning', message: 'Nothing to export.' }); return; }
+      if (!f.count) { App.docHost.log({ severity: 'warning', message: 'Nothing to export.' }); return; }
       App.util.dom.download(new Blob([f.text], { type: 'application/json' }), f.name);
-      App.ui.activity.log({ severity: 'success', message: 'Exported ' + f.count + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + ' to ' + f.name });
+      App.docHost.log({ severity: 'success', message: 'Exported ' + f.count + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + ' to ' + f.name });
     }
 
     function doImport(kindKey, file) {
       App.util.dom.readFileText(file).then(function (text) {
         var parsed = App.docTemplates.parseImport(text, kindKey);
-        parsed.issues.forEach(function (i) { App.ui.activity.log(i); });
+        parsed.issues.forEach(function (i) { App.docHost.log(i); });
         if (!parsed.ok) { repaint(); return; }
-        var project = App.store.getProject();
+        var project = App.docHost.get().getState();
         var plan = App.docTemplates.plan(project, kindKey, parsed.items);
         if (!plan.conflicts.length) {
           var res = App.docTemplates.apply(plan, {});
           dirty();
-          App.ui.activity.log({ severity: 'success', message: 'Imported ' + res.added + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + '.' });
+          App.docHost.log({ severity: 'success', message: 'Imported ' + res.added + ' ' + App.docTemplates.KINDS[kindKey].label.toLowerCase() + '.' });
           repaint();
           return;
         }
@@ -198,7 +198,7 @@
         _rd.conflict = { kindKey: kindKey, plan: plan, decisions: {} };
         repaint();
       }).catch(function (e) {
-        App.ui.activity.log({ severity: 'error', message: 'Could not read that file: ' + (e && e.message) });
+        App.docHost.log({ severity: 'error', message: 'Could not read that file: ' + (e && e.message) });
       });
     }
 
@@ -206,7 +206,7 @@
       var c = _rd.conflict; if (!c) return;
       var res = App.docTemplates.apply(c.plan, c.decisions);
       dirty();
-      App.ui.activity.log({
+      App.docHost.log({
         severity: 'success',
         message: 'Imported ' + App.docTemplates.KINDS[c.kindKey].label.toLowerCase() + ': ' +
           res.added + ' added, ' + res.replaced + ' replaced, ' + res.kept + ' kept.'
@@ -276,7 +276,7 @@
 
     /** The document's reference resolver, for re-rendering a box after an edit. */
     function boxHtml(tokens) {
-      var p = App.store.getProject();
+      var p = App.docHost.get().getState();
       return RT.toHtml(tokens, { resolveRef: p && H() ? refResolver(p) : null });
     }
 

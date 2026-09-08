@@ -76,9 +76,17 @@
       return (typeof s === 'function' ? s(run || null) : s) || [];
     }
 
-    /** The log sink, or a no-op. Keeps every call site free of a null check. */
-    function log(level, message) {
-      if (_host && typeof _host.log === 'function') _host.log(level, message);
+    /**
+     * The host's log sink, or a no-op.
+     *
+     * Takes an ISSUE — {severity, message, category?, location?} — because that is
+     * what the module already produces everywhere else, and a host that shows a
+     * warning differently from an error needs the severity, not a sentence with the
+     * word "warning" in it. A host that declares no sink simply loses the message,
+     * which is why every call site can be a bare statement with no null check.
+     */
+    function log(issue) {
+      if (_host && typeof _host.log === 'function') _host.log(issue);
     }
 
     App.docHost = { set: set, get: get, validate: validate, sections: sections, log: log };

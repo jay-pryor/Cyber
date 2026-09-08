@@ -69,7 +69,7 @@
      * READ-ONLY: it is assembled fresh on every call, so the four maps are written
      * through App.docStore.setReportInclude and the three session fields through
      * `session()` below. Mutating what this returns would change nothing. */
-    function opts() { return App.ui.views.generate.reportOptions(App.store.getProject()); }
+    function opts() { return App.ui.views.generate.reportOptions(App.docHost.get().getState()); }
     /** The per-run half, which is still a live object and still written to directly. */
     function session() { return App.ui.views.generate._gen.report; }
     /* The subjects the document could be about, as the HOST describes them. A

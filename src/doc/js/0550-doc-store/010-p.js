@@ -7,7 +7,7 @@
    *          composition, and App.store is already the largest module in the file.
    * PURITY:  NOT pure (mutates the project) — but every id it mints is DERIVED, never
    *          random, so the same sequence of edits produces the same project bytes.
-   * DEPENDS: App.store (_commit), App.docFormat
+   * DEPENDS: App.docHost (getState/commit), App.docFormat
    * INVARIANTS: ids are stable for the life of the thing they name — renaming a
    *             section or reordering the document never re-mints one, because
    *             cross-references (DOC-3) are stored against exactly those ids.
@@ -15,7 +15,9 @@
   (function (App) {
     'use strict';
 
-    function P() { return App.store.getProject(); }
+    /* The project, read through the host — never off a store this module knows the
+     * name of. Everything below runs against whatever the host handed over. */
+    function P() { return App.docHost.get().getState(); }
     function errNoProject() { return { ok: false, issues: [{ category: 'state', severity: 'error', message: 'No project loaded.' }] }; }
     function err(msg, loc) { return { ok: false, issues: [{ category: 'validation', severity: 'error', message: msg, location: loc }] }; }
     function ok() { return { ok: true, issues: [] }; }
@@ -53,6 +55,25 @@
       return ((p.report && p.report.sections) || []).filter(function (s) { return s.id === id; })[0] || null;
     }
 
+    /**
+     * RPT-3: the order the sections are emitted in — block ids first, everything
+     * unnamed keeping its declared position behind them.
+     *
+     * An EMPTY list is the reset: it deletes the key rather than storing `[]`, so a
+     * project that was never reordered and one that was reordered back are the same
+     * bytes (DOD-7).
+     */
+    function setReportOrder(order) {
+      if (!P()) return errNoProject();
+      var ids = (order || []).map(String);
+      App.docHost.get().commit(function (p) {
+        bag(p).order = ids;
+        if (!ids.length) delete p.report.order;
+        if (!Object.keys(p.report).length) delete p.report;
+      });
+      return ok();
+    }
+
     // ---- DS-2: heading levels ------------------------------------------------
 
     /**
@@ -67,7 +88,7 @@
       if (lv !== null && [App.doc.TITLE_LEVEL, 1, 2, 3, 4, App.doc.BODY_LEVEL].indexOf(lv) === -1) {
         return err('Heading level must be 1-4, 5 for normal text, or 0 for an unnumbered title.');
       }
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.levels = b.levels || {};
         // Automatic is the ABSENT state rather than a stored null, so a section that
@@ -99,7 +120,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       if (BLOCK_FLAGS.indexOf(bagKey) === -1) return err('Unknown section flag "' + bagKey + '".');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b[bagKey] = b[bagKey] || {};
         if (on) b[bagKey][blockId] = true; else delete b[bagKey][blockId];
@@ -124,7 +145,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       var v = mmValue(mm);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.space = b.space || {};
         if (v > 0) b.space[blockId] = v; else delete b.space[blockId];
@@ -160,7 +181,7 @@
     /** The shape both of the above share: a document-level switch, stored as presence. */
     function setReportSwitch(key, on) {
       if (!P()) return errNoProject();
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         if (on) b[key] = true; else delete b[key];
         if (!Object.keys(b).length) delete p.report;
@@ -196,7 +217,7 @@
     function setBlockIntroNumbered(blockId, on) {
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.introNumbered = b.introNumbered || {};
         if (on) b.introNumbered[blockId] = true; else delete b.introNumbered[blockId];
@@ -222,7 +243,7 @@
       if (!P()) return errNoProject();
       if (!blockId) return err('A section is required.');
       var v = String(value == null ? '' : value);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b[bagKey] = b[bagKey] || {};
         if (v.trim()) b[bagKey][blockId] = v; else delete b[bagKey][blockId];
@@ -261,7 +282,7 @@
       if (!blockId || !tableKey) return err('A table is required.');
       if (field !== 'title' && field !== 'caption') return err('A table carries a "title" or a "caption".');
       var v = String(value == null ? '' : value);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tables = b.tables || {};
         var byBlock = b.tables[blockId] = b.tables[blockId] || {};
@@ -285,7 +306,7 @@
     function setTableNoCaption(blockId, tableKey, off) {
       if (!P()) return errNoProject();
       if (!blockId || !tableKey) return err('A table is required.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tables = b.tables || {};
         var byBlock = b.tables[blockId] = b.tables[blockId] || {};
@@ -302,7 +323,7 @@
       if (!P()) return errNoProject();
       if (!blockId || !tableKey || !colId) return err('A table column is required.');
       var v = String(label == null ? '' : label);
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         b.tables = b.tables || {};
         var byBlock = b.tables[blockId] = b.tables[blockId] || {};
@@ -347,7 +368,7 @@
       if (!P()) return errNoProject();
       if (INCLUDE_MAPS.indexOf(map) === -1) return err('Unknown report option map "' + map + '".');
       if (!key) return err('A report option needs something to apply to.');
-      App.store._commit(function (p) {
+      App.docHost.get().commit(function (p) {
         var b = bag(p);
         var o = b.options = b.options || {};
         var m = o[map] = o[map] || {};
