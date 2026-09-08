@@ -918,187 +918,140 @@ git commit -m "PROV-1: a declared provider renders without a render function"
 
 ---
 
-### Task 7: `control` and `guidelines` become host providers; `generate` splits
+### Task 7 — REPLANNED after execution found the closure
 
-The largest task. Moves two CH concepts out of the module and splits `generate` along the seam identified in the spec.
+**Why this replaced a single task.** The original Task 7 began with
+`git mv src/app/js/0350-generate/030-report-blocks.js src/doc/js/0350-doc-gen/`.
+That cannot work. `0350-generate/` is ONE block sharing ONE closure, and
+`030-report-blocks.js` uses **20 names defined in its sibling fragments**:
+
+```
+buildControlSection  guidelineChildren  hasGuidelineDeviations  gatherKept  gather
+relevanceFilter  relevanceKeyOf  emitDocument  deviceMeta  ctxFor  applySectionOrder
+controlLinkTerms  tableWording  withWording  headingsFor  CONTROL_COLUMNS  REL_UNSET
+MD  map  stable
+```
+
+Move the fragment and those bindings vanish. Nothing would catch it: the closure
+check verifies bracket balance WITHIN a block, and the boundary check sees only
+`App.*` references, not bare identifiers in a shared scope. It fails at load, with
+every suite still green until then.
+
+Six of the twenty are generic (`applySectionOrder`, `tableWording`, `headingsFor`,
+`withWording`, the `MD`/`stable` aliases, and `emitDocument` once reshaped). The
+other fourteen are the CH-specific things the contract exists to replace. So this
+is a rewrite against the contract, not a move — sequenced below so that no file
+moves until its dependencies are already gone. **Every step is byte-neutral;
+GOLD-1 is the gate on each.**
+
+**Contract amendment discovered here:** `provider.rows` becomes **optional**.
+`buildControlSection` walks every dataset, calls `App.registry.getDataset` per
+dataset, reads `adapter.displayKey`, then pulls `controlDeviceState` and
+`controlDeviceJustification` off the store. A section that aggregates across all
+datasets has no single row list the module could hand it. When `rows` is absent the
+module passes `[]` and the provider's `render` sources its own data. Update
+`docHost.validate` and the spec's section 4.2 accordingly.
+
+---
+
+### Task 7a: Move the six generic helpers into the module
 
 **Files:**
-- Create: `src/app/js/0800-providers-control.js`, `src/app/js/0810-providers-guidelines.js`
-- Move: `src/app/js/0350-generate/` → the generic half to `src/doc/js/0350-doc-gen/`, the rest to `src/app/js/0350-generate/`
-- Modify: both manifests
+- Create: `src/doc/js/0720-doc-blocks.js`
+- Modify: `src/app/js/0350-generate/010-tool-version.js`, `020-child-caption.js`
+- Test: `src/doc/js/0900-doc-suites/020-blocks.js`
 
 **Interfaces:**
-- Consumes: `App.docProviders.renderSection` (Task 6).
-- Produces: `App.providers.control` and `App.providers.guidelines`, each conforming to the provider contract with `rows(subjectId)`, `keyColumn`, `columns`, `available(subjectId)` and `render`. `App.docGen` holds `reportBlocks`, `sectionContent`, `sectionColumns`, `emitDocument`, `docFilename`, `findTags`, `applyTags`.
+- Produces: `App.docBlocks.applySectionOrder(list, order)`,
+  `.tableWording(block, key)`, `.headingsFor(ids, labels, custom)`,
+  `.withWording(tblOpts, text, dfltCaption)`. All pure; none reference `App.store`,
+  `App.registry` or any CH shape.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1:** Write `src/doc/js/0900-doc-suites/020-blocks.js` covering each:
+  ordering by an id list with unknown ids appended in place and ties broken by
+  original position; wording falling back to the declared label; `withWording`
+  leaving the caption line absent when none is set (CAP-4).
+- [ ] **Step 2:** Run — expect FAIL, `App.docBlocks` undefined.
+- [ ] **Step 3:** Move the four function bodies **verbatim** into the module. Do not
+  reword them: a behaviour change here is invisible to the suites and visible only
+  in GOLD-1, which is a slow way to find it.
+- [ ] **Step 4:** In the app block, delete the local copies and alias them —
+  `var applySectionOrder = App.docBlocks.applySectionOrder;` and so on — so the
+  existing call sites are untouched.
+- [ ] **Step 5:** `python3 tools/build.py && node tools/run-selftests.js` — 0 failed,
+  GOLD-1 green.
+- [ ] **Step 6:** Commit.
 
-Create `src/app/js/0510-phase-7-self-test-suites-report-generate-det/017-provider-extraction.js` (registered **before** the block's last entry). It drives `App.providers`/`App.store`, so it is host-tree:
+---
 
-```javascript
-  /* ===== SUITES: control and guidelines as host providers (HOST-1) ===== */
+### Task 7b: Make the render context and the metadata rows host-supplied
 
-  T.suite('HOST-1 control coverage and guideline deviations are host providers', function (s) {
-    s.test('both are declared on the host, not the module', function () {
-      T.assert(App.providers && App.providers.control, 'App.providers.control missing');
-      T.assert(App.providers && App.providers.guidelines, 'App.providers.guidelines missing');
-    });
+`ctxFor` returns `{device, project, toolVersion, generatedUtc, command}` and
+`deviceMeta` reads `project.report.meta` — both CH shapes, reached for from inside
+code that is to become module code.
 
-    s.test('each conforms to the provider contract', function () {
-      [App.providers.control, App.providers.guidelines].forEach(function (p) {
-        T.assertEqual(typeof p.id, 'string');
-        T.assertEqual(typeof p.label, 'string');
-        T.assertEqual(typeof p.rows, 'function');
-        T.assert(p.keyColumn && typeof p.keyColumn.get === 'function', p.id + ': no keyColumn');
-      });
-    });
+- [ ] **Step 1:** Write a suite asserting `sectionContent` produces identical output
+  when the context and metadata rows are PASSED IN rather than derived, with no
+  `project` argument consulted for either.
+- [ ] **Step 2:** Run — expect FAIL.
+- [ ] **Step 3:** Thread `ctx` and `metaRows` in as parameters. `buildReport` stays in
+  CH and keeps calling `ctxFor`/`deviceMeta` to produce them.
+- [ ] **Step 4:** Verify, GOLD-1 green, commit.
 
-    s.test('guidelines declares itself unavailable when nothing diverges', function () {
-      if (!App.registry.hasPlatform('android-adb')) App.registry.registerPlatform(App.platforms.androidAdb);
-      App.store.init(App.store.empty('android-adb'));
-      T.assertEqual(App.providers.guidelines.available(null), false,
-        'an empty project has no deviations, so the section is not a candidate');
-    });
+---
 
-    s.test('the module no longer knows either concept', function () {
-      var gen = String(App.docGen.sectionContent);
-      T.assertEqual(gen.indexOf("'control'"), -1, 'docGen still branches on the control kind');
-      T.assertEqual(gen.indexOf("'guidelines'"), -1, 'docGen still branches on the guidelines kind');
-    });
-  });
-```
+### Task 7c: The three hardcoded kinds become providers (still in the app tree)
 
-- [ ] **Step 2: Run it to verify it fails**
+The design-bearing step, and the one to take slowly. **No file moves.**
 
-```bash
-python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter HOST-1
-```
+- [ ] **Step 1:** Write the HOST-1 suite from the original Task 7, in
+  `src/app/js/0510-phase-7-self-test-suites-report-generate-det/017-provider-extraction.js`.
+- [ ] **Step 2:** Run — expect FAIL, `App.providers.control` missing.
+- [ ] **Step 3:** Create `App.providers.control` and `App.providers.guidelines`, each
+  wrapping the EXISTING `buildControlSection` / `guidelineChildren` /
+  `hasGuidelineDeviations` unchanged behind `render()` and `available()`. Do not
+  rewrite those functions; wrapping them is what keeps this byte-neutral.
+- [ ] **Step 4:** Add `App.generate.hostSections()` returning the platform's dataset
+  providers (through the existing `providerFor`) plus these two, in the order
+  `reportBlocks` already emits them: datasets, control, guidelines.
+- [ ] **Step 5:** Replace the `kind === 'control'` and `kind === 'guidelines'` branches
+  in `sectionContent` and `sectionColumns` with a provider lookup by block id. `toc`
+  and `custom` stay module-owned.
+- [ ] **Step 6:** Verify, GOLD-1 green, commit.
 
-Expected: FAIL — `App.providers.control missing`.
+---
 
-- [ ] **Step 3: Split the generate module**
+### Task 7d: Now the move is only a move
 
-```bash
-# 030-report-blocks.js is the generic half and moves to the module; the other three
-# stay with CH where they already are.
-mkdir -p src/doc/js/0350-doc-gen
-git mv src/app/js/0350-generate/030-report-blocks.js src/doc/js/0350-doc-gen/030-report-blocks.js
-```
-
-Rename the module half's namespace from `App.generate` to `App.docGen` inside `030-report-blocks.js`, keeping `App.generate` in CH as a thin forwarding surface so existing call sites and suites keep working:
-
-```javascript
-    // CH's historical entry points. The document machinery now lives in App.docGen;
-    // these forward, so the ~186 existing suites and the Generate tab are unaffected.
-    App.generate = Object.assign(App.generate || {}, {
-      reportBlocks: App.docGen.reportBlocks,
-      sectionContent: App.docGen.sectionContent,
-      sectionColumns: App.docGen.sectionColumns,
-      docFilename: App.docGen.docFilename,
-      findTags: App.docGen.findTags,
-      applyTags: App.docGen.applyTags
-    });
-```
-
-Place that forwarding block in `src/app/js/0350-generate/010-tool-version.js`, which loads after the module.
-
-- [ ] **Step 4: Write the two providers**
-
-Create `src/app/js/0800-providers-control.js`. Move the body of `buildControlSection` out of the module and wrap it:
-
-```javascript
-  /* =============================================================================
-   * MODULE: App.providers.control — CH's control-coverage section, as a provider
-   * PURPOSE: Control coverage is a CH concept, not a document-module one. It reaches
-   *          the document the same way any host section does: through the provider
-   *          contract. Moved out of App.generate's kind switch, unchanged in output.
-   * PURITY:  pure.
-   * DEPENDS: App.store, App.registry, App.projectIo, App.docProviders
-   * ============================================================================= */
-  (function (App) {
-    'use strict';
-    App.providers = App.providers || {};
-
-    App.providers.control = {
-      id: 'control',
-      label: 'Control coverage',
-      keyColumn: { id: 'control', label: 'Control', w: 2, get: function (r) { return r.title; } },
-      columns: App.generate.CONTROL_COLUMNS,
-      rows: function (subjectId) { return App.generate.controlRows(subjectId); },
-      available: function () { return true; },
-      // Control coverage groups items by control and sub-groups by dataset, which
-      // buildSection's single grouping axis cannot express — so it keeps a render().
-      render: function (rows, ctx, opts) {
-        return { body: App.generate.buildControlSection(rows, ctx, opts), children: [] };
-      }
-    };
-  }(App));
-```
-
-Create `src/app/js/0810-providers-guidelines.js` the same way, moving `hasGuidelineDeviations` and `guidelineChildren` behind `available()` and `render()`:
-
-```javascript
-  /* =============================================================================
-   * MODULE: App.providers.guidelines — CH's "Deviations from Security Guidelines"
-   * PURPOSE: A section that only exists when something actually diverges. That
-   *          conditionality is now expressed through the contract's available(),
-   *          rather than by the module knowing what a guideline deviation is.
-   * PURITY:  pure.
-   * DEPENDS: App.store, App.registry, App.docProviders
-   * ============================================================================= */
-  (function (App) {
-    'use strict';
-    App.providers = App.providers || {};
-
-    App.providers.guidelines = {
-      id: 'guidelines',
-      label: 'Deviations from Security Guidelines',
-      keyColumn: { id: 'item', label: 'Item', w: 2, get: function (r) { return r.key; } },
-      columns: [
-        { id: 'description', label: 'Description', get: function (r) { return r.description || ''; } },
-        { id: 'narrative', label: 'How it departs, and why', get: function (r) { return r.narrative || ''; } }
-      ],
-      rows: function (subjectId) { return App.generate.guidelineRows(subjectId); },
-      // GUIDE-1: a section that exists solely to say "nothing diverges" is noise.
-      available: function (subjectId) { return App.generate.hasGuidelineDeviations2(subjectId); },
-      render: function (rows, ctx, opts) {
-        return { body: '', children: App.generate.guidelineChildren2(rows, ctx, opts) };
-      }
-    };
-  }(App));
-```
-
-Add `controlRows`, `guidelineRows`, `hasGuidelineDeviations2` and `guidelineChildren2` to `src/app/js/0350-generate/020-child-caption.js` as thin adapters over the existing `hasGuidelineDeviations`, `guidelineChildren` and `buildControlSection`, reading `App.store.getProject()` and the current platform themselves. Keep the existing functions exactly as they are — these wrappers only change how they are *called*, never what they compute.
-
-Register both new files in `src/build.json` (not `build-doc.json` — they are host code) after the `0350-generate` parts.
-
-- [ ] **Step 5: Make the module dispatch through providers**
-
-In `src/doc/js/0350-doc-gen/030-report-blocks.js`, delete the `b.kind === 'control'` and `b.kind === 'guidelines'` branches from `sectionContent` and the corresponding branches from `sectionColumns`. Both now fall through to the provider path from Task 6, looked up by `b.id` against the host's provider list.
-
-- [ ] **Step 6: Run the tests to verify they pass**
+- [ ] **Step 1:** Re-run the closure analysis and confirm nothing foreign remains:
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js
+python3 - <<'EOF'
+import re, pathlib
+d = pathlib.Path('src/app/js/0350-generate')
+def strip(t):
+    t = re.sub(r'/\*.*?\*/', '', t, flags=re.S)
+    return re.sub(r'^\s*//.*$', '', t, flags=re.M)
+defs = {}
+for f in sorted(d.glob('*.js')):
+    for m in re.finditer(r'^\s*function ([A-Za-z0-9_]+)|^\s*var ([A-Za-z0-9_]+)\s*=',
+                         strip(f.read_text()), re.M):
+        defs.setdefault(m.group(1) or m.group(2), f.name)
+body = strip((d / '030-report-blocks.js').read_text())
+used = set(re.findall(r'\b([A-Za-z0-9_]+)\s*\(', body))
+print(sorted(n for n in used if n in defs and defs[n] != '030-report-blocks.js'))
+EOF
 ```
 
-Expected: `0 failed`. The assertion and suite totals must have GROWN since the previous task, never shrunk — a smaller total means a suite stopped registering rather than passing.
+Expected: `[]`. Anything printed is still a live dependency, and Task 7d is not
+ready — go back to 7a/7b/7c for that name rather than moving the file anyway.
 
-Remove `"generate"`, `"projectIo"` and `"overrides"` from `BOUNDARY_DEBT` in `tools/build.py` and confirm:
-
-```bash
-python3 tools/build.py --check
-```
-
-Expected: clean.
-
-- [ ] **Step 7: Commit**
-
-```bash
-python3 tools/gen-code-map.py
-git add -A
-git commit -m "HOST-1: control coverage and guideline deviations become host providers"
-```
+- [ ] **Step 2:** `git mv src/app/js/0350-generate/030-report-blocks.js
+  src/doc/js/0350-doc-gen/030-report-blocks.js`; rename its namespace to `App.docGen`;
+  add the forwarding surface on `App.generate` described in the original Task 7 so the
+  existing call sites and suites are unaffected.
+- [ ] **Step 3:** Register in both manifests; remove `generate` from `BOUNDARY_DEBT`.
+- [ ] **Step 4:** Verify both targets, GOLD-1 green, commit.
 
 ---
 
