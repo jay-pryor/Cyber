@@ -290,6 +290,7 @@
         var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
         var o = Object.assign({}, opts(), { deviceId: selId });
         o.linkTerms = App.generate.controlLinkTerms(project, view.blocks);
+        o.providers = App.generate.hostSections(project, selId, platform, null);
         var filled = view.blocks.map(function (b) {
           return App.generate.sectionContent(project, selId, platform, b, o, ctx, App.generate.deviceMeta(project, dc, generatedUtc));
         });
@@ -349,7 +350,8 @@
         var generatedUtc = App.util.clock.nowIso();
         var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
         var filled = App.generate.sectionContent(project, selId, platform, block,
-          Object.assign({}, opts(), { deviceId: selId }), ctx,
+          Object.assign({}, opts(), { deviceId: selId,
+            providers: App.generate.hostSections(project, selId, platform, null) }), ctx,
           App.generate.deviceMeta(project, dc, generatedUtc));
         // Numbered as it will actually be numbered, so the preview reads as the page.
         var resolved = outlineNow(project, platform).resolved.filter(function (r) { return r.id === block.id; })[0];

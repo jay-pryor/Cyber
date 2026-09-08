@@ -379,6 +379,15 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
+        "app/js/0800-providers.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
         "app/js/0360-ui-model.js"
       ]
     },
@@ -532,6 +541,7 @@
         "app/js/0510-phase-7-self-test-suites-report-generate-det/015-golden-output-regression.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/016-key-column.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/017-meta-rows.js",
+        "app/js/0510-phase-7-self-test-suites-report-generate-det/018-providers.js",
         "app/js/0510-phase-7-self-test-suites-report-generate-det/020-t11-v1-3-generation-customisation.js"
       ]
     },

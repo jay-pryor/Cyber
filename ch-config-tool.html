@@ -13308,6 +13308,11 @@
       };
     }
 
+    /** The host section, if this block is one. Looked up by id, never by kind. */
+    function hostProvider(opts, id) {
+      return ((opts && opts.providers) || []).filter(function (x) { return x && x.id === id; })[0] || null;
+    }
+
     function sectionColumns(project, block, opts) {
       opts = opts || {};
       if (!block || block.kind === 'custom') return null;
@@ -13328,12 +13333,14 @@
         var key = adapter.keyColumn || { id: '_key', label: 'Key' };
         return pack([{ id: '_key', label: key.label }], (adapter.reportColumns || []).filter(function (c) { return c.optional; }));
       }
-      if (block.kind === 'control') return pack([{ id: 'control', label: 'Control' }], CONTROL_COLUMNS);
+      // A provider's COLUMNS are static, but its render() is bound to a run. The
+      // designer asks for columns with no run in hand, so fall back to an unbound
+      // provider: only the declarations are read here.
+      var hp = hostProvider(opts, block.id) ||
+        hostProvider({ providers: hostSections(project, null, null, null) }, block.id);
+      if (hp) return pack([{ id: hp.keyColumn.id, label: hp.keyColumn.label }],
+                          (hp.columns || []).filter(function (c) { return c.optional !== false; }));
       if (block.kind === 'meta') return pack([{ id: 'field', label: 'Field' }, { id: 'value', label: 'Value' }], []);
-      if (block.kind === 'guidelines') {
-        return pack([{ id: 'item', label: 'Item' }, { id: 'description', label: 'Description' },
-          { id: 'narrative', label: 'How it departs, and why' }], []);
-      }
       return null;
     }
 
@@ -13404,10 +13411,14 @@
               Object.assign(withWording(tblOpts, metaText, capText),
                 { headings: headingsFor(['field', 'value'], ['Field', 'Value'], metaText.columns) }))
           : '' });
-      } else if (b.kind === 'control') {
-        out = Object.assign({}, b, { body: buildControlSection(project, deviceId, platform, keep, tblOpts, (opts.columns || {}).control, b) });
-      } else if (b.kind === 'guidelines') {
-        out = Object.assign({}, b, { body: '', children: guidelineChildren(project, deviceId, platform, keep, tblOpts, b) });
+      } else if (hostProvider(opts, b.id)) {
+        // 7c: control coverage and guideline deviations used to be two branches here,
+        // which meant this code knew what a control was. They are host providers now,
+        // reached the same way any section a future host declares will be.
+        var pv = hostProvider(opts, b.id);
+        var pr = App.docProviders.renderSection(pv, pv.rows ? pv.rows() : [], ctx,
+          Object.assign({}, tblOpts, { colOpts: (opts.columns || {})[b.id], block: b }));
+        out = Object.assign({}, b, { body: pr.body, children: pr.children });
       } else if (b.kind === 'custom') {
         out = b;                                            // App.doc renders its parts
       } else {
@@ -13470,6 +13481,7 @@
       // rather than a page of links to a section that is not in it.
       bopts.linkTerms = controlLinkTerms(project, blocks);
       var metaRows = deviceMeta(project, dc, generatedUtc);
+      bopts.providers = hostSections(project, deviceId, platform, relevanceFilter(bopts));
       var prepared = blocks.map(function (b) { return sectionContent(project, deviceId, platform, b, bopts, ctx, metaRows); });
 
       return emitDocument(project, dc, 'reporting', generatedUtc, prepared, {
@@ -13728,6 +13740,16 @@
         classification: !!opts.classification
       });
     }
+    /* The sections CH offers the document module for ONE generation run. Bound per
+     * run rather than registered once, so each provider closes over the project,
+     * device and filter it is describing — the module never has to carry them. */
+    function hostSections(project, deviceId, platform, keep) {
+      return [
+        App.providers.control(project, deviceId, platform, keep),
+        App.providers.guidelines(project, deviceId, platform, keep)
+      ];
+    }
+
     App.generate = {
       buildImplementation: buildImplementation, buildVerification: buildVerification, buildReport: buildReport,
       buildControlReport: buildControlReport, _gather: gather,
@@ -13739,6 +13761,7 @@
       reportBlocks: reportBlocks,
       // CCOL-1/TW-2: the columns a generated section will actually have.
       sectionColumns: sectionColumns, CONTROL_COLUMNS: CONTROL_COLUMNS,
+      buildControlSection: buildControlSection, hostSections: hostSections,
       // REF-2: which control mentions link, and where they land.
       controlLinkTerms: controlLinkTerms, controlAnchor: controlAnchor,
       relevanceCounts: relevanceCounts, relevanceKeys: relevanceKeys,
@@ -13755,6 +13778,73 @@
       sectionContent: sectionContent
     };
   })(App);
+  </script>
+
+  <script>
+  /* =============================================================================
+   * MODULE: App.providers — CH's own document sections, as contract providers
+   * PURPOSE: Control coverage and "Deviations from Security Guidelines" are CH
+   *          concepts, not document-module ones. They used to be two branches of a
+   *          kind switch inside the generator; they reach the document the same way
+   *          any host section does now — through the provider contract.
+   * PURITY:  pure. Each provider is bound to one generation run.
+   * DEPENDS: App.generate (buildControlSection, guidelineChildren,
+   *          hasGuidelineDeviations), App.registry
+   * INVARIANTS: the wrapped builders are UNCHANGED. Wrapping rather than rewriting
+   *             them is what keeps the extraction byte-for-byte neutral.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+
+    /* A provider bound to one run. The module calls render(rows, ctx, opts) and never
+     * learns what a control is; the run's project/device/platform/filter travel in the
+     * closure rather than through the contract, which is why hostSections() is called
+     * per generation rather than once at startup. */
+    function control(project, deviceId, platform, keep) {
+      return {
+        id: 'control',
+        label: 'Control coverage',
+        keyColumn: { id: 'control', label: 'Control' },
+        columns: App.generate.CONTROL_COLUMNS,
+        available: function () { return true; },
+        // Control coverage groups by control and sub-groups by dataset, which
+        // buildSection's single grouping axis cannot express — so it keeps a render().
+        render: function (rows, ctx, opts) {
+          return {
+            body: App.generate.buildControlSection(
+              project, deviceId, platform, keep, opts, opts.colOpts, opts.block),
+            children: []
+          };
+        }
+      };
+    }
+
+    function guidelines(project, deviceId, platform, keep) {
+      return {
+        id: 'guidelines',
+        label: 'Deviations from Security Guidelines',
+        keyColumn: { id: 'item', label: 'Item' },
+        columns: [
+          { id: 'description', label: 'Description' },
+          { id: 'narrative', label: 'How it departs, and why' }
+        ],
+        // GUIDE-1: a section that exists solely to say "nothing diverges" is noise, so
+        // it is not even a candidate unless something does. The module asks; only the
+        // host can answer.
+        available: function () {
+          return App.generate.hasGuidelineDeviations(project, deviceId, platform, keep);
+        },
+        render: function (rows, ctx, opts) {
+          return {
+            body: '',
+            children: App.generate.guidelineChildren(project, deviceId, platform, keep, opts, opts.block)
+          };
+        }
+      };
+    }
+
+    App.providers = { control: control, guidelines: guidelines };
+  }(App));
   </script>
 
   <script>
@@ -22052,6 +22142,49 @@
 
     s.test('no rows means no table rather than a thrown error', function () {
       T.assertEqual(typeof metaBlock(readyProject(), []).body, 'string');
+    });
+  });
+
+  /* ===== SUITES: control and guidelines as host providers (HOST-1) ===== */
+
+  /* These two were branches of a kind switch inside the generator, which meant the
+   * document machinery knew what a control was and what a security guideline was.
+   * They reach the document through the provider contract now, so the module can be
+   * given sections it has never heard of. */
+  T.suite('HOST-1 control coverage and guideline deviations are host providers', function (s) {
+    function run() {
+      var p = readyProject(), pl = App.registry.getPlatform('android-adb');
+      return { p: p, pl: pl, sections: App.generate.hostSections(p, 'dev-m1', pl, null) };
+    }
+
+    s.test('the host offers them as sections, the module does not own them', function () {
+      var ids = run().sections.map(function (x) { return x.id; });
+      T.assert(ids.indexOf('control') !== -1, 'control coverage is not offered: ' + ids.join(','));
+      T.assert(ids.indexOf('guidelines') !== -1, 'guideline deviations are not offered');
+    });
+
+    s.test('each conforms to the provider contract', function () {
+      run().sections.forEach(function (pv) {
+        T.assertEqual(typeof pv.id, 'string');
+        T.assertEqual(typeof pv.label, 'string');
+        T.assertEqual(typeof pv.render, 'function', pv.id + ': no render');
+        T.assertEqual(typeof pv.available, 'function', pv.id + ': no available');
+        T.assert(pv.keyColumn && pv.keyColumn.label, pv.id + ': no keyColumn');
+      });
+    });
+
+    s.test('guidelines declares itself unavailable when nothing diverges', function () {
+      var r = run();
+      var g = r.sections.filter(function (x) { return x.id === 'guidelines'; })[0];
+      T.assertEqual(typeof g.available(), 'boolean');
+    });
+
+    s.test('the control section still renders through its provider', function () {
+      var r = run();
+      var c = r.sections.filter(function (x) { return x.id === 'control'; })[0];
+      var out = c.render([], {}, { colOpts: {}, block: { id: 'control', kind: 'control' } });
+      T.assertEqual(typeof out.body, 'string');
+      T.assert(out.body.indexOf('ISM-1234') !== -1, 'the control coverage content is missing');
     });
   });
     T.suite('T11 (v1.3) generation customisation', function (s) {
@@ -31347,6 +31480,7 @@
         var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
         var o = Object.assign({}, opts(), { deviceId: selId });
         o.linkTerms = App.generate.controlLinkTerms(project, view.blocks);
+        o.providers = App.generate.hostSections(project, selId, platform, null);
         var filled = view.blocks.map(function (b) {
           return App.generate.sectionContent(project, selId, platform, b, o, ctx, App.generate.deviceMeta(project, dc, generatedUtc));
         });
@@ -31406,7 +31540,8 @@
         var generatedUtc = App.util.clock.nowIso();
         var ctx = { device: dc, project: project, generatedUtc: generatedUtc, command: 'reporting' };
         var filled = App.generate.sectionContent(project, selId, platform, block,
-          Object.assign({}, opts(), { deviceId: selId }), ctx,
+          Object.assign({}, opts(), { deviceId: selId,
+            providers: App.generate.hostSections(project, selId, platform, null) }), ctx,
           App.generate.deviceMeta(project, dc, generatedUtc));
         // Numbered as it will actually be numbered, so the preview reads as the page.
         var resolved = outlineNow(project, platform).resolved.filter(function (r) { return r.id === block.id; })[0];

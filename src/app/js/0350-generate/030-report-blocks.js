@@ -169,6 +169,11 @@
       };
     }
 
+    /** The host section, if this block is one. Looked up by id, never by kind. */
+    function hostProvider(opts, id) {
+      return ((opts && opts.providers) || []).filter(function (x) { return x && x.id === id; })[0] || null;
+    }
+
     function sectionColumns(project, block, opts) {
       opts = opts || {};
       if (!block || block.kind === 'custom') return null;
@@ -189,12 +194,14 @@
         var key = adapter.keyColumn || { id: '_key', label: 'Key' };
         return pack([{ id: '_key', label: key.label }], (adapter.reportColumns || []).filter(function (c) { return c.optional; }));
       }
-      if (block.kind === 'control') return pack([{ id: 'control', label: 'Control' }], CONTROL_COLUMNS);
+      // A provider's COLUMNS are static, but its render() is bound to a run. The
+      // designer asks for columns with no run in hand, so fall back to an unbound
+      // provider: only the declarations are read here.
+      var hp = hostProvider(opts, block.id) ||
+        hostProvider({ providers: hostSections(project, null, null, null) }, block.id);
+      if (hp) return pack([{ id: hp.keyColumn.id, label: hp.keyColumn.label }],
+                          (hp.columns || []).filter(function (c) { return c.optional !== false; }));
       if (block.kind === 'meta') return pack([{ id: 'field', label: 'Field' }, { id: 'value', label: 'Value' }], []);
-      if (block.kind === 'guidelines') {
-        return pack([{ id: 'item', label: 'Item' }, { id: 'description', label: 'Description' },
-          { id: 'narrative', label: 'How it departs, and why' }], []);
-      }
       return null;
     }
 
@@ -265,10 +272,14 @@
               Object.assign(withWording(tblOpts, metaText, capText),
                 { headings: headingsFor(['field', 'value'], ['Field', 'Value'], metaText.columns) }))
           : '' });
-      } else if (b.kind === 'control') {
-        out = Object.assign({}, b, { body: buildControlSection(project, deviceId, platform, keep, tblOpts, (opts.columns || {}).control, b) });
-      } else if (b.kind === 'guidelines') {
-        out = Object.assign({}, b, { body: '', children: guidelineChildren(project, deviceId, platform, keep, tblOpts, b) });
+      } else if (hostProvider(opts, b.id)) {
+        // 7c: control coverage and guideline deviations used to be two branches here,
+        // which meant this code knew what a control was. They are host providers now,
+        // reached the same way any section a future host declares will be.
+        var pv = hostProvider(opts, b.id);
+        var pr = App.docProviders.renderSection(pv, pv.rows ? pv.rows() : [], ctx,
+          Object.assign({}, tblOpts, { colOpts: (opts.columns || {})[b.id], block: b }));
+        out = Object.assign({}, b, { body: pr.body, children: pr.children });
       } else if (b.kind === 'custom') {
         out = b;                                            // App.doc renders its parts
       } else {
@@ -331,6 +342,7 @@
       // rather than a page of links to a section that is not in it.
       bopts.linkTerms = controlLinkTerms(project, blocks);
       var metaRows = deviceMeta(project, dc, generatedUtc);
+      bopts.providers = hostSections(project, deviceId, platform, relevanceFilter(bopts));
       var prepared = blocks.map(function (b) { return sectionContent(project, deviceId, platform, b, bopts, ctx, metaRows); });
 
       return emitDocument(project, dc, 'reporting', generatedUtc, prepared, {

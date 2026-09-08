@@ -238,6 +238,16 @@
         classification: !!opts.classification
       });
     }
+    /* The sections CH offers the document module for ONE generation run. Bound per
+     * run rather than registered once, so each provider closes over the project,
+     * device and filter it is describing — the module never has to carry them. */
+    function hostSections(project, deviceId, platform, keep) {
+      return [
+        App.providers.control(project, deviceId, platform, keep),
+        App.providers.guidelines(project, deviceId, platform, keep)
+      ];
+    }
+
     App.generate = {
       buildImplementation: buildImplementation, buildVerification: buildVerification, buildReport: buildReport,
       buildControlReport: buildControlReport, _gather: gather,
@@ -249,6 +259,7 @@
       reportBlocks: reportBlocks,
       // CCOL-1/TW-2: the columns a generated section will actually have.
       sectionColumns: sectionColumns, CONTROL_COLUMNS: CONTROL_COLUMNS,
+      buildControlSection: buildControlSection, hostSections: hostSections,
       // REF-2: which control mentions link, and where they land.
       controlLinkTerms: controlLinkTerms, controlAnchor: controlAnchor,
       relevanceCounts: relevanceCounts, relevanceKeys: relevanceKeys,
