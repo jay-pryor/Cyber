@@ -19,6 +19,8 @@
 - **500-line cap** on every source file, enforced by `tools/build.py`. Exemptions live in `src/line-cap-exemptions.txt` with a reason.
 - **Fragment ordering:** a new fragment in a block goes **before** that block's last file, which carries the closing `})(App);`.
 - **`ch-config-tool.html` is a build artifact.** Never edit it directly.
+- **A suite lives in the tree whose code it drives.** A test touching `App.store`, `App.registry`, `App.generate`, `App.platforms`, `App.ui.*` or `App.providers` is host code and belongs under `src/app/`; only a test confined to `App.md`, `App.doc`, `App.docFormat`, `App.docGen`, `App.docHost`, `App.docStore`, `App.docProviders` or `App.util.*` may live under `src/doc/`. Getting this wrong fails the Task 3 boundary check rather than the suite, which is a confusing way to find out.
+- **A file carries `.content`, not `.text`.** `buildReport(...).files` is `[{name, content}]`; `.name` on the result itself is the download filename.
 - **Byte-neutrality (this plan's overriding acceptance criterion):** no task may change a single byte of generated document output. Task 1 installs the check that proves it.
 
 **Commands used throughout:**
@@ -28,6 +30,10 @@ python3 tools/build.py           # assemble ch-config-tool.html
 python3 tools/build.py --check   # verify built file + all build rules
 python3 tools/gen-code-map.py    # refresh the code map in CLAUDE.md
 node tools/run-selftests.js      # headless suite; must print "0 failed"
+node tools/run-selftests.js ch-config-tool.html --filter GOLD-1   # one suite
+                                 # NOTE: --filter needs the file path given
+                                 # explicitly; the runner treats the first
+                                 # non-"--" argument as the file to load.
 ```
 
 **Baseline at plan time:** `1112/1112 pass (186 suites, 0 failed)`.
@@ -69,8 +75,13 @@ Mechanical and low-risk. Ends with the same application, a new structure, and a 
 The safety net every later task depends on. Records a hash of the exact bytes the report generator produces for a fixed project under a fixed clock, so any accidental output change fails loudly.
 
 **Files:**
-- Create: `src/js/0600-v2-2-self-test-suites-report-design-markdown/175-golden-output-regression.js`
+- Create: `src/js/0510-phase-7-self-test-suites-report-generate-det/015-golden-output-regression.js`
 - Modify: `src/build.json` (add the new fragment **before** the block's last entry)
+
+**Status: DONE** — commit `92a604a`. Recorded hash
+`0910017a18110c708a82fdf3ef76a5e1ed35798d22c333bb685bbeb2dac727f7`; suite at
+1115/1115 across 187. Built in the 0510 block rather than 0600 so it can drive
+`App.generate`, and reusing that block's existing `readyProject()` fixture.
 
 **Interfaces:**
 - Consumes: `App.store`, `App.generate.buildReport`, `App.util.hash.sha256Hex`, `App.util.clock.setClock/resetClock`, `App.registry`, `App.platforms.androidAdb`
@@ -143,7 +154,7 @@ Register it in `src/build.json`: find the `paths` array of the part beginning `j
 - [ ] **Step 2: Run it and record the real hash**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter GOLD-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter GOLD-1
 ```
 
 Expected: FAIL on the second test, with `actual: <64 hex chars>` and `expected: RECORD-ME`.
@@ -155,7 +166,7 @@ Copy the 64-character `actual` value and replace the string `'RECORD-ME'` in the
 - [ ] **Step 3: Verify it now passes**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter GOLD-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter GOLD-1
 ```
 
 Expected: PASS, 2 tests.
@@ -625,7 +636,7 @@ Removes a regex that scrapes rendered markdown to recover a column label, and th
 - Modify: `src/app/js/0240-adapters-android/020-packages.js:120-128`, `:316-327`
 - Modify: `src/app/js/0240-adapters-android/030-custom.js:141-151`
 - Modify: `src/app/js/0350-generate/030-report-blocks.js:156-192`
-- Test: `src/doc/js/0600-.../175-golden-output-regression.js` (GOLD-1 covers it) plus a new suite below
+- Test: `src/app/js/0510-phase-7-self-test-suites-report-generate-det/016-key-column.js` (new fragment, registered BEFORE the block's last file). Drives `App.registry`/`App.generate`, so it is host-tree.
 
 **Interfaces:**
 - Consumes: nothing new.
@@ -633,7 +644,7 @@ Removes a regex that scrapes rendered markdown to recover a column label, and th
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `src/doc/js/0600-v2-2-self-test-suites-report-design-markdown/175-golden-output-regression.js`, inside the same file but as a new suite after GOLD-1:
+Create `src/app/js/0510-phase-7-self-test-suites-report-generate-det/016-key-column.js`. It sits in the same block as GOLD-1, so `readyProject()` and `ensureAndroid()` are already in scope:
 
 ```javascript
   /* ===== SUITES: the declared key column (KEY-1) ===== */
@@ -671,7 +682,7 @@ Add to `src/doc/js/0600-v2-2-self-test-suites-report-design-markdown/175-golden-
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter KEY-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter KEY-1
 ```
 
 Expected: FAIL on `every dataset adapter declares a key column` — `keyColumn` is undefined.
@@ -790,7 +801,7 @@ Add a new suite to `src/doc/js/0600-.../175-golden-output-regression.js`:
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter PROV-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter PROV-1
 ```
 
 Expected: FAIL — `App.docProviders` is undefined.
@@ -922,7 +933,7 @@ The largest task. Moves two CH concepts out of the module and splits `generate` 
 
 - [ ] **Step 1: Write the failing test**
 
-Add a new fragment `src/doc/js/0600-.../176-provider-extraction.js` (registered **before** the block's last entry):
+Create `src/app/js/0510-phase-7-self-test-suites-report-generate-det/017-provider-extraction.js` (registered **before** the block's last entry). It drives `App.providers`/`App.store`, so it is host-tree:
 
 ```javascript
   /* ===== SUITES: control and guidelines as host providers (HOST-1) ===== */
@@ -960,7 +971,7 @@ Add a new fragment `src/doc/js/0600-.../176-provider-extraction.js` (registered 
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter HOST-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter HOST-1
 ```
 
 Expected: FAIL — `App.providers.control missing`.
@@ -1163,7 +1174,7 @@ Create `src/doc/js/0600-.../177-subject-and-filter.js` (registered **before** th
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter SUBJ-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter SUBJ-1
 ```
 
 Expected: FAIL — `App.docGen.reportBlocks` still expects `(project, platform, opts)`.
@@ -1281,7 +1292,7 @@ Create `src/doc/js/0600-.../178-host-object.js` (registered **before** the block
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter HOSTOBJ-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter HOSTOBJ-1
 ```
 
 Expected: FAIL — `App.docHost` is undefined.
@@ -1442,7 +1453,7 @@ git commit -m "HOSTOBJ-1: the module is driven by an explicit host object"
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `src/doc/js/0600-.../178-host-object.js`:
+Add to `src/app/js/0510-phase-7-self-test-suites-report-generate-det/018-session.js` — it reads `App.ui.views.generate`, so it is host-tree:
 
 ```javascript
   T.suite('SESS-1 the designer owns the description of a run', function (s) {
@@ -1467,7 +1478,7 @@ Add to `src/doc/js/0600-.../178-host-object.js`:
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter SESS-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter SESS-1
 ```
 
 Expected: FAIL — `no App.docSession`.
@@ -1730,7 +1741,7 @@ Create `src/doc/js/0600-.../179-conformance-mock-host.js` (registered **before**
 - [ ] **Step 2: Run it to verify it fails**
 
 ```bash
-python3 tools/build.py && node tools/run-selftests.js --filter CONF-1
+python3 tools/build.py && node tools/run-selftests.js ch-config-tool.html --filter CONF-1
 ```
 
 Expected: FAIL on whichever contract member is still CH-shaped. Fix the module — not the test — until it passes. This is the task where genuine contract gaps surface.
