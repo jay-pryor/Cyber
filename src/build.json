@@ -25,7 +25,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0010-app-namespace-root.js"
+        "base/js/0010-app-namespace-root.js"
       ]
     },
     {
@@ -34,7 +34,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0020-types.js"
+        "app/js/0020-types.js"
       ]
     },
     {
@@ -43,7 +43,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0030-util-clock.js"
+        "app/js/0030-util-clock.js"
       ]
     },
     {
@@ -52,7 +52,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0040-util-html.js"
+        "base/js/0040-util-html.js"
       ]
     },
     {
@@ -61,7 +61,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0050-util-hash.js"
+        "app/js/0050-util-hash.js"
       ]
     },
     {
@@ -70,7 +70,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0060-util-crc32.js"
+        "app/js/0060-util-crc32.js"
       ]
     },
     {
@@ -79,7 +79,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0070-util-zip.js"
+        "app/js/0070-util-zip.js"
       ]
     },
     {
@@ -88,7 +88,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0080-util-csv.js"
+        "app/js/0080-util-csv.js"
       ]
     },
     {
@@ -97,7 +97,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0090-util-dom.js"
+        "base/js/0090-util-dom.js"
       ]
     },
     {
@@ -106,7 +106,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0100-util-stable.js"
+        "base/js/0100-util-stable.js"
       ]
     },
     {
@@ -115,7 +115,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0110-util-idb-kv.js"
+        "app/js/0110-util-idb-kv.js"
       ]
     },
     {
@@ -124,7 +124,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0120-storage.js"
+        "app/js/0120-storage.js"
       ]
     },
     {
@@ -133,7 +133,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0130-storage-driver-memory.js"
+        "app/js/0130-storage-driver-memory.js"
       ]
     },
     {
@@ -142,7 +142,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0140-storage-driver-fsa.js"
+        "app/js/0140-storage-driver-fsa.js"
       ]
     },
     {
@@ -151,7 +151,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0150-storage-folder.js"
+        "app/js/0150-storage-folder.js"
       ]
     },
     {
@@ -160,7 +160,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0160-storage-writer.js"
+        "app/js/0160-storage-writer.js"
       ]
     },
     {
@@ -169,10 +169,10 @@
       "close": "  </script>\n",
       "gap": "",
       "paths": [
-        "js/0170-md/010-hostile.js",
-        "js/0170-md/020-longest-word.js",
-        "js/0170-md/030-fill-line.js",
-        "js/0170-md/040-human-inline.js"
+        "doc/js/0170-md/010-hostile.js",
+        "doc/js/0170-md/020-longest-word.js",
+        "doc/js/0170-md/030-fill-line.js",
+        "doc/js/0170-md/040-human-inline.js"
       ]
     },
     {
@@ -181,7 +181,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-0 SELF-TEST SUITES (vendored primitives + util) ===== -->\n",
       "paths": [
-        "js/0180-test.js"
+        "base/js/0180-test.js"
       ]
     },
     {
@@ -190,7 +190,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0190-phase-0-self-test-suites-vendored-primitives.js"
+        "app/js/0190-phase-0-self-test-suites-vendored-primitives.js"
       ]
     },
     {
@@ -199,7 +199,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0200-registry.js"
+        "app/js/0200-registry.js"
       ]
     },
     {
@@ -208,11 +208,11 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0210-project-io/010-schema-version.js",
-        "js/0210-project-io/020-validate-schema.js",
-        "js/0210-project-io/030-validate-register-item.js",
-        "js/0210-project-io/040-self-heal-v3.js",
-        "js/0210-project-io/050-serialize-project.js"
+        "app/js/0210-project-io/010-schema-version.js",
+        "app/js/0210-project-io/020-validate-schema.js",
+        "app/js/0210-project-io/030-validate-register-item.js",
+        "app/js/0210-project-io/040-self-heal-v3.js",
+        "app/js/0210-project-io/050-serialize-project.js"
       ]
     },
     {
@@ -221,10 +221,10 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-1 SELF-TEST SUITES (stable, registry, projectIo, store) ===== -->\n",
       "paths": [
-        "js/0220-store/010-app-version.js",
-        "js/0220-store/020-set-item-fields.js",
-        "js/0220-store/030-set-items-device.js",
-        "js/0220-store/040-set-control-tag.js"
+        "app/js/0220-store/010-app-version.js",
+        "app/js/0220-store/020-set-item-fields.js",
+        "app/js/0220-store/030-set-items-device.js",
+        "app/js/0220-store/040-set-control-tag.js"
       ]
     },
     {
@@ -233,7 +233,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0230-phase-1-self-test-suites-stable-registry-pro.js"
+        "app/js/0230-phase-1-self-test-suites-stable-registry-pro.js"
       ]
     },
     {
@@ -242,9 +242,9 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0240-adapters-android/010-esc.js",
-        "js/0240-adapters-android/020-packages.js",
-        "js/0240-adapters-android/030-custom.js"
+        "app/js/0240-adapters-android/010-esc.js",
+        "app/js/0240-adapters-android/020-packages.js",
+        "app/js/0240-adapters-android/030-custom.js"
       ]
     },
     {
@@ -253,9 +253,9 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-2 SELF-TEST SUITES (Android adapters) ===== -->\n",
       "paths": [
-        "js/0250-platforms-android-adb/010-a.js",
-        "js/0250-platforms-android-adb/020-script-preamble.js",
-        "js/0250-platforms-android-adb/030-script-postamble.js"
+        "app/js/0250-platforms-android-adb/010-a.js",
+        "app/js/0250-platforms-android-adb/020-script-preamble.js",
+        "app/js/0250-platforms-android-adb/030-script-postamble.js"
       ]
     },
     {
@@ -264,7 +264,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0260-phase-2-self-test-suites-android-adapters.js"
+        "app/js/0260-phase-2-self-test-suites-android-adapters.js"
       ]
     },
     {
@@ -273,7 +273,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0270-diff.js"
+        "app/js/0270-diff.js"
       ]
     },
     {
@@ -282,7 +282,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0280-validation.js"
+        "app/js/0280-validation.js"
       ]
     },
     {
@@ -291,7 +291,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0290-completeness.js"
+        "app/js/0290-completeness.js"
       ]
     },
     {
@@ -300,7 +300,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0300-value-formats.js"
+        "app/js/0300-value-formats.js"
       ]
     },
     {
@@ -309,7 +309,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0310-overrides.js"
+        "app/js/0310-overrides.js"
       ]
     },
     {
@@ -318,10 +318,10 @@
       "close": "  </script>\n",
       "gap": "",
       "paths": [
-        "js/0320-doc-format/010-md.js",
-        "js/0320-doc-format/020-normalise.js",
-        "js/0320-doc-format/030-font-preamble.js",
-        "js/0320-doc-format/040-validate.js"
+        "doc/js/0320-doc-format/010-md.js",
+        "doc/js/0320-doc-format/020-normalise.js",
+        "doc/js/0320-doc-format/030-font-preamble.js",
+        "doc/js/0320-doc-format/040-validate.js"
       ]
     },
     {
@@ -330,8 +330,8 @@
       "close": "  </script>\n",
       "gap": "",
       "paths": [
-        "js/0330-doc/010-md.js",
-        "js/0330-doc/020-auto-caption.js"
+        "doc/js/0330-doc/010-md.js",
+        "doc/js/0330-doc/020-auto-caption.js"
       ]
     },
     {
@@ -340,7 +340,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0340-report.js"
+        "doc/js/0340-report.js"
       ]
     },
     {
@@ -349,10 +349,10 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0350-generate/010-tool-version.js",
-        "js/0350-generate/020-child-caption.js",
-        "js/0350-generate/030-report-blocks.js",
-        "js/0350-generate/040-build-control-report.js"
+        "app/js/0350-generate/010-tool-version.js",
+        "app/js/0350-generate/020-child-caption.js",
+        "app/js/0350-generate/030-report-blocks.js",
+        "app/js/0350-generate/040-build-control-report.js"
       ]
     },
     {
@@ -361,7 +361,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0360-ui-model.js"
+        "app/js/0360-ui-model.js"
       ]
     },
     {
@@ -370,7 +370,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0370-ui-activity.js"
+        "app/js/0370-ui-activity.js"
       ]
     },
     {
@@ -379,10 +379,10 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0380-ui-tables/010-esc.js",
-        "js/0380-ui-tables/020-render-rail-control-tools.js",
-        "js/0380-ui-tables/030-render-decision-control.js",
-        "js/0380-ui-tables/040-render-table-html.js"
+        "app/js/0380-ui-tables/010-esc.js",
+        "app/js/0380-ui-tables/020-render-rail-control-tools.js",
+        "app/js/0380-ui-tables/030-render-decision-control.js",
+        "app/js/0380-ui-tables/040-render-table-html.js"
       ]
     },
     {
@@ -391,7 +391,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0390-ui-views-onboard.js"
+        "app/js/0390-ui-views-onboard.js"
       ]
     },
     {
@@ -400,8 +400,8 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0400-ui-views-generate/010-esc.js",
-        "js/0400-ui-views-generate/020-wire.js"
+        "app/js/0400-ui-views-generate/010-esc.js",
+        "app/js/0400-ui-views-generate/020-wire.js"
       ]
     },
     {
@@ -410,9 +410,9 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0410-ui-views-devices/010-esc.js",
-        "js/0410-ui-views-devices/020-render-panels.js",
-        "js/0410-ui-views-devices/030-render-notes.js"
+        "app/js/0410-ui-views-devices/010-esc.js",
+        "app/js/0410-ui-views-devices/020-render-panels.js",
+        "app/js/0410-ui-views-devices/030-render-notes.js"
       ]
     },
     {
@@ -421,8 +421,8 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0420-ui-views-controls/010-esc.js",
-        "js/0420-ui-views-controls/020-render-table.js"
+        "app/js/0420-ui-views-controls/010-esc.js",
+        "app/js/0420-ui-views-controls/020-render-table.js"
       ]
     },
     {
@@ -431,7 +431,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0430-ui-views-formats.js"
+        "app/js/0430-ui-views-formats.js"
       ]
     },
     {
@@ -440,9 +440,9 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- === UI VIEWS fully populated (onboard \u00b7 generate \u00b7 devices \u00b7 help). === -->\n\n",
       "paths": [
-        "js/0440-ui-views-help/010-esc.js",
-        "js/0440-ui-views-help/020-sec-controls.js",
-        "js/0440-ui-views-help/030-sec-folder.js"
+        "app/js/0440-ui-views-help/010-esc.js",
+        "app/js/0440-ui-views-help/020-sec-controls.js",
+        "app/js/0440-ui-views-help/030-sec-folder.js"
       ]
     },
     {
@@ -451,8 +451,8 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0450-ui-folder/010-s.js",
-        "js/0450-ui-folder/020-banner-html.js"
+        "app/js/0450-ui-folder/010-s.js",
+        "app/js/0450-ui-folder/020-banner-html.js"
       ]
     },
     {
@@ -461,11 +461,11 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-3 SELF-TEST SUITES (ui.model + ui.tables render) ===== -->\n",
       "paths": [
-        "js/0460-ui-app/010-dom.js",
-        "js/0460-ui-app/020-capture-scroll.js",
-        "js/0460-ui-app/030-wire.js",
-        "js/0460-ui-app/040-add-item-from-bar.js",
-        "js/0460-ui-app/050-mount.js"
+        "app/js/0460-ui-app/010-dom.js",
+        "app/js/0460-ui-app/020-capture-scroll.js",
+        "app/js/0460-ui-app/030-wire.js",
+        "app/js/0460-ui-app/040-add-item-from-bar.js",
+        "app/js/0460-ui-app/050-mount.js"
       ]
     },
     {
@@ -474,7 +474,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-4 SELF-TEST SUITES (diff \u00b7 validation \u00b7 store onboarding) ===== -->\n",
       "paths": [
-        "js/0470-phase-3-self-test-suites-ui-model-ui-tables.js"
+        "app/js/0470-phase-3-self-test-suites-ui-model-ui-tables.js"
       ]
     },
     {
@@ -483,7 +483,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-5 SELF-TEST SUITES (completeness \u00b7 store decisions \u00b7 editors \u00b7 gating) ===== -->\n",
       "paths": [
-        "js/0480-phase-4-self-test-suites-diff-validation-sto.js"
+        "app/js/0480-phase-4-self-test-suites-diff-validation-sto.js"
       ]
     },
     {
@@ -492,7 +492,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-6 SELF-TEST SUITES (devices view) ===== -->\n",
       "paths": [
-        "js/0490-phase-5-self-test-suites-completeness-store.js"
+        "app/js/0490-phase-5-self-test-suites-completeness-store.js"
       ]
     },
     {
@@ -501,7 +501,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-7 SELF-TEST SUITES (report \u00b7 generate \u00b7 determinism) ===== -->\n",
       "paths": [
-        "js/0500-phase-6-self-test-suites-devices-view.js"
+        "app/js/0500-phase-6-self-test-suites-devices-view.js"
       ]
     },
     {
@@ -510,9 +510,9 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== REVIEW-3 SELF-TEST SUITES ===== -->\n",
       "paths": [
-        "js/0510-phase-7-self-test-suites-report-generate-det/010-report-markdown-builders-v2-2.js",
-        "js/0510-phase-7-self-test-suites-report-generate-det/015-golden-output-regression.js",
-        "js/0510-phase-7-self-test-suites-report-generate-det/020-t11-v1-3-generation-customisation.js"
+        "app/js/0510-phase-7-self-test-suites-report-generate-det/010-report-markdown-builders-v2-2.js",
+        "app/js/0510-phase-7-self-test-suites-report-generate-det/015-golden-output-regression.js",
+        "app/js/0510-phase-7-self-test-suites-report-generate-det/020-t11-v1-3-generation-customisation.js"
       ]
     },
     {
@@ -521,7 +521,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-8 SELF-TEST SUITES (DOD-11 portability + DOD checklist) ===== -->\n",
       "paths": [
-        "js/0520-review-3-self-test-suites.js"
+        "app/js/0520-review-3-self-test-suites.js"
       ]
     },
     {
@@ -530,7 +530,7 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== PHASE-9 SELF-TEST SUITES (v1.1: dark mode \u00b7 set-from-files \u00b7 controls) ===== -->\n",
       "paths": [
-        "js/0530-phase-8-self-test-suites-dod-11-portability.js"
+        "app/js/0530-phase-8-self-test-suites-dod-11-portability.js"
       ]
     },
     {
@@ -539,24 +539,24 @@
       "close": "  </script>\n",
       "gap": "\n\n\n\n",
       "paths": [
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/010-v1-1-core-t9-x-dark-mode-set-from-files-cont.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/020-review-rounds-2-4-7-8-ui-refinements-control.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/030-review-rounds-12-13-satisfaction-delete-mode.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/040-undo-1-universal-undo.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/050-review-15-help-manual.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/060-v2-1-value-formats-vf-1-vf-8.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/070-hold-for-review-column-filters-justification.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/080-jus-1-jus-2-control-satisfaction-justificati.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/090-tag-1-tag-2-custom-tags-on-controls.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/100-v2-0-retirement-of-the-settings-dataset.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/110-divergence-from-guidelines-div-1-div-2.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/120-custom-security-actions-cus-1-cus-2.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/130-general-platform-notes-note-1.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/140-firewall-rules-usb-host-interfaces-fw-1-usb.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/150-dev-1-assigning-register-items-to-a-device-b.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/160-one-stubborn-package-must-not-end-the-run-d.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/170-rel-7.js",
-        "js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/180-bulk-relevance-bulk-decision-bulk-4.js"
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/010-v1-1-core-t9-x-dark-mode-set-from-files-cont.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/020-review-rounds-2-4-7-8-ui-refinements-control.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/030-review-rounds-12-13-satisfaction-delete-mode.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/040-undo-1-universal-undo.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/050-review-15-help-manual.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/060-v2-1-value-formats-vf-1-vf-8.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/070-hold-for-review-column-filters-justification.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/080-jus-1-jus-2-control-satisfaction-justificati.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/090-tag-1-tag-2-custom-tags-on-controls.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/100-v2-0-retirement-of-the-settings-dataset.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/110-divergence-from-guidelines-div-1-div-2.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/120-custom-security-actions-cus-1-cus-2.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/130-general-platform-notes-note-1.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/140-firewall-rules-usb-host-interfaces-fw-1-usb.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/150-dev-1-assigning-register-items-to-a-device-b.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/160-one-stubborn-package-must-not-end-the-run-d.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/170-rel-7.js",
+        "app/js/0540-phase-9-self-test-suites-v1-1-dark-mode-set/180-bulk-relevance-bulk-decision-bulk-4.js"
       ]
     },
     {
@@ -565,10 +565,10 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0550-doc-store/010-p.js",
-        "js/0550-doc-store/020-set-block-table-style.js",
-        "js/0550-doc-store/030-add-column.js",
-        "js/0550-doc-store/040-app-doc-store.js"
+        "doc/js/0550-doc-store/010-p.js",
+        "doc/js/0550-doc-store/020-set-block-table-style.js",
+        "doc/js/0550-doc-store/030-add-column.js",
+        "doc/js/0550-doc-store/040-app-doc-store.js"
       ]
     },
     {
@@ -577,7 +577,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0560-doc-templates.js"
+        "doc/js/0560-doc-templates.js"
       ]
     },
     {
@@ -586,8 +586,8 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0570-ui-md-preview/010-esc.js",
-        "js/0570-ui-md-preview/020-to-html.js"
+        "doc/js/0570-ui-md-preview/010-esc.js",
+        "doc/js/0570-ui-md-preview/020-to-html.js"
       ]
     },
     {
@@ -596,7 +596,7 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0580-ui-rich-text.js"
+        "doc/js/0580-ui-rich-text.js"
       ]
     },
     {
@@ -605,14 +605,14 @@
       "close": "  </script>\n",
       "gap": "\n  <!-- ===== v2.2 SELF-TEST SUITES (Report Design: markdown \u00b7 outline \u00b7 templates) ===== -->\n",
       "paths": [
-        "js/0590-ui-views-report-design/010-esc.js",
-        "js/0590-ui-views-report-design/020-part-target.js",
-        "js/0590-ui-views-report-design/030-meta-pane.js",
-        "js/0590-ui-views-report-design/040-pane-formatting.js",
-        "js/0590-ui-views-report-design/050-pane-generate.js",
-        "js/0590-ui-views-report-design/060-paginate.js",
-        "js/0590-ui-views-report-design/070-wire.js",
-        "js/0590-ui-views-report-design/080-app-ui-app-ui.js"
+        "doc/js/0590-ui-views-report-design/010-esc.js",
+        "doc/js/0590-ui-views-report-design/020-part-target.js",
+        "doc/js/0590-ui-views-report-design/030-meta-pane.js",
+        "doc/js/0590-ui-views-report-design/040-pane-formatting.js",
+        "doc/js/0590-ui-views-report-design/050-pane-generate.js",
+        "doc/js/0590-ui-views-report-design/060-paginate.js",
+        "doc/js/0590-ui-views-report-design/070-wire.js",
+        "doc/js/0590-ui-views-report-design/080-app-ui-app-ui.js"
       ]
     },
     {
@@ -621,23 +621,23 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0600-v2-2-self-test-suites-report-design-markdown/010-la-te-x-safe-markdown-md-1.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/020-the-designer-s-project-writes-ds-1-ds-6.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/030-guide-1-deviations-from-security-guidelines.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/040-tw-1-a-dragged-column-width-reaches-the-pdf.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/050-header-first-column-styling-tbs-1.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/060-tw-1-typing-a-width-and-being-told-when-it-d.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/070-long-runs-are-marked-so-they-can-break-brk-1.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/080-nam-2-ccol-2-a-generated-section-names-its-h.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/090-a-numbered-introduction-sec-2-control-descri.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/100-the-body-font-fnt-2.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/110-the-box-shows-what-it-holds-rtx-1-rtx-2.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/120-a-table-without-a-caption-cap-4.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/130-references-that-reach-the-pdf-ref-1-ref-2.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/140-tbl-1-a-generated-table-names-itself-and-its.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/150-header-footer-generation-the-paged-preview-h.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/160-a-break-in-a-cell-and-a-first-column-with-a.js",
-        "js/0600-v2-2-self-test-suites-report-design-markdown/170-whitespace-as-a-measurement-spc-1.js"
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/010-la-te-x-safe-markdown-md-1.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/020-the-designer-s-project-writes-ds-1-ds-6.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/030-guide-1-deviations-from-security-guidelines.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/040-tw-1-a-dragged-column-width-reaches-the-pdf.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/050-header-first-column-styling-tbs-1.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/060-tw-1-typing-a-width-and-being-told-when-it-d.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/070-long-runs-are-marked-so-they-can-break-brk-1.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/080-nam-2-ccol-2-a-generated-section-names-its-h.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/090-a-numbered-introduction-sec-2-control-descri.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/100-the-body-font-fnt-2.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/110-the-box-shows-what-it-holds-rtx-1-rtx-2.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/120-a-table-without-a-caption-cap-4.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/130-references-that-reach-the-pdf-ref-1-ref-2.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/140-tbl-1-a-generated-table-names-itself-and-its.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/150-header-footer-generation-the-paged-preview-h.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/160-a-break-in-a-cell-and-a-first-column-with-a.js",
+        "app/js/0600-v2-2-self-test-suites-report-design-markdown/170-whitespace-as-a-measurement-spc-1.js"
       ]
     },
     {
@@ -646,9 +646,9 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "js/0610-suites-paths-and-the-driver-contract-tf-2/010-t.js",
-        "js/0610-suites-paths-and-the-driver-contract-tf-2/020-the-concurrent-write-guard-tf-4-requirements.js",
-        "js/0610-suites-paths-and-the-driver-contract-tf-2/030-the-app-wired-to-a-folder-tf-6-tf-8-tf-10.js"
+        "app/js/0610-suites-paths-and-the-driver-contract-tf-2/010-t.js",
+        "app/js/0610-suites-paths-and-the-driver-contract-tf-2/020-the-concurrent-write-guard-tf-4-requirements.js",
+        "app/js/0610-suites-paths-and-the-driver-contract-tf-2/030-the-app-wired-to-a-folder-tf-6-tf-8-tf-10.js"
       ]
     },
     {
@@ -657,7 +657,7 @@
       "close": "  </script>\n",
       "gap": "",
       "paths": [
-        "js/0620-bootstrap.js"
+        "app/js/0620-bootstrap.js"
       ]
     },
     {

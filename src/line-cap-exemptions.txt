@@ -12,5 +12,5 @@
 # handler for its view in a single function body. Split each into per-concern wiring
 # helpers when next working in that view, then delete its line from this file.
 
-js/0460-ui-app/030-wire.js  751 lines: App.ui.app's wire() is one function — no seam inside it to cut on.
-js/0590-ui-views-report-design/070-wire.js  680 lines: the Report Design wire(ctx) is likewise a single function body.
+app/js/0460-ui-app/030-wire.js  751 lines: App.ui.app's wire() is one function — no seam inside it to cut on.
+doc/js/0590-ui-views-report-design/070-wire.js  680 lines: the Report Design wire(ctx) is likewise a single function body.

@@ -8,7 +8,142 @@
       "close": "",
       "gap": "\n",
       "paths": [
-        "js/0010-app-namespace-root.js"
+        "base/js/0010-app-namespace-root.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "base/js/0040-util-html.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "base/js/0090-util-dom.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "base/js/0100-util-stable.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "",
+      "paths": [
+        "doc/js/0170-md/010-hostile.js",
+        "doc/js/0170-md/020-longest-word.js",
+        "doc/js/0170-md/030-fill-line.js",
+        "doc/js/0170-md/040-human-inline.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n  <!-- ===== PHASE-0 SELF-TEST SUITES (vendored primitives + util) ===== -->\n",
+      "paths": [
+        "base/js/0180-test.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "",
+      "paths": [
+        "doc/js/0320-doc-format/010-md.js",
+        "doc/js/0320-doc-format/020-normalise.js",
+        "doc/js/0320-doc-format/030-font-preamble.js",
+        "doc/js/0320-doc-format/040-validate.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "",
+      "paths": [
+        "doc/js/0330-doc/010-md.js",
+        "doc/js/0330-doc/020-auto-caption.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0340-report.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0550-doc-store/010-p.js",
+        "doc/js/0550-doc-store/020-set-block-table-style.js",
+        "doc/js/0550-doc-store/030-add-column.js",
+        "doc/js/0550-doc-store/040-app-doc-store.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0560-doc-templates.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0570-ui-md-preview/010-esc.js",
+        "doc/js/0570-ui-md-preview/020-to-html.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0580-ui-rich-text.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n  <!-- ===== v2.2 SELF-TEST SUITES (Report Design: markdown \u00b7 outline \u00b7 templates) ===== -->\n",
+      "paths": [
+        "doc/js/0590-ui-views-report-design/010-esc.js",
+        "doc/js/0590-ui-views-report-design/020-part-target.js",
+        "doc/js/0590-ui-views-report-design/030-meta-pane.js",
+        "doc/js/0590-ui-views-report-design/040-pane-formatting.js",
+        "doc/js/0590-ui-views-report-design/050-pane-generate.js",
+        "doc/js/0590-ui-views-report-design/060-paginate.js",
+        "doc/js/0590-ui-views-report-design/070-wire.js",
+        "doc/js/0590-ui-views-report-design/080-app-ui-app-ui.js"
       ]
     }
   ]

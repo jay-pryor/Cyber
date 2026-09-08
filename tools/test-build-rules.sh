@@ -24,7 +24,7 @@ expect "the default manifest is up to date" 0 python3 tools/build.py --check
 expect "the module manifest assembles" 0 python3 tools/build.py --stdout --manifest src/build-doc.json
 
 # A file on disk listed in NO manifest must be reported as an orphan.
-probe="src/js/9999-orphan-probe.js"
+probe="src/app/js/9999-orphan-probe.js"
 printf '/* probe */\n' > "$probe"
 expect "a file in no manifest is an orphan" 1 python3 tools/build.py --check
 rm -f "$probe"

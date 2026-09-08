@@ -41,13 +41,31 @@ APP_TREE = "app"
 DOC_TREE = "doc"
 
 # `App.foo = ` / `App.foo.bar = ` — where a module publishes its exported surface.
+# Captured FULLY QUALIFIED, because a namespace can be shared: App.util.html lives in
+# src/base/ while App.util.clock lives in src/app/, so ownership is not a root-level
+# question.
 _DEFINES = re.compile(r"^\s*App\.([A-Za-z0-9_.]+)\s*=", re.M)
+# `App.ui = App.ui || {}` declares a namespace exists; it does not claim ownership of
+# it. Counting these would hand src/app/ every namespace it merely opens.
+_NAMESPACE_GUARD = re.compile(r"^\s*App\.([A-Za-z0-9_.]+)\s*=\s*App\.\1\s*\|\|", re.M)
 _REFERENCES = re.compile(r"App\.([A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*)")
 
-# Names src/doc/ is still allowed to reach for, each removed by a task in
+# Names src/doc/ is still allowed to reach for while the extraction is in progress,
+# each removed by a task in
 # docs/superpowers/plans/2026-09-08-document-designer-module.md.
-# This set only ever shrinks. The final task asserts it is empty.
-BOUNDARY_DEBT = set()
+# This set only ever SHRINKS; the final task asserts it is empty. Counts are the
+# violations outstanding when the trees were split, kept so progress is legible.
+BOUNDARY_DEBT = {
+    "store",              # 51 — docStore/docTemplates writes; becomes host.commit/getState
+    "generate",           # 20 — the half of App.generate that becomes App.docGen
+    "ui.activity",        # 9  — the log sink; becomes host.log
+    "registry",           # 5  — dataset/platform lookup; becomes host.sections
+    "util.clock",         # 4  — becomes host.clock
+    "ui.views.generate",  # 4  — the shared session bag; inverted into the module
+    "completeness",       # 2  — readiness gate; becomes host.subject.ready
+    "ui.tables",          # 1  — a relevance chip; becomes a plain label
+    "ui.model",           # 1  — the candidate list; becomes host.subject.list
+}
 
 
 def load_manifest(path=None):
@@ -166,16 +184,16 @@ def check_boundary():
     enforces outlives one written in a document.
     """
     problems = []
-    if BOUNDARY_DEBT:
-        problems.append(
-            "boundary: BOUNDARY_DEBT is non-empty — the extraction is incomplete. "
-            f"Still allowed: {sorted(BOUNDARY_DEBT)}"
-        )
-
+    # NB: BOUNDARY_DEBT being non-empty is NOT an error while the extraction is in
+    # progress — that is what the set is for. The final task empties it and adds the
+    # assertion that it stays empty.
     app_names = set()
     for path in sorted((SRC / APP_TREE).rglob("*.js")) if (SRC / APP_TREE).is_dir() else []:
-        for m in _DEFINES.finditer(_strip_comments(path.read_text(encoding="utf-8"))):
-            app_names.add(m.group(1).split(".")[0])
+        text = _strip_comments(path.read_text(encoding="utf-8"))
+        guards = {m.group(1) for m in _NAMESPACE_GUARD.finditer(text)}
+        for m in _DEFINES.finditer(text):
+            if m.group(1) not in guards:
+                app_names.add(m.group(1))
     if not app_names:
         return problems
 
@@ -183,12 +201,18 @@ def check_boundary():
         rel = path.relative_to(SRC)
         for n, line in enumerate(_strip_comments(path.read_text(encoding="utf-8")).splitlines(), 1):
             for m in _REFERENCES.finditer(line):
-                root = m.group(1).split(".")[0]
-                if root in app_names and root not in BOUNDARY_DEBT:
-                    problems.append(
-                        f"boundary: {rel}:{n} references App.{root}, which src/app/ owns. "
-                        "The module must receive this through its host contract instead."
-                    )
+                parts = m.group(1).split(".")
+                # Longest match first: App.util.clock is owned, App.util is not.
+                for i in range(len(parts), 0, -1):
+                    name = ".".join(parts[:i])
+                    if name in app_names:
+                        if name not in BOUNDARY_DEBT:
+                            problems.append(
+                                f"boundary: {rel}:{n} references App.{name}, which src/app/ "
+                                "owns. The module must receive this through its host "
+                                "contract instead."
+                            )
+                        break
     return problems
 
 
