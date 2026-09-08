@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assemble ch-config-tool.html from src/.
+"""Assemble the deliverables from src/.
 
 The deliverable is still one file opened by double-clicking. This script is the only
 thing that produces it: it concatenates the source files named in src/build.json, in
@@ -11,10 +11,16 @@ It also enforces the 500-line cap. A file over the cap fails the build unless it
 listed in src/line-cap-exemptions.txt with a reason, so a new oversized file is a
 deliberate, reviewable act rather than something that happens by drift.
 
+There is more than one target. src/build.json builds the application; other
+src/build*.json manifests build a subset from the same fragments — the document
+module has its own. Orphan detection unions across every manifest, so a file
+built by one target is not reported as an orphan of another.
+
 Usage:
-    python3 tools/build.py             # write ch-config-tool.html
-    python3 tools/build.py --check     # exit 1 if the built file is stale or a rule is broken
-    python3 tools/build.py --stdout    # print the built file, touch nothing
+    python3 tools/build.py                          # write ch-config-tool.html
+    python3 tools/build.py --check                  # exit 1 if stale or a rule is broken
+    python3 tools/build.py --stdout                 # print the built file, touch nothing
+    python3 tools/build.py --manifest src/build-doc.json    # build another target
 """
 
 import argparse
@@ -31,10 +37,32 @@ MANIFEST = SRC / "build.json"
 EXEMPTIONS = SRC / "line-cap-exemptions.txt"
 
 
-def load_manifest():
-    if not MANIFEST.exists():
-        sys.exit(f"error: {MANIFEST} not found")
-    return json.loads(MANIFEST.read_text(encoding="utf-8"))
+def load_manifest(path=None):
+    target = Path(path) if path else MANIFEST
+    if not target.is_absolute():
+        target = ROOT / target
+    if not target.exists():
+        sys.exit(f"error: {target} not found")
+    return json.loads(target.read_text(encoding="utf-8"))
+
+
+def all_manifest_paths():
+    """Every source path referenced by ANY manifest, for orphan detection.
+
+    A fragment of the document module is named by both the application manifest and
+    the module's own; a fragment of the application only by the first. Orphan
+    detection asks "is this file built by anything?", so it has to union across
+    manifests — asking one at a time would report every module-only file as an
+    orphan of the application build.
+    """
+    seen = set()
+    for m in sorted(SRC.glob("build*.json")):
+        seen.update(manifest_paths(json.loads(m.read_text(encoding="utf-8"))))
+    return seen
+
+
+def is_manifest(path):
+    return path.parent == SRC and path.name.startswith("build") and path.suffix == ".json"
 
 
 def load_exemptions():
@@ -127,12 +155,13 @@ def check_rules(manifest, paths):
     on_disk = {
         str(p.relative_to(SRC))
         for p in SRC.rglob("*")
-        if p.is_file() and p.name not in ("build.json", "line-cap-exemptions.txt")
+        if p.is_file() and p.name != "line-cap-exemptions.txt" and not is_manifest(p)
     }
-    for orphan in sorted(on_disk - listed):
-        problems.append(f"orphan: {orphan} is on disk but not in build.json — it will NOT be built")
+    built_by_something = all_manifest_paths()
+    for orphan in sorted(on_disk - built_by_something):
+        problems.append(f"orphan: {orphan} is on disk but not in any build*.json — it will NOT be built")
 
-    for stale in sorted(set(exempt) - listed):
+    for stale in sorted(set(exempt) - built_by_something):
         problems.append(f"stale exemption: {stale} no longer exists — remove it from the allowlist")
 
     problems.extend(check_closures(manifest))
@@ -163,9 +192,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="verify only; write nothing")
     ap.add_argument("--stdout", action="store_true", help="print the built file")
+    ap.add_argument("--manifest", default=None, help="manifest to build (default src/build.json)")
     args = ap.parse_args()
 
-    manifest = load_manifest()
+    manifest = load_manifest(args.manifest)
     paths = manifest_paths(manifest)
 
     problems = check_rules(manifest, paths)

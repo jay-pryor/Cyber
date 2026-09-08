@@ -7,3 +7,6 @@ node_modules/
 
 # Python bytecode from tools/
 __pycache__/
+
+# Build artifact of the document module target (src/build-doc.json).
+doc-designer.js

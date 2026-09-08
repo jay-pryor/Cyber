@@ -1,0 +1,15 @@
+{
+  "output": "doc-designer.js",
+  "lineCap": 500,
+  "parts": [
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "js/0010-app-namespace-root.js"
+      ]
+    }
+  ]
+}
