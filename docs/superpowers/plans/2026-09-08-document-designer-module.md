@@ -1021,7 +1021,20 @@ The design-bearing step, and the one to take slowly. **No file moves.**
 
 ---
 
-### Task 7d: Now the move is only a move
+### Task 7d: Now the move is only a move — RUN THIS AFTER TASKS 8, 9 AND 10
+
+**Re-sequenced.** 7d's gate is that the closure analysis returns `[]`. It cannot,
+until `gather`, `gatherKept`, `relevanceFilter`, `relevanceKeyOf`, `ctxFor` and
+`deviceMeta` have left the moving code — and those go in Tasks 8, 9 and 10. Running
+7d before them means either failing the gate or ignoring it, and ignoring it is the
+mistake this whole task was replanned to prevent.
+
+**Also: the file cannot be moved whole.** `buildReport` lives in
+`030-report-blocks.js` and must STAY in CH — it is the host's entry point and takes
+CH shapes. Split the file first: `reportBlocks`/`sectionContent`/`sectionColumns`/
+`hostProvider` to the module, `buildReport` staying behind. The moving fragment must
+also call `App.docBlocks.*` directly rather than the 7a aliases, which are themselves
+sibling-defined and so still count as foreign bindings.
 
 - [ ] **Step 1:** Re-run the closure analysis and confirm nothing foreign remains:
 
