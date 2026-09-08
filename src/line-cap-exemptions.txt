@@ -1,0 +1,16 @@
+# Source files allowed to exceed the 500-line cap in src/build.json.
+#
+# Format: <path relative to src/> <reason>
+#
+# The build FAILS on an oversized file that is not listed here, so joining this list is
+# a deliberate, reviewable act rather than something that happens by drift. A file
+# earns a place only when no clean seam exists inside it — a single function or
+# statement longer than the cap, which a file boundary cannot cut. The fix is to break
+# the function up; the exemption is what holds the line until someone does.
+#
+# Both entries below are the same shape: one enormous wire() that binds every event
+# handler for its view in a single function body. Split each into per-concern wiring
+# helpers when next working in that view, then delete its line from this file.
+
+js/0460-ui-app/030-wire.js  751 lines: App.ui.app's wire() is one function — no seam inside it to cut on.
+js/0590-ui-views-report-design/070-wire.js  680 lines: the Report Design wire(ctx) is likewise a single function body.

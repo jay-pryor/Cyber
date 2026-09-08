@@ -2,18 +2,31 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "Bash(python3 tools/gen-code-map.py*)"
+      "Bash(python3 tools/gen-code-map.py*)",
+      "Bash(python3 tools/build.py*)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // empty' | grep -q 'ch-config-tool\\.html$' && { echo 'ch-config-tool.html is BUILT from src/ — edit the source file instead (see the code map in CLAUDE.md for which one), then run: python3 tools/build.py. An edit here is overwritten by the next build.' >&2; exit 2; } || exit 0",
+            "statusMessage": "Guarding the built file"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | grep -q 'ch-config-tool\\.html$' && python3 \"${CLAUDE_PROJECT_DIR:-.}/tools/gen-code-map.py\" 2>/dev/null || true",
-            "statusMessage": "Refreshing the CLAUDE.md code map"
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | grep -q '/src/' && cd \"${CLAUDE_PROJECT_DIR:-.}\" && python3 tools/build.py >/dev/null && python3 tools/gen-code-map.py >/dev/null 2>&1 || true",
+            "statusMessage": "Rebuilding the tool and refreshing the code map"
           }
         ]
       }

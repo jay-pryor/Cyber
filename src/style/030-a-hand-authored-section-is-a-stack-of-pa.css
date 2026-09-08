@@ -1,0 +1,344 @@
+  /* A hand-authored section is a stack of parts, each independently draggable. */
+  .rd-parts { display: flex; flex-direction: column; gap: 10px; margin: 10px 0; }
+  .rd-part { border: 1px solid var(--c-border); border-radius: 6px; padding: 8px; background: var(--c-surface-alt); }
+  .rd-part.dragging { opacity: 0.5; }
+  .rd-part.drop-target { border-color: var(--c-accent); border-style: dashed; }
+  .rd-part-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .rd-part-kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--c-text-muted); }
+  .rd-part-note { font-size: 12px; }
+  .rd-part-move { margin-left: auto; display: flex; gap: 2px; }
+  .rd-tbs { display: flex; gap: 2px; }
+  .rd-tb { font: inherit; font-size: 12px; min-width: 26px; padding: 2px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); cursor: pointer; }
+  .rd-para, .rd-title, .rd-cap { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .rd-para { resize: vertical; font-family: var(--font-mono, ui-monospace, monospace); }
+  /* RTX-1: the box that shows what it holds. It replaced a textarea, so it keeps a
+     textarea's shape — a bordered, resizable block that grows with its content — and
+     adds the one thing a textarea cannot do, which is render any of it. */
+  .rd-rich { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; line-height: 1.45;
+    padding: 6px 8px; border: 1px solid var(--c-border); border-radius: 4px;
+    background: var(--c-surface); color: var(--c-text); min-height: 58px;
+    overflow-wrap: break-word; white-space: pre-wrap; cursor: text; }
+  .rd-rich:focus { outline: 2px solid var(--c-accent); outline-offset: -1px; }
+  /* An empty box says what it is for, the way a textarea's placeholder does. `:empty`
+     alone is not enough — a box that has been typed in and emptied holds a stray <br>. */
+  .rd-rich:empty::before { content: attr(data-rd-ph); color: var(--c-text-muted); }
+  .rd-rich code { font-family: var(--font-mono, ui-monospace, monospace); font-size: 0.92em;
+    background: var(--c-surface-alt); padding: 0 3px; border-radius: 3px; }
+  /* RTX-1: a reference with no words of its own is one uneditable chip reading what the
+     target is called — the whole point of the box rendering rather than showing source. */
+  .rd-chip { display: inline-block; background: var(--c-badge-bg); border: 1px solid var(--c-border);
+    border-radius: 10px; padding: 0 7px; font-size: 12px; line-height: 1.5; white-space: nowrap;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: baseline; user-select: none; }
+  /* A reference over the author's OWN words stays editable; only the underline marks it. */
+  .rd-reflink { text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; }
+  .rd-broken { color: var(--c-error); border-color: var(--c-error); }
+  /* RTX-2: the same box, sized for a table cell. */
+  .rd-cellbox { min-height: 20px; padding: 3px 5px; border: 0; border-radius: 0; font-size: 12px; }
+  .rd-cellbox:focus { outline: 2px solid var(--c-accent); outline-offset: -2px; }
+  /* What will be escaped on the way into the .md — shown rather than sprung on the
+     author when they open the PDF (see App.md's escaping note). */
+  .rd-esc { font-size: 11px; color: var(--c-text-muted); margin-top: 4px; }
+  .rd-esc code { background: var(--c-surface-alt); padding: 0 3px; border-radius: 3px; }
+  .rd-refmenu { border: 1px solid var(--c-accent); border-radius: 6px; padding: 6px; margin-bottom: 6px; background: var(--c-surface); max-height: 200px; overflow-y: auto; }
+  .rd-refmenu-h { font-size: 11px; color: var(--c-text-muted); margin-bottom: 4px; }
+  .rd-refmenu button { font: inherit; font-size: 12px; padding: 3px 6px; border: 0; background: none; color: var(--c-text); cursor: pointer; border-radius: 4px; }
+  .rd-refmenu button:hover { background: var(--c-surface-alt); }
+  /* REF-1: one row per target, with a button per reading. The label takes the slack and
+     truncates; the three readings are the same width whatever the label does, so the
+     column of them reads as a column. */
+  .rd-refmenu-note { font-size: 11px; margin: 0 0 6px; }
+  /* TBL-1: one block of wording per table a section produces. */
+  .rd-tblword { border-left: 2px solid var(--c-border); padding-left: 8px; margin: 8px 0; }
+  .rd-tblword-h { font-size: 12px; font-weight: 600; color: var(--c-text-muted); margin-bottom: 4px; }
+  /* HDR-1: three slots in the order they print, so the strip says "left, centre, right"
+     without a word of explanation. */
+  .rd-hf { margin: 8px 0; }
+  .rd-hf-h { font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+  .rd-hf-slots { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  /* GEN-TAB: a placeholder and the words that will replace it, on one line. */
+  .rd-tagrow { display: grid; grid-template-columns: minmax(90px, auto) 1fr; align-items: center; gap: 8px; margin: 4px 0; }
+  .rd-tagrow code { font-size: 12px; }
+  /* PRV-4: sheets of paper, sized from the profile's own page metrics.
+     The width/height and the four margins are written as inline styles by paginate(),
+     which reads them off the same profile the PDF is built from — nothing about the page
+     is hard-coded here, only what a page LOOKS like: a white sheet with a shadow, its
+     header and footer inside the margins, and a number under the corner. */
+  .rd-preview-paged { background: var(--c-surface-alt); padding: 12px 0; }
+  .rd-pages { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+  .rd-sheet { position: relative; background: #fff; color: #111; box-shadow: 0 1px 6px rgba(0,0,0,0.28);
+    display: flex; flex-direction: column; overflow: hidden; }
+  .rd-sheet-body { flex: 1 1 auto; overflow: hidden; }
+  .rd-sheet-hf { display: flex; align-items: center; flex: 0 0 auto; color: #111; }
+  .rd-sheet-hf .prv-hf-left { flex: 1 1 0; text-align: left; }
+  .rd-sheet-hf .prv-hf-centre { flex: 1 1 0; text-align: center; }
+  .rd-sheet-hf .prv-hf-right { flex: 1 1 0; text-align: right; }
+  .rd-sheet-head { align-items: flex-start; }
+  .rd-sheet-foot { align-items: flex-end; }
+  /* The sheet's own number, outside the page rather than on it — it says which sheet you
+     are looking at, which is a fact about the preview and not about the document. */
+  .rd-sheet-n { position: absolute; right: 4px; bottom: -16px; font-size: 11px; color: var(--c-text-muted); }
+  /* Before pagination runs, the flow is a plain column: a real browser replaces it with
+     sheets, and a headless one (which has no layout to measure) leaves it readable. */
+  .rd-pageflow { background: #fff; }
+  /* TBL-1: the title row, which is a real merged header row on the page too. */
+  .rd-preview-doc .prv-tbltitle th { text-align: center; }
+  /* A switch that is already on for another reason reads as on, and says why. */
+  .gen-opt-off { opacity: 0.65; }
+  .rd-reftarget { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .rd-reftarget-l { flex: 1 1 auto; min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rd-refreadings { flex: 0 0 auto; display: flex; gap: 2px; }
+  .rd-refreadings button { border: 1px solid var(--c-border); font-size: 11px; padding: 2px 6px; }
+
+  .rd-tablewrap { overflow-x: auto; }
+  .rd-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+  .rd-table th, .rd-table td { border: 1px solid var(--c-border); padding: 0; vertical-align: top; }
+  .rd-table input { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 4px 6px; border: 0; background: transparent; color: var(--c-text); }
+  .rd-table th input { font-weight: 600; }
+  .rd-colbar { display: flex; gap: 2px; padding: 2px; border-top: 1px solid var(--c-border); }
+  .rd-colbar select { font-size: 11px; flex: 1 1 auto; background: var(--c-surface); color: var(--c-text); border: 1px solid var(--c-border); border-radius: 3px; }
+  .rd-rowdel { width: 28px; }
+  /* SPC-1: the per-row height tick shares the delete column, which grows to hold it. */
+  .rd-rowdel-wide, .rd-table-fixed col:last-child.rd-rowdel { width: 56px; }
+  .rd-rowdel .rd-tallbox { margin-right: 4px; vertical-align: middle; cursor: pointer; }
+  .rd-tablebtns { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  /* SPC-1: the millimetre boxes — a Space part's height, a table's extra row height, and
+     how far down the page a section starts. Narrow on purpose: it is a measurement, not
+     a sentence, and a wide box invites a wide answer. */
+  .rd-mmlab { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--c-text-muted); }
+  .rd-mmlab .rd-mm { width: 68px; font: inherit; font-size: 12px; padding: 3px 5px; text-align: right;
+    background: var(--c-surface); color: var(--c-text); border: 1px solid var(--c-border); border-radius: 4px; }
+  .rd-rowh { margin-left: auto; }
+  .rd-secspace { margin-top: 8px; }
+  /* The gap, drawn at the size it was asked for, so a number of millimetres means
+     something before the preview is looked at. */
+  .rd-mmshow { margin-top: 6px; border: 1px dashed var(--c-border); border-radius: 3px;
+    background: repeating-linear-gradient(135deg, transparent 0 6px, var(--c-surface-alt) 6px 7px); }
+  /* The conversion command on the Generate pane. Selectable and scrollable rather than
+     wrapped: a command broken across lines is a command that gets pasted broken. */
+  .rd-cmd { background: var(--c-surface-alt); border: 1px solid var(--c-border); border-radius: 4px;
+    padding: 7px 9px; margin: 6px 0; font-size: 12px; overflow-x: auto; white-space: pre; user-select: all; }
+  .rd-cmdlist { margin: 4px 0 8px 18px; padding: 0; font-size: 12px; }
+  .rd-cmdlist li { margin: 4px 0; }
+
+  /* TW-1: draggable column widths.
+     `table-layout: fixed` is what makes the <colgroup> percentages authoritative —
+     without it the browser sizes to content and the drag would fight the text. The
+     table's own width is the formatting profile's TEXT width (see textWidthPx), so the
+     proportions on screen are the proportions on the page. */
+  .rd-table-fixed { table-layout: fixed; max-width: 100%; }
+  /* TW-3: the page-width box the (possibly narrower) table is measured against. */
+  .rd-tablescale { max-width: 100%; }
+  .rd-table-fixed th, .rd-table-fixed td { overflow: hidden; overflow-wrap: anywhere; }
+  .rd-table th { position: relative; }
+  .rd-colresize { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 2; }
+  .rd-colresize:hover, .rd-colresize:active { background: var(--c-accent, #4a7fd0); opacity: .5; }
+  .rd-colpct { font-size: 10px; color: var(--c-text-muted); font-variant-numeric: tabular-nums; align-self: center;
+    padding: 0 3px; white-space: nowrap; cursor: text; border-radius: 3px; border: 1px dashed transparent; }
+  .rd-colpct:hover, .rd-colpct:focus { border-color: var(--c-border); color: var(--c-text); outline: none; }
+  .rd-colpct.auto { opacity: .45; font-style: italic; }
+  .rd-pctbox { width: 46px; font: inherit; font-size: 10px; padding: 0 2px; border: 1px solid var(--c-accent, #4a7fd0);
+    border-radius: 3px; background: var(--c-surface); color: var(--c-text); }
+
+  /* TW-2: the stand-in strip for a GENERATED section's table, which has no editable
+     table of its own to drag on. Same grips, same percentage chips, same handlers. */
+  .rd-widthbar { display: flex; max-width: 100%; border: 1px solid var(--c-border); border-radius: var(--radius);
+    overflow: hidden; background: var(--c-surface); margin: 6px 0; }
+  .rd-wseg { position: relative; display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+    min-width: 0; padding: 5px 7px; border-right: 1px solid var(--c-border); box-sizing: border-box; }
+  .rd-wseg:last-child { border-right: 0; }
+  .rd-wlabel { font-size: 11px; font-weight: 600; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rd-wseg .rd-colpct { align-self: flex-start; }
+  /* TW-1: the columns do not add up. Red when more was asked for than the page has —
+     the table still renders, scaled down, so a silent version would be a wrong table. */
+  .rd-wflag { font-size: 11px; color: var(--c-error); font-weight: 600; }
+  .rd-wnote { font-size: 11px; color: var(--c-text-muted); }
+  /* OPT-1: the columns/groups menu on a section row. Anchored to the row so it opens
+     over whatever is beside it rather than pushing the list around, and the row is the
+     positioning context. */
+  .rd-row { position: relative; }
+  .rd-opt { position: relative; display: inline-flex; }
+  .rd-optbtn { font-size: 12px; line-height: 1; padding: 3px 6px; border: 1px solid var(--c-border);
+    border-radius: 4px; background: var(--c-surface); color: var(--c-text-muted); cursor: pointer; }
+  .rd-optbtn:hover, .rd-optbtn.on { color: var(--c-text); border-color: var(--c-accent, #4a7fd0); }
+  .rd-optmenu { position: absolute; top: 100%; right: 0; z-index: 30; margin-top: 4px; min-width: 190px;
+    max-height: 300px; overflow-y: auto; padding: 6px 8px; border: 1px solid var(--c-border);
+    border-radius: 6px; background: var(--c-surface); box-shadow: 0 4px 14px rgba(0,0,0,.22);
+    display: flex; flex-direction: column; gap: 1px; text-align: left; }
+  .rd-optmenu-h { font-size: 10px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--c-text-muted); margin: 4px 0 2px; }
+  .rd-optmenu-h:first-child { margin-top: 0; }
+  .rd-optmenu .gen-opt { margin: 0; white-space: nowrap; }
+
+  /* TBS-1: a colour well, sized like the tiny inputs beside it. */
+  .rd-shade { width: 38px; height: 20px; padding: 0; border: 1px solid var(--c-border); border-radius: 3px; background: var(--c-surface); cursor: pointer; }
+
+  /* META-1: a provenance row, with a clipped sample of its value so you can tell the
+     three SHA-256 lines apart without reading 64 hex characters. */
+  .rd-metarow { display: flex; align-items: center; gap: 8px; }
+  .rd-metaval { margin-left: auto; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; color: var(--c-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+  /* RD-8: a generated section previewed inside its own tab. Capped in height so the
+     controls above it stay reachable on a laptop screen. */
+  .rd-secprev-wrap { margin-top: 12px; }
+  .rd-secprev { max-height: 420px; overflow: auto; border: 1px solid var(--c-border); border-radius: 6px; padding: 8px 12px; }
+  .rd-tpl-list { list-style: none; margin: 6px 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .rd-tpl-list li { display: flex; align-items: center; gap: 8px; border: 1px solid var(--c-border); border-radius: 5px; padding: 4px 8px; font-size: 13px; }
+  .rd-tpl-list .rd-tpl-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rd-cf-list .rd-radio { font-size: 12px; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  /* The file input is hidden behind its label so it matches the buttons beside it. */
+  .rd-filebtn { font-size: 13px; padding: 4px 10px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); cursor: pointer; }
+  .rd-filebtn input[type="file"] { display: none; }
+
+  /* PRV-1: the preview. An outline rail plus the rendered document, both scrolling
+     independently so a click in the outline can move the document without moving the
+     outline out from under the pointer. */
+  .rd-preview { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+  .rd-preview-body { display: flex; gap: 12px; flex: 1 1 auto; min-height: 0; }
+  .rd-preview-nav { flex: 0 0 220px; overflow-y: auto; border-right: 1px solid var(--c-border); padding-right: 8px; display: flex; flex-direction: column; gap: 1px; }
+  .rd-nav { font-size: 12px; color: var(--c-text); text-decoration: none; padding: 2px 4px; border-radius: 3px; }
+  .rd-nav:hover { background: var(--c-surface-alt); }
+  .rd-nav-n { color: var(--c-text-muted); font-variant-numeric: tabular-nums; }
+  .rd-nav-2 { padding-left: 16px; } .rd-nav-3 { padding-left: 30px; } .rd-nav-4 { padding-left: 44px; }
+  .rd-preview-doc { flex: 1 1 auto; min-width: 0; overflow-y: auto; padding: 4px 12px 40px; background: var(--c-surface); border-radius: 6px; }
+  .rd-preview-doc .prv-h { margin: 14px 0 6px; line-height: 1.2; }
+  .rd-preview-doc .prv-h1, .rd-preview-doc .prv-title { font-size: 19px; border-bottom: 1px solid var(--c-border); padding-bottom: 3px; }
+  .rd-preview-doc .prv-h2 { font-size: 16px; }
+  .rd-preview-doc .prv-h3 { font-size: 14px; }
+  .rd-preview-doc .prv-h4 { font-size: 13px; font-style: italic; }
+  .rd-preview-doc p { margin: 6px 0; font-size: 13px; line-height: 1.45; }
+  .rd-preview-doc .prv-tablewrap { overflow-x: auto; margin: 8px 0; }
+  .rd-preview-doc .prv-table { border-collapse: collapse; font-size: 12px; }
+  .rd-preview-doc .prv-table th, .rd-preview-doc .prv-table td { border: 1px solid var(--c-border); padding: 3px 6px; text-align: left; vertical-align: top;
+    /* BRK-1 in the browser. A fixed-layout table with a colgroup does not wrap a long
+       word by default — it lets it run out of the cell, which is the same defect the
+       page had and the same thing the reader sees. */
+    overflow-wrap: anywhere; word-break: break-word; }
+  .rd-preview-doc .prv-table th { background: var(--c-surface-alt); }
+  .rd-preview-doc .prv-caption { font-size: 12px; color: var(--c-text-muted); margin-top: 3px; }
+  /* TOC-1: the contents list, indented by level. No page numbers — a browser has no
+     pages, and inventing one would be the only untrue thing on the sheet. */
+  .rd-preview-doc .prv-toc-e { padding: 1px 0; }
+  .rd-preview-doc .prv-toc-n { display: inline-block; min-width: 2.4em; }
+  .rd-preview-doc .prv-toc-2 { padding-left: 1.6em; }
+  .rd-preview-doc .prv-toc-3 { padding-left: 3.2em; }
+  .rd-preview-doc .prv-toc-4 { padding-left: 4.8em; }
+  .rd-preview-doc .prv-toc-empty { color: var(--c-text-muted); }
+
+  /* PRV-2: the page. A preview whose job is "what will this look like" has to be a
+     sheet of paper — white, the profile's text width, and carrying the profile's own
+     sizes and colours (App.docFormat.previewCss emits those, scoped to .rd-paper). It
+     stays white in dark mode on purpose: the page will be white, and a shade colour
+     judged against a dark background is judged against the wrong thing. */
+  .rd-paper { box-shadow: 0 1px 6px rgba(0,0,0,.18); padding: 20px 22px 28px; border-radius: 2px; }
+  /* The shading colours come from the PROFILE (App.docFormat.previewCss). There is no
+     fallback here on purpose: a stand-in shade would show a table as styled when the
+     profile has no shade set, and the app's own surface colour — dark, in dark mode —
+     would paint a black header onto a white page. */
+  .rd-paper .prv-cp { margin: 0 0 4px; }
+  .rd-paper .prv-cp:last-child { margin-bottom: 0; }
+  .rd-paper .prv-pagebreak span { background: #fff; color: #777; }
+  .rd-paper .prv-pagebreak { border-top-color: #bbb; }
+  .rd-paper .prv-rule { border-top-color: #bbb; }
+  .rd-paper a { color: #14418c; }
+  .rd-preview-doc:has(.rd-paper) { background: var(--c-surface-alt); padding-top: 14px; }
+  /* A width-bearing table honours its colgroup, exactly as it will on the page. */
+  .rd-preview-doc .prv-table[style*="fixed"] { width: 100%; }
+  .rd-preview-doc .prv-rule { border: 0; border-top: 1px solid var(--c-border); margin: 12px 0; }
+  .rd-preview-doc .prv-centre { text-align: center; }
+  .rd-preview-doc .prv-centre .prv-tablewrap { display: inline-block; text-align: left; }
+  .rd-preview-doc .prv-pagebreak { border-top: 1px dashed var(--c-border); text-align: center; margin: 16px 0; }
+  .rd-preview-doc .prv-pagebreak span { position: relative; top: -8px; background: var(--c-surface); padding: 0 8px; font-size: 11px; color: var(--c-text-muted); }
+  .rd-preview-doc code { background: var(--c-surface-alt); padding: 0 3px; border-radius: 3px; font-size: 12px; }
+  /* SPC-1: a measured gap, drawn at its measured size. Empty on the paper (it is empty
+     on the page); faintly striped OUTSIDE it, where the preview is a working view and a
+     gap you cannot see is a gap you cannot find again. */
+  .prv-space, .prv-strut { display: block; }
+  .rd-preview-doc .prv-space { background: repeating-linear-gradient(135deg,
+      transparent 0 6px, var(--c-surface-alt) 6px 7px); border-radius: 2px; }
+  .rd-paper .prv-space { background: none; }
+
+  /* Device-config override editing + divergence highlighting (Phase 10 / §19.5). */
+  .dev-detail-tools { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .dev-detail-tools .dev-collapse-all { font-size: 12px; }
+  .dev-pin { font-size: 12px; display: inline-flex; align-items: center; gap: 5px; color: var(--c-text-muted); white-space: nowrap; }
+  .diverge-legend { font-size: 11px; color: var(--c-text-muted); display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; }
+  .diverge-legend .swatch, .diverge-tag { display: inline-block; }
+  .diverge-legend .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--c-border); }
+  .swatch.group, .diverge-tag.group { background: #f0c800; }
+  .swatch.device, .diverge-tag.device { background: #ff8c00; }
+  .diverge-tag { font-size: 10px; color: #000; border-radius: 3px; padding: 0 4px; margin-left: 4px; vertical-align: middle; }
+  tr.dev-diverge-group > td { background: rgba(240, 200, 0, 0.18); }
+  tr.dev-diverge-device > td { background: rgba(255, 140, 0, 0.20); }
+  .panel .ov-edit { display: flex; align-items: center; gap: 6px; }
+  .panel .ov-edit select, .panel .ov-edit textarea.val-edit { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); width: 100%; box-sizing: border-box; resize: vertical; }
+  .panel .ov-edit .ov-revert { font-size: 11px; padding: 1px 6px; white-space: nowrap; flex: 0 0 auto; }
+  /* review-8 #3: fixed-layout, drag-resizable device-panel columns (per dataset). */
+  .panel table.dev-panel-table { table-layout: fixed; }
+  .panel table.dev-panel-table thead th { position: relative; }
+  .panel table.dev-panel-table td { word-break: break-word; overflow-wrap: anywhere; }
+  .panel table.dev-panel-table thead th .col-resize { position: absolute; top: 0; right: -3px; width: 8px; height: 100%; cursor: col-resize; user-select: none; }
+
+  /* Device groups (Phase 10 / §19.4). */
+  .add-group { display: flex; gap: 8px; align-items: center; margin: 8px 0 12px; }
+  .add-group input { font: inherit; padding: 5px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); min-width: 200px; }
+  .dev-group-section { border: 1px solid var(--c-border); border-radius: 8px; margin: 10px 0; padding: 8px 10px; background: var(--c-surface); }
+  .dev-group-section .grp-title { margin: 0 0 6px; font-size: 14px; }
+  .dev-group-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .dev-group-head .grp-name { font: inherit; font-weight: 600; padding: 3px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .grp-members { width: 100%; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+  .grp-member-names { font-size: 12px; }
+  .grp-member-select { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .gov-add { margin-top: 12px; padding: 10px; border: 1px dashed var(--c-border); border-radius: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .gov-add select, .gov-add textarea, .gov-add input { font: inherit; font-size: 13px; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .gov-add .gov-add-key { min-width: 260px; }
+  /* Group deviations tables use the modal's full width; keep values on one line. */
+  .modal-wide .panel table { font-size: 12px; }
+  .modal-wide .panel td .val-edit { min-height: 1.7em; }
+
+  /* Draft restore banner */
+  .restore-banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--c-warn-bg); border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; flex-wrap: wrap; }
+  .restore-banner .spacer { flex: 1; }
+
+  /* TF.8: the folder status chip and its banners. Status is never encoded by colour
+     alone — the chip always carries words, and each banner names its own state. */
+  .folder-chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; border: 1px solid var(--c-undecided-border); white-space: nowrap; }
+  .folder-chip.good { background: var(--c-ok-bg); }
+  .folder-chip.warn { background: var(--c-warn-bg); }
+  .folder-chip.bad  { background: var(--c-error-bg); }
+  .folder-chip.off  { opacity: .75; }
+  .folder-banner { padding: 10px 16px; border-bottom: 1px solid var(--c-undecided-border); font-size: 13px; display: flex; flex-direction: column; gap: 8px; }
+  .folder-banner.info { background: var(--c-ok-bg); }
+  .folder-banner.warn { background: var(--c-warn-bg); }
+  .folder-banner.bad  { background: var(--c-error-bg); }
+  .folder-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .snap-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+  .snap-list li { display: flex; align-items: center; gap: 10px; }
+  .snap-list .snap-when { font-variant-numeric: tabular-nums; min-width: 22ch; }
+  /* TF.6 the read-only gate: reached ONLY when the app would otherwise look like it
+     was saving to a folder it cannot currently write (permission lapsed, stale handle,
+     unreadable project). Never in the ordinary unconnected state. */
+  #app-root.folder-locked .main,
+  #app-root.folder-locked .tabnav { pointer-events: none; opacity: .5; }
+
+  /* review-15: the Help manual — a section strip + one readable column. */
+  .help { max-width: 940px; }
+  .help .help-title { margin: 8px 0 10px; }
+  .help-nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--c-border); }
+  .help-nav-btn { font-size: 13px; padding: 5px 12px; border-radius: 999px; }
+  .help-nav-btn.active { background: var(--c-accent); color: var(--c-accent-text); border-color: var(--c-accent); font-weight: 600; }
+  .help-body h2 { margin: 0 0 12px; font-size: 20px; }
+  .help-body h3 { margin: 22px 0 6px; font-size: 15px; }
+  .help-body p { margin: 6px 0; line-height: 1.55; }
+  .help-body ul, .help-body ol { margin: 6px 0; padding-left: 22px; }
+  .help-body li { margin: 4px 0; line-height: 1.5; }
+  .help-body code { background: var(--c-surface-alt); border: 1px solid var(--c-border); border-radius: 4px; padding: 0 4px; font-size: 12px; }
+  .help-note { margin: 12px 0; padding: 8px 12px; background: var(--c-surface-alt); border-left: 3px solid var(--c-accent); border-radius: 0 6px 6px 0; font-size: 13px; }
+  .help-pre { white-space: pre-wrap; background: var(--c-surface-alt); border: 1px solid var(--c-border); padding: 10px; border-radius: 6px; font-size: 12px; overflow-x: auto; }
+  .help-table { border-collapse: collapse; width: 100%; margin: 8px 0 4px; background: var(--c-surface); font-size: 13px; }
+  .help-table th, .help-table td { border: 1px solid var(--c-border); padding: 6px 10px; text-align: left; vertical-align: top; }
+  .help-table thead th { background: var(--c-surface-alt); font-size: 12px; }
+  .help-table td:first-child { width: 28%; }
+
+  /* Accessibility: visible keyboard focus (colour is never the sole signal). */
+  :focus-visible { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+  .main:focus { outline: none; }
+

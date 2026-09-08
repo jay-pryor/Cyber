@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CH Config Tool</title>
+<!--
+  =============================================================================
+  CH CONFIG TOOL — single-file, offline, file:// hardening configuration manager
+  =============================================================================
+  Built per android-ch-config-tool-build-spec-v1.0.md (normative).
+
+  file:// ENVIRONMENT CONSTRAINTS (do not reintroduce regressions — see spec §3):
+    * NO cross-file ES module imports. This is ONE file of ordered classic
+      <script> IIFEs attaching to a single global `App`. Not type="module".
+    * crypto.subtle may be UNDEFINED on file:// (not a secure context). Hashing
+      uses the VENDORED pure-JS SHA-256 below, never Web Crypto.
+    * fetch()/XHR of local paths is blocked and FORBIDDEN. All input arrives via
+      <input type="file">. No network access of any kind. No telemetry.
+    * Downloads use Blob + URL.createObjectURL + programmatic <a download>.
+      Browsers throttle rapid multiple downloads, so each generator emits exactly
+      ONE .zip.
+    * localStorage origin is unreliable (opaque/null, shared) under file://; it is
+      NEVER canonical state — only an optional, clearly-labelled draft autosave.
+    * Clipboard API may need a gesture/secure context; copy affordances degrade to
+      a selectable textarea.
+
+  DETERMINISM (spec §6 C-6, §8.6, §10.4):
+    * All serialized state + emitted artifacts are byte-stable for identical input.
+    * Timestamps come ONLY from App.util.clock (injectable). No Date.now()/Math.random
+      in engine paths.
+    * ZIP entries use FIXED DOS date/time (1980-01-01) and fixed attribute fields.
+
+  ARCHITECTURE (spec §4): UI shell -> Engine (pure) -> Adapters (pure) -> Util/IO.
+  Dependencies point downward only. Engine + adapters touch NO DOM and do NO I/O.
+
+  LOAD ORDER (spec §14, MUST):
+    types -> util.* -> registry -> projectIo -> store -> diff -> validation ->
+    completeness -> report -> generate -> adapters(android.*) -> platform(android-adb)
+    -> ui.* -> bootstrap
+  =============================================================================
+-->
+<style>

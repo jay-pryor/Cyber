@@ -1,0 +1,369 @@
+  /* VF-8: the format-driven value editors. */
+  select.val-edit { width: 100%; font: inherit; font-size: 13px; padding: 3px 5px; }
+  input.val-number { width: 100%; font: inherit; font-size: 13px; padding: 3px 5px; border: 1px solid var(--c-border);
+              border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  textarea.val-list { font-family: var(--font-mono, monospace); font-size: 12px; }
+  /* FW-1: a JSON value (a firewall rule list) is structure — monospace, and it must not
+     wrap mid-token, or a rule reads as gibberish. */
+  textarea.val-json { font-family: var(--font-mono, monospace); font-size: 12px; white-space: pre; overflow-x: auto; }
+  /* review-12 #2: Delete Mode (mirrors Apply Control Mode) + the shared Undo button. */
+  .toolbar button.active.danger { background: var(--c-error); color: #fff; border-color: var(--c-error); }
+  /* review-14: the parked-relevance view toggles wear their category's colours when on. */
+  .toolbar .rel-view { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border: 1px solid var(--c-border); border-radius: 10px; }
+  .toolbar .rel-view input { margin: 0; }
+  /* REL-8: one chip per PARKED category (currently just IRRELEVANT — REPORT is no longer
+     parked, so its chip is gone along with the rule that skinned it). */
+  .toolbar .rel-view.rel-irrelevant.active { background: var(--c-surface-alt); color: var(--c-text-muted); border-color: var(--c-text-muted); }
+  table.data th.del-col, table.data td.del-cell { text-align: center; width: 84px; }
+
+  table.data { border-collapse: collapse; width: 100%; background: var(--c-surface); font-size: 13px; }
+  table.data th, table.data td { border: 1px solid var(--c-border); padding: 6px 8px; text-align: left; vertical-align: top; }
+  table.data thead th { background: var(--c-surface-alt); position: sticky; top: 0; cursor: pointer; user-select: none; white-space: nowrap; }
+  table.data thead th .arrow { color: var(--c-accent); }
+  /* Resizable, fixed-layout tables (review-2 #4) + wrapping cells (review-2 #3) */
+  table.data.resizable { table-layout: fixed; width: auto; }
+  table.data td { word-break: break-word; overflow-wrap: anywhere; }
+  table.data th.lead-col { width: 34px; }
+  table.data thead th { position: relative; }
+  table.data thead th .col-resize { position: absolute; top: 0; right: -3px; width: 8px; height: 100%; cursor: col-resize; user-select: none; }
+  table.data td.dcell .val-edit { width: 100%; box-sizing: border-box; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.7em; font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  /* review-16 #1: for text-valued datasets an EMPTY box is a real decision ("set this
+     to blank"), so returning an item to undecided needs its own control.
+     review-17 #2: it sits BESIDE the value box, not under it — one row per line. */
+  table.data td.dcell .dec-row { display: flex; align-items: flex-start; gap: 4px; }
+  table.data td.dcell .dec-row .val-edit { flex: 1 1 auto; min-width: 0; }
+  table.data td.dcell .dec-clear { flex: 0 0 auto; align-self: flex-start; margin: 0; font: inherit; font-size: 11px; line-height: 1.5; padding: 0 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface-alt); color: var(--c-text-muted); cursor: pointer; }
+  table.data td.dcell .dec-clear:hover { color: var(--c-error); border-color: var(--c-error); }
+  table.data tbody tr.undecided { border-left: 3px solid var(--c-undecided-border); }
+  table.data tbody tr:nth-child(even) { background: var(--c-surface-alt); }
+  /* review-13 #1: the delete-selection tint must beat the even-row stripe, so it is
+     declared AFTER it and matches both parities explicitly. */
+  table.data tbody tr.del-marked, table.data tbody tr.del-marked:nth-child(even) { background: var(--c-error-bg); }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 10px; border: 1px solid var(--c-border); }
+  .badge.undecided { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
+  .badge.decided { background: var(--c-ok-bg); color: var(--c-ok); border-color: var(--c-ok); }
+  /* HELD-1: "decided, but flagged for review". Deliberately its own colour: it counts as
+     undecided, but it still HOLDS a value, and telling those two apart at a glance is the
+     entire reason the state exists. */
+  .badge.held { background: var(--c-info-bg); color: var(--c-info); border-color: var(--c-info); font-weight: 600; }
+  /* review-17 #3: a status badge that flips the item's decided/undecided state on click. */
+  .badge.flip { cursor: pointer; user-select: none; }
+  .badge.flip:hover { filter: brightness(1.08); text-decoration: underline; }
+  .badge.superseded { background: var(--c-surface-alt); color: var(--c-text-muted); }
+  /* review-12 #3: Security Relevance badges — HIGH red, MEDIUM orange, LOW blue.
+     The table cell uses a <select> wearing the SAME badge skin so the value is both
+     readable at a glance and editable in place (colour is never the sole signal). */
+  .badge.rel-high, select.rel-select.rel-high { background: var(--c-error-bg); color: var(--c-error); border-color: var(--c-error); }
+  .badge.rel-medium, select.rel-select.rel-medium { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
+  .badge.rel-low, select.rel-select.rel-low { background: var(--c-info-bg); color: var(--c-info); border-color: var(--c-info); }
+  /* review-14 / REL-7: REPORT purple, IRRELEVANT grey. */
+  .badge.rel-report, select.rel-select.rel-report { background: var(--c-purple-bg); color: var(--c-purple); border-color: var(--c-purple); }
+  .badge.rel-irrelevant, select.rel-select.rel-irrelevant { background: var(--c-surface-alt); color: var(--c-text-muted); border-color: var(--c-border); }
+  select.rel-select { font: inherit; font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text-muted); max-width: 100%; }
+  /* review-12 #1: per-device control satisfaction. */
+  .badge.satisfied { background: var(--c-ok-bg); color: var(--c-ok); border-color: var(--c-ok); }
+  .badge.unsatisfied { background: var(--c-error-bg); color: var(--c-error); border-color: var(--c-error); }
+  /* EXC-1: an exception is a DECIDED state, so it is not painted as an error — but it
+     is not a clean pass either, and warning colour is what says that at a glance. */
+  .badge.exception { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-warn); }
+
+  /* Activity / Errors drawer */
+  .drawer { border-top: 1px solid var(--c-border); background: var(--c-surface); max-height: 30vh; display: flex; flex-direction: column; }
+  .drawer .drawer-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border); }
+  .drawer .drawer-head .title { font-weight: 600; }
+  .drawer .log { overflow: auto; padding: var(--sp-2) var(--sp-4); font-family: var(--mono); font-size: 12px; }
+  .drawer .log .entry { padding: 2px 0; border-bottom: 1px solid var(--c-surface-alt); }
+  .drawer .log .error { color: var(--c-error); }
+  .drawer .log .warning { color: var(--c-warn); }
+  .drawer .log .info, .drawer .log .success { color: var(--c-text); }
+  .drawer.collapsed .log { display: none; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  /* Inline decision editors */
+  table.data td.dcell select, table.data td.dcell input, table.data td input.edit { font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); }
+  table.data td.dcell select { margin-right: 4px; }
+  table.data td.dcell.invalid { background: var(--c-error-bg); }
+  table.data .expand-btn { border: none; background: transparent; padding: 0 4px; cursor: pointer; color: var(--c-text-muted); }
+  table.data tr.detail-row > td { background: var(--c-surface-alt); }
+  .detail-form { display: grid; grid-template-columns: 120px 1fr; gap: 6px 12px; align-items: start; padding: 6px 2px; max-width: 900px; }
+  .detail-form label { font-size: 12px; color: var(--c-text-muted); padding-top: 4px; }
+  .detail-form input, .detail-form textarea { font: inherit; font-size: 13px; width: 100%; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; }
+  .detail-form textarea { min-height: 42px; resize: vertical; }
+  .detail-form .rationale-cell { display: flex; gap: 8px; align-items: flex-start; }
+  .detail-form .rationale-cell textarea { flex: 1; }
+  .detail-form .rationale-cell button { white-space: nowrap; flex: 0 0 auto; }
+  /* CUS-2: the rename box for a hand-authored item. */
+  .detail-form .rename-cell { display: flex; flex-direction: column; gap: 3px; }
+  .detail-form .rename-cell .rename-hint { font-size: 11px; }
+  .detail-issues { grid-column: 1 / -1; }
+  .detail-issues .issue { font-size: 12px; padding: 2px 0; }
+  .detail-issues .issue.error { color: var(--c-error); }
+  .detail-issues .issue.warning { color: var(--c-warn); }
+
+  /* Generate tab */
+  .gen-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .gen-card { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-surface); padding: 16px; min-width: 220px; }
+  .gen-card h3 { margin: 0 0 6px; font-size: 15px; }
+  .gen-card .why { color: var(--c-warn); font-size: 12px; min-height: 16px; }
+  .gen-ready { color: var(--c-ok); font-weight: 600; }
+  .gen-blocked { color: var(--c-warn); font-weight: 600; }
+  /* v1.3 per-command options (spec §20.8). */
+  .gen-card { min-width: 260px; }
+  .gen-options-toggle { font-size: 12px; }
+  .gen-options { margin-top: 10px; border-top: 1px solid var(--c-border); padding-top: 8px; }
+  .gen-opt-grp { margin-bottom: 8px; }
+  .gen-opt-grp > strong { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 3px; }
+  .gen-opt-sub { margin: 2px 0 2px 10px; font-size: 12px; }
+  .gen-opt-sub > em { color: var(--c-text-muted); margin-right: 6px; }
+  .gen-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; margin: 1px 10px 1px 0; }
+
+  /* PRO-2: the Procedure report's running-order editor. The card it sits in is wider
+     than the other four, because a list of steps you are meant to READ as an order
+     cannot be squeezed into a 260px column. */
+  .gen-card.wide { flex-basis: 100%; }
+  /* PRO-2 built this skin for the Procedure running order; RPT-3 reuses it verbatim for
+     the report's section order, so the two orderable lists in the app look and behave
+     alike. The `ord-` selectors are the shared skin; the `proc-` ones stay for the
+     procedure-specific rows (notes, hints) that only that list has. */
+  .proc-order-note, .ord-note { font-size: 12px; margin-bottom: 6px; }
+  .proc-list, .ord-list { list-style: none; margin: 0; padding: 0; counter-reset: none; }
+  .proc-step, .ord-step { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--c-border);
+               border-radius: 6px; background: var(--c-surface); margin-bottom: 6px; cursor: grab; }
+  .proc-step.dragging, .ord-step.dragging { opacity: .45; }
+  .proc-step.drop-target, .ord-step.drop-target { border-color: var(--c-accent, var(--c-info)); box-shadow: inset 0 2px 0 var(--c-info); }
+  .proc-step.off, .ord-step.off { opacity: .55; background: var(--c-surface-alt); }
+  .proc-num, .ord-num { min-width: 22px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--c-text-muted); padding-top: 2px; }
+  .proc-inc, .ord-inc { padding-top: 3px; }
+  .proc-body, .ord-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .proc-label, .ord-label { font-weight: 600; font-size: 13px; word-break: break-word; }
+  .proc-sub { font-size: 11px; }
+  .proc-hint { font-size: 11px; }
+  .proc-note { font: inherit; font-size: 12px; width: 100%; padding: 4px 6px; border: 1px solid var(--c-border);
+               border-radius: 4px; background: var(--c-surface); color: var(--c-text); resize: vertical; }
+  .proc-move, .ord-move { display: flex; flex-direction: column; gap: 2px; }
+  .proc-move button, .ord-move button { font-size: 11px; line-height: 1; padding: 3px 6px; }
+
+  /* NOTE-1: the General Platform Notes page (Devices → Notes). */
+  .notes-view { max-width: 980px; }
+  .notes-dot { color: var(--c-info); font-weight: 700; }
+  .note-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0 4px; }
+  .note-fact { display: flex; flex-direction: column; font-size: 13px; }
+  .note-fact-label { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .note-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; }
+  .note-toolbar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 6px 8px;
+                  border: 1px solid var(--c-border); border-bottom: none; border-radius: 6px 6px 0 0; background: var(--c-surface-alt); }
+  .note-toolbar button { min-width: 30px; font-size: 12px; }
+  .note-toolbar .spacer { flex: 1 1 auto; }
+  .note-status { font-size: 11px; }
+  /* A writing surface, so it is sized like one: tall enough to invite more than a line. */
+  .note-editor { min-height: 320px; padding: 12px 14px; border: 1px solid var(--c-border); border-radius: 0 0 6px 6px;
+                 background: var(--c-surface); color: var(--c-text); font-size: 14px; line-height: 1.5; overflow-wrap: break-word; }
+  .note-editor:focus { outline: 2px solid var(--c-info); outline-offset: -2px; }
+  .note-editor:empty::before { content: 'Start typing — bold, italics, bullets and headings all work.'; color: var(--c-text-muted); }
+  .note-editor h3 { font-size: 15px; margin: 12px 0 4px; }
+  .note-editor h4 { font-size: 13px; margin: 10px 0 4px; }
+  .note-editor p { margin: 0 0 8px; }
+  .note-editor ul, .note-editor ol { margin: 0 0 8px; padding-left: 24px; }
+  .note-editor li { margin: 2px 0; }
+  .note-editor code, .note-editor pre { font-family: var(--mono); font-size: 12px; background: var(--c-surface-alt); }
+  .note-editor blockquote { margin: 0 0 8px; padding-left: 10px; border-left: 3px solid var(--c-border); color: var(--c-text-muted); }
+
+  /* Devices tab */
+  .dev-group { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-surface); margin-bottom: 12px; overflow: hidden; }
+  .dev-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--c-surface-alt); flex-wrap: wrap; }
+  .dev-row:last-child { border-bottom: none; }
+  .dev-row.superseded { background: var(--c-surface-alt); color: var(--c-text-muted); padding-left: 28px; }
+  .dev-row .dev-name { font-weight: 600; }
+  .dev-row .dev-meta { color: var(--c-text-muted); font-size: 12px; }
+  .dev-row .counts { font-size: 12px; color: var(--c-text-muted); }
+  .dev-row .spacer { flex: 1; }
+  .dev-detail-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .superseded-banner { background: var(--c-warn-bg); border: 1px solid var(--c-undecided-border); color: var(--c-warn); padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; }
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+  .panel { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-surface); display: flex; flex-direction: column; }
+  .panel > h3 { margin: 0; padding: 8px 12px; background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border); font-size: 14px; }
+  .panel .panel-note { padding: 4px 12px; font-size: 12px; color: var(--c-text-muted); border-bottom: 1px solid var(--c-surface-alt); }
+  .panel table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .panel th, .panel td { border-bottom: 1px solid var(--c-surface-alt); padding: 4px 8px; text-align: left; vertical-align: top; }
+  .panel .empty { padding: 10px 12px; color: var(--c-text-muted); }
+  /* CTLM-1: a grid item's min-width is `auto` — i.e. its MIN-CONTENT width — so one long
+     unbreakable package key (`com.vendor.something.verylong`) widened the track and pushed
+     the panel out from under its own column, which is what made Packages disappear behind
+     Tactical in the control modal. `min-width:0` lets the track shrink, fixed layout stops
+     the table sizing itself from its content, and the keys wrap instead of overflowing. */
+  .panels > .panel { min-width: 0; }
+  .panel table.ctl-items { table-layout: fixed; }
+  .panel table.ctl-items th:first-child, .panel table.ctl-items td:first-child { width: 58%; }
+  .panel table.ctl-items td { word-break: break-word; overflow-wrap: anywhere; }
+
+  /* Set-decisions-from-files section (Devices view) */
+  .assign-section { margin-top: 16px; border-top: 1px solid var(--c-border); padding-top: 12px; }
+  .assign-section h3 { margin: 0 0 4px; font-size: 15px; }
+  .assign-block { border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); padding: 10px; margin: 8px 0; max-width: 760px; }
+  .assign-result { margin-top: 6px; font-size: 12px; font-family: var(--mono); }
+  .assign-result .error { color: var(--c-error); }
+  .assign-result .success, .assign-result .info { color: var(--c-ok); }
+
+  /* Control Manager */
+  .ctl-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 16px; padding: 10px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
+  .ctl-add input, .ctl-add select, .ctl-row input, .ctl-row select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .ctl-row { border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); padding: 10px; margin-bottom: 8px; }
+  .ctl-line { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  /* CMD-1: the "Applies to" device checkboxes in the Control Manager's row expander.
+     `.detail-form input { width: 100% }` matched these boxes too, and a checkbox stretched
+     to 100% of an inline-flex label leaves the label's own text no width at all — so a
+     device called "TA5" came out one character per row. Same fix the control multiselect
+     already carries (review-9 #2): the box keeps its natural size and the name stays on
+     one line. The names then flow as a wrapping row, several per line. */
+  .ctl-devices { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .ctl-dev-opt { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; }
+  .ctl-devices input[type="checkbox"] { flex: 0 0 auto; width: auto; height: auto; margin: 0; padding: 0; }
+  .ctl-header { display: flex; justify-content: space-between; align-items: center; gap: 12px 24px; flex-wrap: wrap; }
+  .ctl-header h2 { margin: 8px 0; }
+  .ctl-tools { display: flex; gap: 12px; flex-wrap: wrap; margin: 0; }
+  .ctl-add-type, .ctl-import { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); }
+  .ctl-add-type input { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .ctl-desc { display: block; width: 100%; box-sizing: border-box; margin-top: 6px; min-height: 46px; resize: vertical; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .dev-search { width: 100%; max-width: 520px; font: inherit; padding: 6px 8px; margin: 8px 0; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
+
+  /* Control Manager table (review-4 #4): searchable table + per-row expander. */
+  .ctl-toolbar { margin: 8px 0; }
+  /* review-13 #4: the "Device columns" picker + the per-device checkbox columns. */
+  .cm-devbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; padding: 6px 8px; background: var(--c-surface-alt); border: 1px solid var(--c-border); border-radius: var(--radius); }
+  .cm-devbar .cm-devbar-label { font-size: 12px; font-weight: 600; }
+  .cm-devbar .cm-devcol-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+  .cm-devbar button { padding: 2px 8px; font-size: 12px; }
+  table.ctl-table th.cm-dev-col, table.ctl-table td.cm-dev-cell { text-align: center; }
+  /* BULK-2: padding:0 lets .cell-check cover the whole cell (see the data-table rule). The
+     generic `table.ctl-table input{width:100%}` would stretch the box, so pin it back. */
+  table.ctl-table td.cm-dev-cell { padding: 0; }
+  table.ctl-table td.cm-dev-cell input { width: 16px; }
+  .ctl-search { width: 100%; max-width: 420px; font: inherit; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
+  table.ctl-table th, table.ctl-table td { vertical-align: top; }
+  table.ctl-table td input[type="text"], table.ctl-table td select { font: inherit; font-size: 13px; width: 100%; box-sizing: border-box; padding: 3px 5px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  table.ctl-table .ctl-applies-cell { font-size: 12px; color: var(--c-text-muted); }
+  table.ctl-table .ctl-desc-cell { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+  .ctl-detail-actions { padding-top: 2px; }
+  button.danger { border-color: var(--c-undecided-border); }
+
+  /* Control-refs multi-select (review-5 #2): searchable checkbox list. */
+  .control-multiselect { border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); padding: 6px; max-width: 520px; }
+  .control-multiselect .ctl-opt-search { width: 100%; box-sizing: border-box; font: inherit; font-size: 12px; padding: 4px 6px; margin-bottom: 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .control-multiselect .ctl-opts { max-height: 180px; overflow-y: auto; overflow-x: auto; }
+  /* review-6 #5: keep the checkbox at the LEFT and the control name on ONE line. */
+  .control-multiselect .ctl-opt { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 0; cursor: pointer; white-space: nowrap; }
+  /* review-9 #2: keep the checkbox its natural size (the .detail-form input{width:100%}
+     rule would otherwise stretch it, pushing the control name off-screen). */
+  .control-multiselect .ctl-opt input[type="checkbox"] { flex: 0 0 auto; width: auto; margin: 0; padding: 0; }
+  .control-multiselect .ctl-opt span { white-space: nowrap; }
+  .control-multiselect .ctl-opt-count { margin-top: 4px; }
+
+  /* Collapsible device panels (review-5 #1). */
+  .panel > h3 .panel-toggle { background: none; border: none; cursor: pointer; color: inherit; font: inherit; font-size: 14px; display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; text-align: left; }
+  .panel.collapsed .panel-note, .panel.collapsed table, .panel.collapsed .empty { display: none; }
+
+  /* Per-device control list + the "actions for this control" modal (review-5 #1). */
+  .dev-controls { margin-top: 16px; }
+  .dev-controls h3 { margin: 0 0 6px; font-size: 15px; }
+  .ctl-applies-list { display: flex; flex-direction: column; gap: 6px; max-width: 760px; }
+  .ctl-applies-item { display: flex; align-items: center; gap: 10px; text-align: left; width: 100%; padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 6px; background: var(--c-surface); color: var(--c-text); font: inherit; cursor: pointer; }
+  .ctl-applies-item:hover { background: var(--c-surface-alt); }
+  .ctl-applies-item .ctl-applies-title { font-weight: 600; }
+  .ctl-applies-item .ctl-applies-count { margin-left: auto; color: var(--c-text-muted); font-size: 12px; }
+  /* review-12 #1: each assigned control carries a per-device Satisfied/Unsatisfied
+     state, shown beside the control button (which is what opens the control).
+     REV-1: the row used to carry a second "Review…" button as well — the same
+     destination as the control button next to it, so it was one button too many. */
+  .ctl-applies-row { display: flex; align-items: center; gap: 8px; }
+  .ctl-applies-row .ctl-applies-item { flex: 1; }
+  /* REV-2: the state badges sit in their own holder, sized to CONTENT. The justification
+     used to sit here too, and since it is free prose the button beside it shrank by
+     however much had been written. Removing it gives that space back to the button —
+     which is the point: the button is the target you click, so it should never lose width
+     to something that is only being displayed. Reserving a fixed width here would take
+     the space back off the button again, so it does not. */
+  .ctl-applies-row .ctl-applies-state { flex: 0 0 auto; display: flex; align-items: center; gap: 6px; }
+  .dev-row .dev-unsat { margin-left: 4px; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+  .modal { background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 10px; max-width: 900px; width: 100%; max-height: 86vh; display: flex; flex-direction: column; box-shadow: 0 10px 40px rgba(0,0,0,0.35); }
+  /* review-6 #2: a near-full-screen modal for the group deviations editor. */
+  .modal.modal-wide { max-width: 96vw; width: 96vw; max-height: 92vh; }
+  .modal-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--c-border); }
+  .modal-head h3 { margin: 0; font-size: 16px; }
+  .modal-head .modal-sub { color: var(--c-text-muted); font-size: 12px; }
+  .modal-close { margin-left: auto; background: none; border: none; font-size: 22px; line-height: 1; cursor: pointer; color: var(--c-text); padding: 0 4px; }
+  .modal-body { padding: 14px 16px; overflow-y: auto; }
+  /* RPT-4: the Report options WORKSPACE. A full-screen modal rather than a dropdown,
+     because section order + per-section inclusion + filters do not fit in a card, and
+     because this panel is meant to grow (see SIDE_PANES in App.ui.views.generate). */
+  .modal-overlay.overlay-full { padding: 0; }
+  .modal.modal-full { max-width: none; width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; border: 0; }
+  .modal-full .modal-body { flex: 1 1 auto; min-height: 0; }
+  .modal-foot { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--c-border); background: var(--c-surface-alt); flex-wrap: wrap; }
+  .modal-foot .spacer { flex: 1 1 auto; }
+  .modal-foot .foot-summary { font-size: 12px; color: var(--c-text-muted); }
+  .rpt-body { display: flex; gap: 16px; align-items: flex-start; }
+  .rpt-pane { border: 1px solid var(--c-border); border-radius: 8px; background: var(--c-surface); padding: 10px 12px; }
+  .rpt-pane > h4 { margin: 0 0 3px; font-size: 13px; }
+  .rpt-pane > .rpt-note { font-size: 12px; margin: 0 0 8px; }
+  .rpt-pane-main { flex: 1 1 auto; min-width: 0; }
+  .rpt-pane-side { flex: 0 0 340px; display: flex; flex-direction: column; gap: 12px; }
+  .rpt-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 1px 8px; font-size: 12px; }
+  .rpt-sub > em { color: var(--c-text-muted); margin-right: 2px; }
+  .rpt-rel { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; }
+  .rpt-rel .badge { flex: 0 0 auto; }
+  .rpt-rel .rpt-rel-count { margin-left: auto; color: var(--c-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rpt-omit { font-size: 12px; margin: 8px 0 0; }
+  .save-name-input { flex: 1; font: inherit; padding: 6px 8px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); color: var(--c-text); }
+
+  /* ==== v2.2 REPORT DESIGN (RD-1..RD-7) ==========================================
+     The section list on the left keeps a fixed share of the width and the pane stack
+     on the right takes the rest: the list is the spine of the document and must stay
+     legible while a forty-field formatting pane is open beside it. Both scroll on
+     their own, so opening a long section never scrolls the list away. */
+  .rd-layout { height: 100%; align-items: stretch; }
+  .rd-layout > .rpt-pane-main { flex: 0 0 42%; max-width: 560px; display: flex; flex-direction: column; min-height: 0; }
+  .rd-layout > .rpt-pane-main > #rd-order-host { overflow-y: auto; flex: 1 1 auto; min-height: 0; }
+  .rd-right { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  .rd-tabs { display: flex; gap: 2px; flex-wrap: wrap; margin-bottom: 8px; }
+  .rd-tab { font: inherit; font-size: 12px; padding: 5px 12px; border: 1px solid var(--c-border); border-radius: 6px 6px 0 0; background: var(--c-surface-alt); color: var(--c-text); cursor: pointer; }
+  .rd-tab.on { background: var(--c-surface); border-bottom-color: var(--c-surface); font-weight: 600; }
+  .rd-pane { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  .rd-pane h5 { margin: 0 0 6px; font-size: 13px; }
+
+  .rd-addbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .rd-addbar .spacer { flex: 1 1 auto; }
+  .rd-hint { font-size: 12px; margin: 6px 0 0; }
+  .rd-err { color: var(--c-danger, #b00); font-size: 13px; }
+
+  /* A section row: number · include · label · level · move. The level box is the one
+     new control, and it sits hard against the move buttons so the eye reads
+     "what it is" then "how it is set" then "where it goes". */
+  .rd-row .rd-open { font: inherit; background: none; border: 0; padding: 0; color: var(--c-text); cursor: pointer; text-align: left; text-decoration: underline dotted; }
+  .rd-row.sel { outline: 2px solid var(--c-accent); outline-offset: -2px; border-radius: 6px; }
+  .rd-row .rd-meta { display: flex; gap: 6px; align-items: center; margin-left: 8px; }
+  .rd-kind { font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--c-text-muted); border: 1px solid var(--c-border); border-radius: 3px; padding: 0 4px; }
+  .rd-kind-custom { color: var(--c-accent); border-color: var(--c-accent); }
+  .rd-warn { font-size: 11px; color: var(--c-warn); white-space: nowrap; }
+  .rd-level { font: inherit; font-size: 11px; padding: 2px 4px; flex: 0 0 auto; background: var(--c-surface); color: var(--c-text); border: 1px solid var(--c-border); border-radius: 4px; }
+
+  .rd-lab { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--c-text-muted); }
+  .rd-lab input, .rd-lab select { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-surface); color: var(--c-text); }
+  .rd-lab-s { min-width: 0; }
+  .rd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-top: 6px; }
+  /* A colour well and its "no shade" button belong side by side, not in two grid
+     columns of equal width — the button is the size of its own words. */
+  .rd-grid-inline { display: flex; align-items: flex-end; gap: 8px; }
+  .rd-fieldset { border: 1px solid var(--c-border); border-radius: 6px; padding: 8px 10px; margin: 10px 0; }
+  .rd-fieldset > strong { display: block; font-size: 12px; margin-bottom: 4px; }
+  .rd-fieldset p.muted { font-size: 12px; margin: 0 0 6px; }
+  .rd-locked { font-size: 12px; border: 1px solid var(--c-undecided-border, var(--c-border)); background: var(--c-warn-bg); color: var(--c-text); border-left-width: 4px; border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+  .rd-fmt-head { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .rd-fmt-head .spacer { flex: 1 1 auto; }
+  .rd-fmt-body { border: 0; padding: 0; margin: 0; min-width: 0; }
+  .rd-fmt-body[disabled] { opacity: 0.55; }
+  .rd-lvl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+  .rd-lvl th, .rd-lvl td { border: 1px solid var(--c-border); padding: 2px 4px; text-align: left; }
+  .rd-tiny { width: 100%; min-width: 42px; font: inherit; font-size: 12px; padding: 1px 3px; border: 1px solid var(--c-border); border-radius: 3px; background: var(--c-surface); color: var(--c-text); }
+

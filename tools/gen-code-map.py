@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Regenerate the code map in CLAUDE.md from ch-config-tool.html.
+"""Regenerate the code map in CLAUDE.md from the built tool + src/.
 
-The tool is one ~1 MB HTML file. Reading it whole costs ~250k tokens, so CLAUDE.md
-carries a map instead: every module, its line range, its purpose and its exported
-surface. This script produces that map so it cannot drift from the file.
+The tool is assembled from ~150 source files under src/. CLAUDE.md carries a map so a
+session can find the ONE file it needs to open: every module, the source file (or
+directory) it lives in, its purpose and its exported surface.
+
+Content is read from the built ch-config-tool.html — that is where the banners and
+export literals are already parsed correctly — and every line is then mapped back to
+the source file it came from by replaying src/build.json.
 
 Usage:
     python3 tools/gen-code-map.py            # rewrite the map in CLAUDE.md
@@ -15,6 +19,8 @@ outside those markers is hand-written and is never touched.
 """
 
 import argparse
+import bisect
+import json
 import re
 import sys
 from pathlib import Path
@@ -22,6 +28,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "ch-config-tool.html"
 TARGET = ROOT / "CLAUDE.md"
+SRC = ROOT / "src"
+MANIFEST = SRC / "build.json"
 
 BEGIN = "<!-- BEGIN GENERATED CODE MAP -->"
 END = "<!-- END GENERATED CODE MAP -->"
@@ -44,6 +52,64 @@ def read_lines():
     if not SOURCE.exists():
         sys.exit(f"error: {SOURCE} not found")
     return SOURCE.read_text(encoding="utf-8").split("\n")
+
+
+def source_spans():
+    """Replay the build to learn which source file every built line came from.
+
+    Returns a list of (first_line, last_line, path), 1-indexed and in file order —
+    the bridge that lets a map built from the assembled file point at src/.
+    """
+    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    spans, line = [], 1
+
+    def take(path):
+        nonlocal line
+        n = len((SRC / path).read_text(encoding="utf-8").splitlines())
+        spans.append((line, line + n - 1, path))
+        line += n
+
+    for part in manifest["parts"]:
+        if part["type"] == "raw":
+            take(part["path"])
+        elif part["type"] == "files":
+            for path in part["paths"]:
+                take(path)
+        elif part["type"] == "script":
+            line += 1                      # the <script> tag
+            for path in part["paths"]:
+                take(path)
+            line += 1                      # the </script> tag
+            line += part["gap"].count("\n")
+    return spans
+
+
+def path_at(spans, target):
+    """The source path containing built-file line `target`, and the line within it."""
+    i = bisect.bisect_right([s[0] for s in spans], target) - 1
+    if i < 0:
+        return None, 0
+    first, last, path = spans[i]
+    if target > last:
+        return None, 0
+    return path, target - first + 1
+
+
+def paths_for(spans, start, end):
+    """Every source path overlapping the built-file range [start, end]."""
+    return [p for first, last, p in spans if first <= end and last >= start]
+
+
+def describe(paths):
+    """Render a module's source location: one file, or a directory and its count."""
+    if not paths:
+        return "—"
+    if len(paths) == 1:
+        return f"`src/{paths[0]}`"
+    parents = {p.rsplit("/", 1)[0] for p in paths if "/" in p}
+    if len(parents) == 1:
+        return f"`src/{parents.pop()}/` ({len(paths)} files)"
+    return ", ".join(f"`src/{p}`" for p in paths)
 
 
 def script_blocks(lines):
@@ -111,7 +177,7 @@ def collapse(text, limit=150):
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-def collect(lines):
+def collect(lines, spans):
     """Walk the file once and return (modules, test_blocks, style_range)."""
     modules, tests = [], []
 
@@ -152,6 +218,7 @@ def collect(lines):
                     "depends": collapse(fields.get("DEPENDS", ""), 80),
                     "export": export_path,
                     "keys": keys,
+                    "sources": paths_for(spans, start, end),
                 }
             )
             continue
@@ -165,7 +232,11 @@ def collect(lines):
                 section = banner.group(1)
                 continue
             for name in RE_SUITE.findall(lines[i]):
-                suites.append({"line": i + 1, "name": name, "section": section})
+                path, at = path_at(spans, i + 1)
+                suites.append(
+                    {"line": i + 1, "name": name, "section": section,
+                     "path": path, "at": at}
+                )
         if suites:
             title = None
             for back in range(start - 1, max(start - 4, 0), -1):
@@ -178,40 +249,42 @@ def collect(lines):
                     "start": start,
                     "end": end,
                     "suites": suites,
+                    "sources": paths_for(spans, start, end),
                 }
             )
 
     return modules, tests, (style_start, style_end)
 
 
-def render(lines, modules, tests, style):
-    total = len(lines)
+def render(spans, modules, tests, style):
+    total = len({p for _, _, p in spans})
     out = []
     out.append(BEGIN)
     out.append("")
     out.append(
-        f"_Generated by `tools/gen-code-map.py` from `ch-config-tool.html` "
-        f"({total:,} lines). Do not edit by hand — re-run the script._"
+        f"_Generated by `tools/gen-code-map.py` from `src/` ({total} source files). "
+        f"Do not edit by hand — re-run the script._"
     )
     out.append("")
 
     style_start, style_end = style
     if style_start:
+        sheets = [p for p in paths_for(spans, style_start, style_end) if p.startswith("style/")]
         out.append(
-            f"**Stylesheet:** lines {style_start}–{style_end} "
-            f"({style_end - style_start:,} lines). "
-            f"Embedded binary assets are parked at the end of it, immediately before `</style>`."
+            f"**Stylesheet:** `src/style/` ({len(sheets)} files). The embedded brand logo is "
+            f"parked alone in `src/style/{sheets[-1].split('/')[-1]}` — a single ~19 KB base64 "
+            f"line, never worth opening."
         )
         out.append("")
 
     out.append(f"### Modules ({len(modules)})")
     out.append("")
-    out.append("| Lines | Module | Purpose |")
+    out.append("| Source | Module | Purpose |")
     out.append("|---|---|---|")
     for mod in modules:
         label = mod["name"] + (f" — {mod['note']}" if mod["note"] else "")
         out.append(
-            f"| `{mod['start']}–{mod['end']}` | **{label}** | {mod['purpose'] or '—'} |"
+            f"| {describe(mod['sources'])} | **{label}** | {mod['purpose'] or '—'} |"
         )
     out.append("")
 
@@ -228,11 +301,11 @@ def render(lines, modules, tests, style):
     out.append(f"### Self-test blocks ({len(tests)} blocks, {total_suites} suites)")
     out.append("")
     out.append(
-        "Tests are roughly a third of the file. Skip them unless the task is about a test."
+        "Tests are roughly a third of the code. Skip them unless the task is about a test."
     )
     out.append("")
     for block in tests:
-        out.append(f"**{block['title']}** — lines `{block['start']}–{block['end']}`")
+        out.append(f"**{block['title']}** — {describe(block['sources'])}")
         out.append("")
         section = object()  # sentinel: never equal to a real section
         for suite in block["suites"]:
@@ -241,7 +314,15 @@ def render(lines, modules, tests, style):
                 if section:
                     out.append(f"- _{section}_")
             indent = "  " if suite["section"] else ""
-            out.append(f"{indent}- `{suite['line']}` {suite['name']}")
+            # The block header already names a single-file block; repeating the
+            # filename on every suite would be noise, so show just the line there.
+            if not suite["path"]:
+                where = "?"
+            elif len(block["sources"]) == 1:
+                where = f"line {suite['at']}"
+            else:
+                where = f"{suite['path'].split('/')[-1]}:{suite['at']}"
+            out.append(f"{indent}- `{where}` {suite['name']}")
         out.append("")
 
     out.append(END)
@@ -266,8 +347,9 @@ def main():
     args = parser.parse_args()
 
     lines = read_lines()
-    modules, tests, style = collect(lines)
-    block = render(lines, modules, tests, style)
+    spans = source_spans()
+    modules, tests, style = collect(lines, spans)
+    block = render(spans, modules, tests, style)
 
     if args.stdout:
         print(block)

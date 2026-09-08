@@ -1,11 +1,24 @@
 #!/bin/sh
-# Keep the CLAUDE.md code map honest: a commit that changes ch-config-tool.html
-# must carry the regenerated map, or the line ranges lie to the next session.
+# ch-config-tool.html is BUILT from src/. A commit must carry a built file that matches
+# its sources, and a code map that matches both — otherwise the next session reads a map
+# that lies, or ships a deliverable that is not what the source says.
 #
 # Enable once per clone:  git config core.hooksPath .githooks
 
-if ! git diff --cached --name-only | grep -q '^ch-config-tool\.html$'; then
+if ! git diff --cached --name-only | grep -qE '^(src/|ch-config-tool\.html$|tools/)'; then
   exit 0
+fi
+
+# The cap and orphan rules are hard failures: they mean a source file is over 500 lines
+# without an exemption, or is not wired into build.json at all. Neither is fixable by
+# rebuilding, so refuse the commit and say why.
+if ! python3 tools/build.py --check >/dev/null 2>&1; then
+  if ! python3 tools/build.py; then
+    echo "pre-commit: the build failed — see the errors above. Commit refused." >&2
+    exit 1
+  fi
+  git add ch-config-tool.html
+  echo "pre-commit: rebuilt ch-config-tool.html from src/ and staged it."
 fi
 
 if ! python3 tools/gen-code-map.py --check >/dev/null 2>&1; then

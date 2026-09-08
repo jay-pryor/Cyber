@@ -1,0 +1,380 @@
+  /* ---------------------------------------------------------------------------
+     Inline design system (spec §11): CSS custom properties, neutral high-contrast
+     print-friendly palette, no external fonts/CDNs.
+     --------------------------------------------------------------------------- */
+  :root {
+    --c-bg: #f5f6f8;
+    --c-surface: #ffffff;
+    --c-surface-alt: #f0f2f5;
+    --c-border: #d4d8de;
+    --c-text: #1d2330;
+    --c-text-muted: #5b6472;
+    --c-accent: #1f5fb0;
+    --c-accent-text: #ffffff;
+    --c-ok: #1d7a46;
+    --c-warn: #9a6700;
+    --c-error: #b3261e;
+    --c-undecided-border: #d99100;
+    --c-badge-bg: #e7ecf3;
+    /* Status tint backgrounds as variables so the dark theme overrides VARIABLES
+       only (spec §18.1 DM-1) — no per-component restyle. */
+    --c-ok-bg: #e7f5ec;
+    --c-warn-bg: #fff5e0;
+    --c-error-bg: #fdecea;
+    /* review-12: a distinct informational (blue) tint for the LOW relevance badge. */
+    --c-info: #1f5fb0;
+    --c-info-bg: #e7eefa;
+    /* review-14: purple = REPORT (IRRELEVANT reuses the muted/alt greys). */
+    --c-purple: #6b3fa0;
+    --c-purple-bg: #f1eafa;
+    --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;  --sp-5: 24px;
+    --radius: 6px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  /* Dark theme (spec §18.1): re-defines palette VARIABLES only; applied via the
+     data-theme="dark" attribute on <html>. UI-only — never affects generated output. */
+  :root[data-theme="dark"] {
+    --c-bg: #14171c;
+    --c-surface: #1d222b;
+    --c-surface-alt: #262c37;
+    --c-border: #3a414d;
+    --c-text: #e6e9ee;
+    --c-text-muted: #9aa4b2;
+    --c-accent: #4f9bff;
+    --c-accent-text: #0b1220;
+    --c-ok: #4ec98a;
+    --c-warn: #e0a64b;
+    --c-error: #ff6b61;
+    --c-undecided-border: #e0a64b;
+    --c-badge-bg: #2a313c;
+    --c-ok-bg: #16301f;
+    --c-warn-bg: #3a2e16;
+    --c-error-bg: #3a1f1d;
+    --c-info: #4f9bff;
+    --c-info-bg: #16233a;
+    --c-purple: #c39bf5;
+    --c-purple-bg: #2b2140;
+  }
+  html { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font);
+    color: var(--c-text);
+    background: var(--c-bg);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  code, pre, .mono { font-family: var(--mono); }
+  button {
+    font: inherit; cursor: pointer; border: 1px solid var(--c-border);
+    background: var(--c-surface); color: var(--c-text);
+    padding: var(--sp-2) var(--sp-3); border-radius: var(--radius);
+  }
+  button:hover:not(:disabled) { background: var(--c-surface-alt); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { background: var(--c-accent); color: var(--c-accent-text); border-color: var(--c-accent); }
+  button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+  a { color: var(--c-accent); }
+
+  /* Self-test panel */
+  #selftest-root { padding: var(--sp-4); }
+  .st-suite { margin-bottom: var(--sp-4); border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); }
+  .st-suite > h3 { margin: 0; padding: var(--sp-2) var(--sp-3); background: var(--c-surface-alt); border-bottom: 1px solid var(--c-border); font-size: 14px; }
+  .st-test { padding: var(--sp-1) var(--sp-3); border-bottom: 1px solid var(--c-surface-alt); font-family: var(--mono); font-size: 12px; }
+  .st-pass { color: var(--c-ok); }
+  .st-fail { color: var(--c-error); }
+  .st-diff { white-space: pre-wrap; color: var(--c-error); margin: var(--sp-1) 0 var(--sp-1) var(--sp-4); }
+  .st-summary { font-weight: 600; padding: var(--sp-2) var(--sp-3); }
+
+  /* App chrome */
+  /* SP-4: the app is a fixed-height shell whose MAIN area is the scroll region.
+     This was previously `min-height:100vh`, which let #app-root grow with its content
+     so the BODY scrolled and `.main{overflow:auto}` never actually scrolled. That
+     combination silently breaks `position:sticky` inside .main: an overflow:auto
+     ancestor becomes the nearest scrollport for sticky even when it never scrolls, so
+     the tools rail was pinned to a viewport that never moved and scrolled away with
+     the page. Making the height fixed (and letting .main shrink via min-height:0) puts
+     the scrolling where the layout always intended it. */
+  #app-root { height: 100vh; display: flex; flex-direction: column; }
+
+  .topbar {
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-4); background: var(--c-surface);
+    border-bottom: 1px solid var(--c-border); flex-wrap: wrap;
+  }
+  /* Brand logo. Aspect ~3.55:1; modest corner rounding so the logo text is never
+     clipped. The image itself is a data-URI parked at the END of this stylesheet
+     (see "EMBEDDED BINARY ASSETS") so 19 KB of base64 is not sitting in the middle
+     of the readable CSS. Still inlined — the single-file guarantee (C-1) holds. */
+  .topbar .brand-logo {
+    display: inline-block; height: 28px; width: 99px;
+    background-size: contain; background-repeat: no-repeat; background-position: left center;
+    border-radius: 6px; flex: 0 0 auto;
+  }
+  .topbar .title { font-weight: 700; font-size: 16px; }
+  .topbar .spacer { flex: 1; }
+  .dirty-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c-warn); display: inline-block; visibility: hidden; }
+  .dirty .dirty-dot { visibility: visible; }
+  .topbar label.platform { display: flex; align-items: center; gap: var(--sp-1); font-size: 12px; color: var(--c-text-muted); }
+  .topbar select, .toolbar select, .toolbar input { font: inherit; padding: 4px 6px; border: 1px solid var(--c-border); border-radius: var(--radius); background: var(--c-surface); }
+
+  .tabnav { display: flex; gap: 2px; padding: 0 var(--sp-4); background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-wrap: wrap; }
+  .tabnav button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; padding: var(--sp-3) var(--sp-3); color: var(--c-text-muted); }
+  .tabnav button.active { color: var(--c-text); border-bottom-color: var(--c-accent); font-weight: 600; }
+  .tabnav .count-badge { background: var(--c-badge-bg); border-radius: 10px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+
+  /* min-height:0 is required: without it a flex child refuses to shrink below its
+     content height, .main would overflow the shell and nothing would scroll. */
+  .main { flex: 1; min-height: 0; padding: var(--sp-4); overflow: auto; }
+  .empty-state { color: var(--c-text-muted); padding: var(--sp-5); text-align: center; }
+
+  .toolbar { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-3); flex-wrap: wrap; }
+  .toolbar .grow { flex: 1; min-width: 180px; }
+  .toolbar .muted { color: var(--c-text-muted); font-size: 12px; }
+  /* review-7 #2: Apply Control Mode affordances + row checkbox column. */
+  .toolbar button.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  /* BULK-3: the tick column is wide enough for its heading to BE the bulk-apply button
+     ("✓ Apply all 438"), so the action that fills the column sits at the top of it. */
+  table.data th.apply-col, table.data td.apply-cell { text-align: center; width: 132px; }
+  table.data th.apply-col { padding: 3px 4px; }
+  button.apply-col-all { width: 100%; font: inherit; font-size: 11.5px; font-weight: 600;
+                         padding: 3px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  button.apply-col-all:disabled { opacity: 0.55; cursor: default; }
+  /* BULK-2: make the tick columns a full-cell hit target. The <label> fills the cell and
+     is what a click lands on, so you no longer have to hit a 13px box; the checkbox is
+     still a real focusable control underneath. `padding:0` on the td lets the label
+     cover it completely. */
+  table.data td.apply-cell, table.data td.del-cell, table.data td.dev-cell, table.data td.val-cell { padding: 0; }
+  /* DEV-1: the device tick column is the control tick column's twin, so it is sized and
+     laid out identically — its heading is a bulk-action button in the same way. */
+  table.data th.dev-col, table.data td.dev-cell { text-align: center; width: 140px; }
+  table.data th.dev-col { padding: 3px 4px; }
+  /* BULK-4: the shared relevance/decision tick column — same shape again. */
+  table.data th.val-col, table.data td.val-cell { text-align: center; width: 132px; }
+  table.data th.val-col { padding: 3px 4px; }
+  /* EDIT-1: a cell that Ctrl+click (or double-click) opens for editing. The affordance is
+     deliberately quiet and hover-only: nearly every text cell has it, so a permanent
+     marker on all of them would be noise rather than a hint. */
+  table.data td.ec:hover { outline: 1px dashed var(--c-accent); outline-offset: -2px; }
+  .cell-check { display: flex; align-items: center; justify-content: center; width: 100%;
+                min-height: 34px; padding: 4px 0; cursor: pointer; }
+  .cell-check:hover { background: var(--c-surface-alt); }
+  .cell-check input { width: 16px; height: 16px; cursor: pointer; }
+  /* STAB-1: cells whose text GROWS when you tick a box (Control Refs, Applies to) are
+     clamped to a fixed number of lines. Without this, ticking a checkbox adds a name to a
+     neighbouring cell, the cell wraps onto another line, the ROW gets taller, and every row
+     below it slides down under the cursor — so the next box you meant to click has moved.
+     The scroll position is untouched; it is the content that shifts. Clamping keeps row
+     heights constant, and the full text stays available via the cell's title tooltip.
+     A RANGE is not enough — allowing 1-2 lines still grows the row on the first tick, so
+     the height is FIXED at one line and long text ellipsises: the row is the same height
+     whether the cell holds nothing, one name, or six. */
+  .cell-clamp { display: block; height: 1.45em; line-height: 1.45; overflow: hidden;
+                white-space: nowrap; text-overflow: ellipsis; }
+
+  /* COL-1: the column-visibility picker. Deliberately the same shape as the Control
+     Manager's "Device columns" bar (.cm-devbar) — two pickers that do the same kind of
+     job should not look like two different features. */
+  .col-visbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px;
+                padding: 6px 8px; background: var(--c-surface-alt); border: 1px solid var(--c-border);
+                border-radius: var(--radius); }
+  .col-visbar .col-visbar-label { font-size: 12px; font-weight: 600; }
+  .col-visbar .col-vis-opt { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }
+  .col-visbar .col-vis-opt input { flex: 0 0 auto; }
+  .col-visbar .col-vis-fixed { display: inline-flex; align-items: center; gap: 4px; font-size: 12px;
+                               color: var(--c-text-muted); white-space: nowrap; }
+  .col-visbar button { padding: 2px 8px; font-size: 12px; }
+
+  /* CUS-2: the create-a-row bar on a hand-authored register (Custom Security Actions).
+     Accent-tinted rather than the column bar's flat surface, because this one MAKES
+     something — it should not read as another row of filters. */
+  .add-item-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px;
+                  padding: 8px 10px; background: var(--c-surface); border: 1px solid var(--c-border);
+                  border-left: 4px solid var(--c-accent); border-radius: var(--radius); }
+  .add-item-bar .add-item-label { font-size: 12px; font-weight: 600; }
+  .add-item-bar .add-item-key { font: inherit; font-size: 13px; padding: 4px 7px; min-width: 300px;
+                                border: 1px solid var(--c-border); border-radius: 6px;
+                                background: var(--c-surface); color: var(--c-text); }
+  .add-item-bar .add-item-hint { font-size: 12px; flex: 1 1 240px; }
+  .add-item-bar .add-item-error { flex: 1 0 100%; font-size: 12px; color: var(--c-error); }
+
+  /* DIV-1: the "Diverges from Guidelines" tick column — a full-cell hit target like the
+     bulk columns (BULK-2). A tick with no narrative behind it is tinted, the same way a
+     control satisfied with no justification is flagged (JUS-3): the flag on its own says
+     nothing, and a blank cell would read as clean. */
+  table.data th.div-col, table.data td.div-cell { text-align: center; }
+  table.data td.div-cell { padding: 0; }
+  table.data td.div-cell.div-nonarr { background: var(--c-warn-bg); }
+  .divergence-cell textarea { min-height: 78px; }
+  .divergence-hint { font-size: 11px; margin-top: 4px; color: var(--c-warn); }
+
+  /* PRO-1: the procedure box on a manual action. Taller than the other prose fields
+     because it holds STEPS rather than a sentence, and a three-line box invites a
+     three-word answer to a question that needs a runbook. */
+  .procedure-cell textarea { min-height: 110px; font-family: var(--mono); font-size: 12px; }
+  .procedure-hint { font-size: 11px; margin-top: 4px; }
+
+  /* JUS-1/JUS-2: the satisfaction decision + justification, inside the control modal. */
+  .ctl-decide { border: 1px solid var(--c-border); border-radius: 8px; padding: 10px 12px;
+                margin-bottom: 12px; background: var(--c-surface-alt); }
+  .ctl-decide-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
+  .ctl-decide-head button { margin-left: auto; }
+  .ctl-just-label { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 4px; }
+  textarea.ctl-just { width: 100%; box-sizing: border-box; min-height: 72px; resize: vertical;
+                      font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--c-border);
+                      border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .ctl-just-warn { margin-top: 6px; font-size: 12px; color: var(--c-warn); }
+  .ctl-just-note { margin-top: 4px; font-size: 11px; }
+  .badge.nojust { background: var(--c-warn-bg); color: var(--c-warn); border-color: var(--c-undecided-border); }
+
+  /* FIL-1: the per-column filter row under the table headers. An active filter is
+     tinted so the table is never mysteriously short. */
+  table.data tr.filter-row th { padding: 2px 4px; background: var(--c-surface-alt);
+                                border-bottom: 1px solid var(--c-border); font-weight: 400; }
+  select.col-filter { width: 100%; font: inherit; font-size: 11.5px; padding: 2px 4px;
+                      border: 1px solid var(--c-border); border-radius: 4px;
+                      background: var(--c-bg); color: var(--c-text-muted); }
+  select.col-filter.on { background: var(--c-info-bg); color: var(--c-info);
+                         border-color: var(--c-info); font-weight: 600; }
+  .filter-clear { padding: 0 6px; font-size: 12px; line-height: 1.6; }
+
+  /* BULK-1: the apply-to-all-shown button + its caption. */
+  .side-rail .apply-all { width: 100%; }
+  .apply-all-note { font-size: 11px; line-height: 1.35; }
+  /* TAG-1/2/3: control tags, the clickable device column heading, the tag tick column. */
+  .badge.tag { background: var(--c-info-bg); color: var(--c-info); border-color: var(--c-info); font-size: 10px; }
+  table.ctl-table .ctl-tags-cell { font-size: 12px; }
+  /* TAG-4: a badge is an inline-block carrying padding AND a border, so it stands a few
+     pixels taller than the text line it sits on. The shared .cell-clamp height (1.45em,
+     sized for plain text) therefore cut the bottom border off every tag badge. Give the
+     Tags cell its own clamp height — still FIXED, so the row height is still independent
+     of how many tags a control carries (STAB-1), just tall enough to hold a whole badge. */
+  table.ctl-table .ctl-tags-cell .cell-clamp { height: 22px; }
+  table.ctl-table th.cm-dev-col { padding: 2px 4px; }
+  .cm-dev-head { width: 100%; font: inherit; font-size: 12px; font-weight: 600; padding: 3px 4px;
+                 background: none; border: 1px dashed transparent; border-radius: 4px; cursor: pointer;
+                 color: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cm-dev-head:hover { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-surface-alt); }
+  .cm-dev-head.all-on { color: var(--c-ok); }
+  table.ctl-table th.cm-tag-col, table.ctl-table td.cm-tag-cell { text-align: center; width: 74px; }
+  table.ctl-table td.cm-tag-cell { padding: 0; }
+  table.ctl-table td.cm-tag-cell input { width: 16px; }
+  /* The CM rail carries more sections than the data tabs', so its card list is shorter. */
+  .ctl-cards.cm-tag-cards { max-height: 32vh; }
+  .cm-newtag { display: flex; gap: 6px; }
+  .cm-newtag input { flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 4px 6px;
+                     border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .side-rail .ctl-card-type { border-radius: 8px; }
+
+  /* ---- SP-1/SP-2/SP-3: the sticky tools rail ------------------------------------
+     The table and the rail sit side by side; the rail is `position:sticky` so it
+     stays in view as a long register scrolls (the whole point — you can change the
+     control you are assigning from row 400 without scrolling back to row 1).
+     `align-self:flex-start` is what lets sticky work inside a flex row. */
+  /* SP-6: `width:max-content` is what makes the rail stick to the RIGHT EDGE OF THE
+     SCREEN rather than the right edge of the table. A block-level flex container is only
+     ever as wide as its own containing block, so with a wide table (Control Manager with
+     several device columns) the table overflowed .table-wrap and the rail sat out past
+     the viewport — and a sticky box cannot slide beyond its containing block, so there
+     was nothing for `right:0` to work with. Sizing .table-wrap to its content makes it
+     span the whole scrollable width; `min-width:100%` keeps it full-width when the table
+     is narrower than the screen, and the table host then grows to push the rail right. */
+  .table-wrap { display: flex; align-items: flex-start; gap: var(--sp-3); width: max-content; min-width: 100%; }
+  .table-wrap > #table-host { flex: 1; min-width: 0; }
+  .table-wrap > #ctl-table-host { flex: 1 1 auto; }
+  /* `top:0` is measured from the top of .main's scrollport, so the rail pins itself
+     just under the tab bar; `right` does the same horizontally, so scrolling a wide
+     table sideways slides the rail along instead of leaving it behind. The offset is
+     .main's own padding, so the pinned rail lines up exactly with where it comes to
+     rest at the end of the scroll — it never steps sideways.
+     It scrolls internally if the viewport is too short for it. */
+  .side-rail { position: sticky; top: 0; right: var(--sp-4); align-self: flex-start; flex: 0 0 300px; width: 300px;
+               max-height: calc(100vh - 200px); overflow-y: auto; background: var(--c-surface);
+               border: 1px solid var(--c-border); border-radius: 8px; padding: 10px; display: flex;
+               flex-direction: column; gap: 10px; z-index: 2; }
+  .side-rail.collapsed { flex-basis: auto; width: auto; padding: 6px; }
+  .rail-head { display: flex; align-items: center; gap: 8px; }
+  .rail-title { font-weight: 600; font-size: 13px; }
+  .rail-toggle { margin-left: auto; font-size: 12px; padding: 2px 8px; }
+  .rail-section { display: flex; flex-direction: column; gap: 6px; }
+  .rail-modes button, .rail-history button { width: 100%; }
+  .rail-history { flex-direction: row; }
+  .rail-history button { flex: 1; }
+  .rail-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-muted); }
+  .rail-search { width: 100%; }
+  .rail-count, .rail-empty { font-size: 11px; }
+  /* CTLSORT-1: the control list's order + tag filter, side by side above the text filter. */
+  .rail-sort { display: flex; gap: 6px; }
+  .rail-sort .rail-select { flex: 1 1 0; min-width: 0; font: inherit; font-size: 12px; padding: 3px 5px;
+                            border: 1px solid var(--c-border); border-radius: 4px;
+                            background: var(--c-surface); color: var(--c-text); }
+  .rail-sort .rail-select.on { border-color: var(--c-accent); font-weight: 600; }
+  /* A type heading inside the card list. Sticky so the group you are scrolling through
+     stays named — the list is a fixed-height scroller and can hold dozens of controls. */
+  .ctl-group { position: sticky; top: -6px; z-index: 1; font-size: 10px; font-weight: 700;
+               text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-text-muted);
+               background: var(--c-bg); padding: 4px 2px 2px; border-bottom: 1px solid var(--c-border); }
+  .side-rail .apply-to { width: 100%; }
+  .side-rail .apply-to:disabled { opacity: 0.5; cursor: not-allowed; }
+  /* SP-3: control cards — title, type and DESCRIPTION, so you can tell what a control
+     means while you are assigning it (a <datalist> could only ever show the value). */
+  .ctl-cards { display: flex; flex-direction: column; gap: 6px; max-height: 46vh; overflow-y: auto;
+               border: 1px solid var(--c-border); border-radius: 6px; padding: 6px; background: var(--c-bg); }
+  .ctl-card { display: flex; flex-direction: column; gap: 3px; text-align: left; width: 100%;
+              padding: 7px 8px; border: 1px solid var(--c-border); border-radius: 6px;
+              background: var(--c-surface); cursor: pointer; font: inherit; color: inherit; }
+  .ctl-card:hover { border-color: var(--c-accent); }
+  .ctl-card.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .ctl-card-head { display: flex; align-items: baseline; gap: 6px; }
+  .ctl-card-title { font-weight: 600; font-size: 13px; }
+  .ctl-card-type { font-size: 10px; opacity: 0.75; border: 1px solid currentColor; border-radius: 8px; padding: 0 5px; }
+  .ctl-card-desc { font-size: 11.5px; line-height: 1.35; opacity: 0.85; white-space: normal; }
+  /* BULK-4: the value picker's chips. A relevance or an action is one word from a closed
+     list of three to five with nothing to describe, so it gets a chip rather than one of
+     the tall cards above — those would be four lines of whitespace each. */
+  .val-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border: 1px solid var(--c-border);
+               border-radius: 6px; background: var(--c-bg); }
+  .val-chip { padding: 3px; border: 1px solid transparent; border-radius: 8px; background: none;
+              cursor: pointer; font: inherit; color: inherit; line-height: 1; }
+  .val-chip:hover { border-color: var(--c-accent); }
+  .val-chip.active { border-color: var(--c-accent); box-shadow: 0 0 0 1px var(--c-accent); background: var(--c-surface-alt); }
+  .val-chip .badge { cursor: pointer; }
+  .ctl-card.active .ctl-card-desc { opacity: 0.95; }
+  @media (max-width: 1100px) {
+    /* Stacked, so the rail is a full-width block under the table and neither the
+       max-content sizing nor the sticky offsets apply. */
+    .table-wrap { flex-direction: column; width: auto; }
+    .side-rail { position: static; width: 100%; flex-basis: auto; max-height: none; }
+  }
+
+  /* ---- VF-4/VF-5: value-format picker + manager --------------------------------- */
+  .fmt-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .fmt-cell select { min-width: 260px; }
+  .fmt-hint { flex-basis: 100%; font-size: 11.5px; line-height: 1.4; }
+  .fmt-warn { color: var(--c-error); font-size: 11.5px; }
+  .fmt-body { display: flex; gap: 14px; align-items: flex-start; }
+  .fmt-list { flex: 0 0 230px; display: flex; flex-direction: column; gap: 5px; max-height: 66vh; overflow-y: auto; }
+  .fmt-pick { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 7px 9px; font: inherit;
+              color: inherit; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 6px; cursor: pointer; }
+  .fmt-pick.active { background: var(--c-accent); color: #fff; border-color: var(--c-accent); }
+  .fmt-pick-name { font-weight: 600; font-size: 13px; }
+  .fmt-pick-meta { font-size: 11px; opacity: 0.8; }
+  .fmt-pick.fmt-new { border-style: dashed; font-weight: 600; }
+  .fmt-editor { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .fmt-editor h4, .fmt-editor h5 { margin: 0; font-size: 14px; }
+  .fmt-grid { display: grid; grid-template-columns: 110px 1fr; gap: 6px 10px; align-items: center; }
+  .fmt-grid textarea { min-height: 40px; resize: vertical; }
+  .fmt-grid input, .fmt-grid select, .fmt-grid textarea { font: inherit; font-size: 13px; width: 100%; padding: 4px 6px;
+              border: 1px solid var(--c-border); border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .fmt-usage { font-size: 12px; }
+  table.fmt-opts { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.fmt-opts th, table.fmt-opts td { border: 1px solid var(--c-border); padding: 4px 6px; text-align: left; }
+  table.fmt-opts th:last-child, table.fmt-opts td:last-child { width: 90px; }
+  table.fmt-opts input { font: inherit; font-size: 13px; width: 100%; padding: 3px 5px; border: 1px solid var(--c-border);
+              border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .fmt-add-row { display: flex; gap: 6px; align-items: center; }
+  .fmt-add-row input { flex: 1; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--c-border);
+              border-radius: 4px; background: var(--c-bg); color: var(--c-text); }
+  .fmt-actions { display: flex; gap: 8px; justify-content: flex-end; }

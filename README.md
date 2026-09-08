@@ -291,6 +291,8 @@ Everything else is covered by the embedded self-tests, the headless passes and a
 - `android-ch-config-tool-task-breakdown-v2.0.md` — the phase/task breakdown behind the spec.
 - `Archive/` — the superseded v1.0 spec and task breakdown, kept for the audit trail.
 - `progress-log.md` — per-phase build log (what was built, tests, results).
+- `src/` + `tools/build.py` — the tool's source files and the build that assembles them into
+  `ch-config-tool.html`. Edit `src/`, never the built file; run `python3 tools/build.py`.
 - `validation-testing-plan.md` — manual plan to validate a full CH config onto real hardware, and to
   compare it against an independently hand-hardened device.
 - `defect-register.md` — defects found during review and their fixes.

@@ -3704,3 +3704,49 @@ with the general rule: where a boundary object comes from a browser API, the tes
 browser's object.
 
 **Result:** 1112/1112 self-tests pass (6 new).
+
+---
+
+### 2026-09-08 — The monolith becomes a source tree
+
+**Why.** `ch-config-tool.html` had reached 39,314 lines / 2.4 MB — around 260k tokens to read
+whole, so no session ever did. Every task began by consulting a map to find a line range. The
+deliverable still has to be one double-clickable file, so the file did not change; how it is
+*written* did.
+
+**Built:**
+- `src/` — 151 source files, none over 500 lines except two named exemptions. 144 `.js`, 4 `.css`,
+  3 HTML shells. A module too large for one file becomes a directory of fragments concatenated
+  inside one `<script>` IIFE.
+- `tools/build.py` — assembles `ch-config-tool.html` from the ordered file list in
+  `src/build.json`. No bundler, no transpiler, no module resolution: every fragment is already
+  ordered classic-script JavaScript, so the build is a concatenation and the load order (spec §14)
+  stays legible in one manifest. Also enforces the cap, orphan detection and closure integrity.
+- `tools/jsscan.py` — a just-enough JS scanner (strings, template literals with `${}`, comments,
+  regex literals) giving bracket depth per line, so a cut never lands inside a literal.
+- `tools/split-source.py` — the one-time migration, kept for the audit trail.
+- `src/line-cap-exemptions.txt` — the two files allowed over 500 lines, each with its reason.
+
+**The safety property.** The split is a pure partition of the file's bytes, so the rebuild is
+byte-identical to the pre-split file by construction — same md5 (`5b45e697…`), same 2,425,662
+bytes — and the suite passes unchanged at 1112/1112. Zero behaviour risk was a design property,
+not a hope; `split-source.py` asserts the round trip before it writes anything.
+
+**Three guards, each tested by making it fail before trusting it:**
+- Over the cap without an exemption → build refuses. A 501-line probe was rejected.
+- On disk but not in `build.json` → build refuses. A silently-unbuilt file is otherwise invisible.
+- A fragment listed after the block's last one → build refuses. **This one was found the hard
+  way:** the last fragment carries the closing `})(App);`, so an appended fragment lands outside
+  the closure. It threw `ReferenceError: T is not defined` in the console while the suite still
+  reported 186/186 green — a failure the tests cannot see, which is why the build now sees it.
+
+**Tooling that had to follow.** `gen-code-map.py` now maps modules to source files rather than
+line ranges in a file nobody should open. A `PreToolUse` hook refuses edits to the built file (the
+next build would clobber them); a `PostToolUse` hook rebuilds and re-maps after any `src/` edit;
+`.githooks/pre-commit` rebuilds and re-stages, and refuses a commit whose build genuinely fails.
+
+**Known follow-up.** The two exemptions are the same shape: a single `wire()` of 751 and 680 lines
+binding every handler for its view. Split each into per-concern wiring helpers when next working
+in those views, then delete its line from the allowlist.
+
+**Result:** 1112/1112 self-tests pass; rebuild byte-identical to the pre-split file.
