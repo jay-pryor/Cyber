@@ -247,26 +247,12 @@
      * divergences) have to ask for it, so they ask through one helper rather than three
      * copies of the same three lines.
      */
-    function tableWording(b, key) { return ((b && b.tables) || {})[key] || {}; }
-    /** Column headings after the operator's own wording is applied. */
-    function headingsFor(ids, labels, custom) {
-      return labels.map(function (l, i) {
-        var own = String((custom || {})[ids[i]] || '').trim();
-        return own || l;
-      });
-    }
-    /** The title-row and caption half of the same, folded into a table's options. */
-    function withWording(tblOpts, text, dfltCaption) {
-      var title = String(text.title || '').trim();
-      var out = Object.assign({}, tblOpts, {
-        titleRow: title ? MD.text(title) : '',
-        captionText: String(text.caption || '').trim() || title || dfltCaption
-      });
-      // CAP-4: no caption means no caption LINE, which is what leaves the table out of
-      // the numbering — App.doc counts the markers rather than the tables.
-      if (text.noCaption === true) out.captionId = '';
-      return out;
-    }
+    /* 7a: these four moved to App.docBlocks — nothing in them knows what a device or
+     * a control is, so they are the module's. Aliased here so the call sites below,
+     * and in the fragments that share this closure, are unchanged. */
+    var tableWording = App.docBlocks.tableWording;
+    var headingsFor = App.docBlocks.headingsFor;
+    var withWording = App.docBlocks.withWording;
 
     function buildControlSection(project, deviceId, platform, keep, tblOpts, colOpts, block) {
       // JUS-3: satisfaction state and justification are keyed by device BASE id, so they

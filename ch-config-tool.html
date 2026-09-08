@@ -12428,6 +12428,67 @@
 
   <script>
   /* =============================================================================
+   * MODULE: App.docBlocks — how a block is ordered, and how its table is worded
+   * PURPOSE: Four helpers that decide the ORDER blocks are emitted in and the
+   *          WORDING a generated table carries — its column headings, its title row
+   *          and its caption. Nothing here knows what a device or a control is.
+   * PURITY:  pure. No DOM, no I/O, no clock, no host state.
+   * DEPENDS: App.md
+   * INVARIANTS: an order naming a block that no longer exists is IGNORED, never
+   *             fatal — deleting a dataset must not invalidate an arrangement.
+   * ============================================================================= */
+  (function (App) {
+    'use strict';
+    var MD = App.md;
+
+    /**
+     * Blocks in the operator's chosen order: those named first, in the order named;
+     * everything else after, in declaration order. Ids that no longer exist are
+     * simply ignored (same rule as procedure.order).
+     */
+    function applySectionOrder(list, order) {
+      var pos = {}, n = (order || []).length;
+      (order || []).forEach(function (id, i) { if (pos[id] === undefined) pos[id] = i; });
+      return list.map(function (x, i) { return { x: x, k: pos[x.id] === undefined ? n + i : pos[x.id], i: i }; })
+        .sort(function (a, b) { return (a.k - b.k) || (a.i - b.i); })
+        .map(function (e) { return e.x; });
+    }
+
+    /** The operator's wording for one of a block's tables, or nothing. */
+    function tableWording(b, key) { return ((b && b.tables) || {})[key] || {}; }
+
+    /** Column headings after the operator's own wording is applied. */
+    function headingsFor(ids, labels, custom) {
+      return labels.map(function (l, i) {
+        var own = String((custom || {})[ids[i]] || '').trim();
+        return own || l;
+      });
+    }
+
+    /** The title-row and caption half of the same, folded into a table's options. */
+    function withWording(tblOpts, text, dfltCaption) {
+      var title = String(text.title || '').trim();
+      var out = Object.assign({}, tblOpts, {
+        titleRow: title ? MD.text(title) : '',
+        captionText: String(text.caption || '').trim() || title || dfltCaption
+      });
+      // CAP-4: no caption means no caption LINE, which is what leaves the table out of
+      // the numbering — App.doc counts the markers rather than the tables.
+      if (text.noCaption === true) out.captionId = '';
+      return out;
+    }
+
+    App.docBlocks = {
+      applySectionOrder: applySectionOrder,
+      tableWording: tableWording,
+      headingsFor: headingsFor,
+      withWording: withWording
+    };
+  }(App));
+  </script>
+
+  <script>
+  /* =============================================================================
    * MODULE: App.generate
    * PURPOSE: Orchestrate the three INDEPENDENT generators (spec §7, §10): gather a
    *          device's applicable+complete items per dataset, call adapter generators
@@ -12676,26 +12737,12 @@
      * divergences) have to ask for it, so they ask through one helper rather than three
      * copies of the same three lines.
      */
-    function tableWording(b, key) { return ((b && b.tables) || {})[key] || {}; }
-    /** Column headings after the operator's own wording is applied. */
-    function headingsFor(ids, labels, custom) {
-      return labels.map(function (l, i) {
-        var own = String((custom || {})[ids[i]] || '').trim();
-        return own || l;
-      });
-    }
-    /** The title-row and caption half of the same, folded into a table's options. */
-    function withWording(tblOpts, text, dfltCaption) {
-      var title = String(text.title || '').trim();
-      var out = Object.assign({}, tblOpts, {
-        titleRow: title ? MD.text(title) : '',
-        captionText: String(text.caption || '').trim() || title || dfltCaption
-      });
-      // CAP-4: no caption means no caption LINE, which is what leaves the table out of
-      // the numbering — App.doc counts the markers rather than the tables.
-      if (text.noCaption === true) out.captionId = '';
-      return out;
-    }
+    /* 7a: these four moved to App.docBlocks — nothing in them knows what a device or
+     * a control is, so they are the module's. Aliased here so the call sites below,
+     * and in the fragments that share this closure, are unchanged. */
+    var tableWording = App.docBlocks.tableWording;
+    var headingsFor = App.docBlocks.headingsFor;
+    var withWording = App.docBlocks.withWording;
 
     function buildControlSection(project, deviceId, platform, keep, tblOpts, colOpts, block) {
       // JUS-3: satisfaction state and justification are keyed by device BASE id, so they
@@ -13088,13 +13135,7 @@
      * simply ignored: deleting a dataset must never invalidate an arrangement (same
      * rule as procedure.order).
      */
-    function applySectionOrder(list, order) {
-      var pos = {}, n = (order || []).length;
-      (order || []).forEach(function (id, i) { if (pos[id] === undefined) pos[id] = i; });
-      return list.map(function (x, i) { return { x: x, k: pos[x.id] === undefined ? n + i : pos[x.id], i: i }; })
-        .sort(function (a, b) { return (a.k - b.k) || (a.i - b.i); })
-        .map(function (e) { return e.x; });
-    }
+    var applySectionOrder = App.docBlocks.applySectionOrder;
 
     /**
      * The report's candidate BLOCKS, in the order they will be emitted (spec §20.4 /
@@ -33377,6 +33418,69 @@
         T.assertEqual(none.body, '', 'a missing provider must not throw');
       });
     });
+  })(App);
+  </script>
+
+  <script>
+  (function (App) {
+    'use strict';
+    var T = App.test;
+
+  /* ===== SUITES: the block helpers (BLK-1) ===== */
+
+  /* Four helpers that decide how a block is ORDERED and how its table is WORDED.
+   * Nothing in them knows what a device or a control is, so they belong to the module
+   * — but they lived in CH's generate block, sharing its closure, which is why the
+   * fragment above them could not simply be moved. */
+  T.suite('BLK-1 ordering and wording are the module’s, not the host’s', function (s) {
+    var B = App.docBlocks;
+
+    s.test('a section order puts the named blocks first, in the order named', function () {
+      var list = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+      T.assertDeepEqual(B.applySectionOrder(list, ['c', 'a']).map(function (x) { return x.id; }),
+        ['c', 'a', 'b']);
+    });
+
+    s.test('an id nobody named keeps its original position, after those named', function () {
+      var list = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+      T.assertDeepEqual(B.applySectionOrder(list, ['c']).map(function (x) { return x.id; }),
+        ['c', 'a', 'b'], 'unnamed blocks must stay in declaration order');
+    });
+
+    s.test('an order naming a block that no longer exists is ignored, not fatal', function () {
+      // Deleting a dataset must never invalidate an arrangement.
+      var list = [{ id: 'a' }, { id: 'b' }];
+      T.assertDeepEqual(B.applySectionOrder(list, ['gone', 'b']).map(function (x) { return x.id; }),
+        ['b', 'a']);
+      T.assertDeepEqual(B.applySectionOrder(list, null).map(function (x) { return x.id; }),
+        ['a', 'b'], 'no order at all leaves the list alone');
+    });
+
+    s.test('table wording is read off the block, and absent wording is an empty object', function () {
+      T.assertDeepEqual(B.tableWording({ tables: { _all: { title: 'T' } } }, '_all'), { title: 'T' });
+      T.assertDeepEqual(B.tableWording({}, '_all'), {});
+      T.assertDeepEqual(B.tableWording(null, '_all'), {});
+    });
+
+    s.test('a column keeps its declared heading until somebody rewords it', function () {
+      T.assertDeepEqual(B.headingsFor(['field', 'value'], ['Field', 'Value'], {}), ['Field', 'Value']);
+      T.assertDeepEqual(B.headingsFor(['field', 'value'], ['Field', 'Value'], { value: 'Setting' }),
+        ['Field', 'Setting']);
+      T.assertDeepEqual(B.headingsFor(['field'], ['Field'], { field: '   ' }), ['Field'],
+        'whitespace is not a rewording');
+    });
+
+    s.test('a caption falls back to the title, then to the default', function () {
+      T.assertEqual(B.withWording({}, { title: 'A title' }, 'dflt').captionText, 'A title');
+      T.assertEqual(B.withWording({}, {}, 'dflt').captionText, 'dflt');
+      T.assertEqual(B.withWording({}, { caption: 'Own' }, 'dflt').captionText, 'Own');
+    });
+
+    s.test('CAP-4: no caption means no caption line, so the table takes no number', function () {
+      var out = B.withWording({ captionId: 'x' }, { noCaption: true }, 'dflt');
+      T.assertEqual(out.captionId, '', 'the caption id must be cleared, not merely blanked');
+    });
+  });
   })(App);
   </script>
 

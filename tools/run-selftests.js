@@ -75,15 +75,23 @@ for (const suite of res.suites) {
   }
 }
 
+/* A fragment appended after a block that already closed its IIFE lands OUTSIDE the
+ * closure. Its siblings' helpers are not in scope, so it throws at LOAD — before any
+ * suite registers. The suites that did register then all pass, and the run reports
+ * green over code that never ran. CLAUDE.md names this trap; printing the error above
+ * a green summary was not enough to stop walking into it, so it fails the run. */
 if (consoleErrors.length) {
   console.log('\nConsole errors during load:');
   consoleErrors.slice(0, 10).forEach(e => console.log('  ' + e));
+  if (consoleErrors.length > 10) console.log(`  … and ${consoleErrors.length - 10} more`);
 }
 
 const total = res.passed + res.failed;
-const colour = res.failed ? '\x1b[31m' : '\x1b[32m';
+const broken = consoleErrors.length > 0;
+const colour = res.failed || broken ? '\x1b[31m' : '\x1b[32m';
 console.log(
-  `\n${colour}${res.passed}/${total} pass\x1b[0m  (${res.suites.length} suites, ${res.failed} failed)`
+  `\n${colour}${res.passed}/${total} pass\x1b[0m  (${res.suites.length} suites, ${res.failed} failed` +
+  (broken ? `, ${consoleErrors.length} load error${consoleErrors.length === 1 ? '' : 's'}` : '') + ')'
 );
-process.exit(res.failed ? 1 : 0);
+process.exit(res.failed || broken ? 1 : 0);
 }

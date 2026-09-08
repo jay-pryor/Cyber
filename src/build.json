@@ -358,6 +358,15 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
+        "doc/js/0720-doc-blocks.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
         "app/js/0350-generate/010-tool-version.js",
         "app/js/0350-generate/020-child-caption.js",
         "app/js/0350-generate/030-report-blocks.js",
@@ -632,6 +641,15 @@
       "gap": "\n",
       "paths": [
         "doc/js/0900-doc-suites/010-providers.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/020-blocks.js"
       ]
     },
     {

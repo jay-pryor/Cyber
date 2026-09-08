@@ -285,11 +285,5 @@
      * simply ignored: deleting a dataset must never invalidate an arrangement (same
      * rule as procedure.order).
      */
-    function applySectionOrder(list, order) {
-      var pos = {}, n = (order || []).length;
-      (order || []).forEach(function (id, i) { if (pos[id] === undefined) pos[id] = i; });
-      return list.map(function (x, i) { return { x: x, k: pos[x.id] === undefined ? n + i : pos[x.id], i: i }; })
-        .sort(function (a, b) { return (a.k - b.k) || (a.i - b.i); })
-        .map(function (e) { return e.x; });
-    }
+    var applySectionOrder = App.docBlocks.applySectionOrder;
 

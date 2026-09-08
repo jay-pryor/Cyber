@@ -105,6 +105,15 @@
       "close": "",
       "gap": "\n",
       "paths": [
+        "doc/js/0720-doc-blocks.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
         "doc/js/0550-doc-store/010-p.js",
         "doc/js/0550-doc-store/020-set-block-table-style.js",
         "doc/js/0550-doc-store/030-add-column.js",
@@ -162,6 +171,15 @@
       "gap": "\n",
       "paths": [
         "doc/js/0900-doc-suites/010-providers.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/020-blocks.js"
       ]
     }
   ]
