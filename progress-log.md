@@ -3807,3 +3807,39 @@ same shape and still to do.
 module bundle alone. GOLD-1 green on the hash recorded before the first task: **CH's generated
 document is byte-for-byte what it was.**
 
+### 2026-09-09 (later) — The module becomes a folder you can copy
+
+**Why.** "Take the module into another project" meant: clone this repo, run a build command,
+find the one output file, then hand-copy the designer's CSS out of CH's stylesheet, because
+`src/doc/` is not copyable — its fragments share closures, their order lives in a manifest rather
+than in filenames, and half of what the module needs sits in `src/base/` and `src/style/`. The
+copyable unit was a built file nobody could see.
+
+**`dist/`, committed.** `doc-designer.js`, `doc-designer.css`, a working `example.html` and the
+step-by-step in `dist/README.md`. No build step, no bundler, no dependency: copy the folder, add two
+tags, write a host object.
+
+**The CSS, extracted rather than split.** Physically splitting `src/style/` would have reordered
+the cascade in `ch-config-tool.html`, which is a real risk for no gain, so `tools/build-dist.py`
+filters instead: a rule reaches the distributable when every class and id its selector names is one
+the module's own code emits — plus the tokens, reset and element defaults, which sit at the top of
+the file, labelled, for a host that has its own. 240 rules travel, 401 stay with the application,
+and CH's stylesheet is untouched — the built file's md5 is unchanged (`4ca1c7ba…`).
+
+**Names alone would not have been enough.** The scanner sees `class="rd-part"`; it does not see
+`'rd-nav-' + depth` or `'prv-h' + level`, and those 51 selectors — the preview's headings, the
+workspace's tabs, the width chips — would have arrived in another project unstyled, which is a
+horrible thing to debug from a stylesheet that looks complete. So the extractor also claims the
+module's namespaces, and `tools/check-dist-css.js` asks the question from the other end: it opens
+the real workspace in the real application, walks **1,960 elements across every pane**, and fails if
+any rule that matches one of them is missing from the distributable.
+
+**The example is executable documentation.** `dist/example.html` is a staff roster — no devices, no
+controls, no platforms — that opens the designer and generates a document. `tools/check-dist-example.js`
+loads it from `file://` the way a browser does and drives it: 11/11. It found the first thing a real
+consumer would have hit, too — the example reached for `App.util.clock`, which is CH's, not the
+module's. The host supplies the clock; that is the whole point of it being on the contract.
+
+**Result:** 1175/1175 in the application, 143/143 in the module bundle, 11/11 in the example,
+`check-dist-css` clean, `ch-config-tool.html` byte-identical.
+

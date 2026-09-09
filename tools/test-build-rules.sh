@@ -22,6 +22,7 @@ expect "the default manifest is up to date" 0 python3 tools/build.py --check
 # --stdout assembles and validates without writing, so the module target can be
 # checked before anything consumes its output.
 expect "the module manifest assembles" 0 python3 tools/build.py --stdout --manifest src/build-doc.json
+expect "the distributable folder is up to date" 0 python3 tools/build-dist.py --check
 
 # A file on disk listed in NO manifest must be reported as an orphan.
 probe="src/app/js/9999-orphan-probe.js"

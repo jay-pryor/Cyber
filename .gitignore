@@ -8,5 +8,7 @@ node_modules/
 # Python bytecode from tools/
 __pycache__/
 
-# Build artifact of the document module target (src/build-doc.json).
-doc-designer.js
+# dist/ is deliberately NOT ignored. It is the copy-me-into-another-project folder, and a
+# folder you have to build before you can copy it is not one you can copy. Both files in
+# it are build artifacts of src/build-doc.json and tools/build-dist.py, kept in the repo
+# for the same reason ch-config-tool.html is.

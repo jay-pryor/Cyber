@@ -9,14 +9,14 @@
  * fails here rather than passing inside the tool and being called portable.
  *
  * Requires jsdom on the module path, exactly like tools/run-selftests.js.
- * Usage: node tools/run-module-selftests.js [/path/to/doc-designer.js]
+ * Usage: node tools/run-module-selftests.js [/path/to/doc-designer.js]  (default: dist/)
  */
 const fs = require('fs');
 const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 
 const file = path.resolve(process.argv.slice(2).find(a => !a.startsWith('--')) ||
-  path.join(__dirname, '..', 'doc-designer.js'));
+  path.join(__dirname, '..', 'dist', 'doc-designer.js'));
 const js = fs.readFileSync(file, 'utf8');
 
 const vc = new VirtualConsole();

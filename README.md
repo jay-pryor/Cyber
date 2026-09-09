@@ -260,9 +260,11 @@ package the device actually has. The escaping happens only in the generated docu
 
 ## Using the document module in another app
 
-The report designer and the document generator are not CH code. They live in `src/doc/`, build into
-`doc-designer.js` as well as into the tool, and know nothing about devices, controls, packages or
-platforms — `tools/build.py` fails the build if anything under `src/doc/` so much as names something
+The report designer and the document generator are not CH code. They live in `src/doc/`, and they
+also ship as **[`dist/`](dist/) — a folder you can copy straight into another project**:
+`doc-designer.js`, `doc-designer.css` and a working `example.html`, with no build step, no bundler
+and no dependency. `dist/README.md` is the step-by-step; the rest of this section is the contract
+it implements. They know nothing about devices, controls, packages or platforms — `tools/build.py` fails the build if anything under `src/doc/` so much as names something
 `src/app/` defines. Everything the module needs from the application around it arrives through one
 object, installed once:
 
@@ -382,6 +384,8 @@ Everything else is covered by the embedded self-tests, the headless passes and a
 ## Project files
 
 - `ch-config-tool.html` — the application (the only runtime artifact).
+- `dist/` — the document designer as a copy-me folder: `doc-designer.js`, `doc-designer.css` and a
+  working `example.html`. Built by `tools/build-dist.py`; see `dist/README.md`.
 - `android-ch-config-tool-build-spec-v2.0.md` — the normative build spec (current).
 - `android-ch-config-tool-task-breakdown-v2.0.md` — the phase/task breakdown behind the spec.
 - `Archive/` — the superseded v1.0 spec and task breakdown, kept for the audit trail.

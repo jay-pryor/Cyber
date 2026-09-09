@@ -1,5 +1,5 @@
 {
-  "output": "doc-designer.js",
+  "output": "dist/doc-designer.js",
   "lineCap": 500,
   "parts": [
     {

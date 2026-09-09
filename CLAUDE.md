@@ -159,7 +159,21 @@ current behaviour.
 
 ```bash
 python3 tools/build.py        # assemble ch-config-tool.html from src/
+python3 tools/build-dist.py   # rebuild dist/ — the copyable document-module folder
 python3 tools/gen-code-map.py # refresh the map below
+```
+
+`dist/` is committed on purpose: it is the folder someone copies into another project, and a
+folder you have to build first is not one you can copy. `tools/build-dist.py` writes
+`dist/doc-designer.js` (from `src/build-doc.json`) and `dist/doc-designer.css`, which it EXTRACTS
+from CH's stylesheet — a rule travels when every class and id its selector names is one the module
+itself emits. CH's own CSS is untouched by this, so the application build stays byte-identical.
+Three checks keep the folder honest, and all three are cheap:
+
+```bash
+python3 tools/build-dist.py --check   # the folder is up to date (also in test-build-rules.sh)
+node tools/check-dist-css.js          # opens the real workspace and proves no rule that styles it was left behind
+node tools/check-dist-example.js      # dist/example.html still works, loaded as a browser loads it
 ```
 
 A `PostToolUse` hook in `.claude/settings.json` runs both automatically after Claude edits anything
