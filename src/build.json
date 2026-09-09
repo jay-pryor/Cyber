@@ -376,7 +376,8 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
-        "doc/js/0730-doc-gen.js"
+        "doc/js/0730-doc-gen/010-blocks.js",
+        "doc/js/0730-doc-gen/020-emit.js"
       ]
     },
     {
@@ -695,6 +696,15 @@
       "gap": "\n",
       "paths": [
         "doc/js/0900-doc-suites/030-host-object.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/040-conformance-mock-host.js"
       ]
     },
     {

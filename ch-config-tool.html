@@ -13108,6 +13108,130 @@
         return raw ? String(v) : App.md.text(String(v));
       });
     }
+    /* =========================================================================
+     * CONF-1: blocks in, one finished document out.
+     *
+     * This is the last step of generation and the one a host should not have to
+     * write: resolve the formatting profile, number the headings, assemble the YAML
+     * front matter, render the blocks, then fill in the `/[Tag]` placeholders in one
+     * pass over the finished markdown.
+     *
+     * It lived in CH, which meant a second host could build every block the module
+     * offers and still have no way to turn them into a .md without copying eighty
+     * lines of pipeline. What is genuinely CH's about it — a device id, a project
+     * hash, the words "OFFICIAL: Sensitive", the stable name each command's file
+     * takes — arrives on `meta`, computed by whoever knows those things.
+     * ====================================================================== */
+
+    /**
+     * GEN-TAB: a profile whose header and footer slots have had their placeholders
+     * filled in, on the RAW text.
+     *
+     * Every other placeholder in the document is substituted at the very end, on the
+     * finished markdown, which is what makes one pass catch them all. A slot cannot wait
+     * for that pass: it reaches the page through `header-includes`, which pandoc hands
+     * to LaTeX verbatim, so what goes in has to be escaped for LaTeX rather than for
+     * markdown — and by the end of the pipeline the slot has already been escaped and
+     * the two cannot be told apart. Filled here, the value is escaped by `slotLatex`
+     * along with the words around it, once, in the right language.
+     */
+    function taggedProfile(profile, tags) {
+      if (!tags || !Object.keys(tags).length) return profile;
+      var out = JSON.parse(JSON.stringify(profile));
+      var hf = out.headerFooter || {};
+      App.docFormat.HF_SETS.forEach(function (k) {
+        App.docFormat.HF_SLOTS.forEach(function (slot) {
+          if (hf[k] && hf[k][slot]) hf[k][slot] = applyTags(hf[k][slot], tags, true);
+        });
+      });
+      return out;
+    }
+
+    /**
+     * Assemble, render and package a document.
+     *
+     * @param {Object} host    the installed host; only getState() is read
+     * @param {Array} blocks   sectionContent()-shaped, each with `body` and/or `parts`
+     * @param {{title?:string, subtitle?:string, date?:string, classification?:string,
+     *          extra?:Array<{key:string,value:string}>, linkTerms?:Object,
+     *          tags?:Object, filename?:string, fallbackName?:string,
+     *          logicalName?:string}} meta
+     * @returns {{blob:Blob,name:string,issues:Issue[],text:string,tags:string[],files:Object[]}}
+     */
+    function emitDocument(host, blocks, meta) {
+      meta = meta || {};
+      var state = (host && typeof host.getState === 'function' && host.getState()) || {};
+      var profile = taggedProfile(App.docFormat.resolve(state), meta.tags);
+      var resolved = App.doc.outline(blocks, {
+        baseLevel: 1,
+        clampSkips: profile.headings.clampSkips !== false,
+        numbered: profile.headings.numbered !== false
+      });
+      /* TTL-2: the automatic title block is a CHOICE, and it is off unless asked for.
+       *
+       * `title`/`subtitle`/`date` in the YAML make pandoc's template call \maketitle,
+       * which prints a title page this file composed — a heading, a model-and-firmware
+       * line and a date — ahead of everything the designer arranged. Anyone who wants
+       * their own title page cannot have one while it is there, and there is no
+       * markdown that suppresses it: the only way not to get the block is not to name
+       * the metadata. So the switch simply withholds the three keys.
+       *
+       * What is NOT withheld is the provenance the host handed in as `extra`: it still
+       * travels as its own YAML keys below, and the metadata section still prints it
+       * where a reader can see it. */
+      var titleBlock = ((state.report || {}).titleBlock === true);
+      var frontMatter = App.docFormat.frontMatter(profile, {
+        title: titleBlock ? (meta.title || '') : '',
+        subtitle: titleBlock ? (meta.subtitle || '') : '',
+        date: titleBlock ? (meta.date || '') : '',
+        // TOC-1: this document prints its own contents list iff it carries the section.
+        tocSection: (blocks || []).some(function (b) { return b && b.kind === 'toc'; }),
+        // The BANNER TEXT, not a flag: what a document is marked as is the host's own
+        // vocabulary, and a module that spelled one classification out could only ever
+        // serve the organisation that uses it.
+        classification: meta.classification || '',
+        // The manifest's job, done inside the document. `extra` lands in the YAML
+        // block, which pandoc carries into the PDF metadata and any reader can see.
+        extra: meta.extra || []
+      });
+      // TBS-1: the PART carries the flags, the PROFILE carries the look. App.doc has no
+      // business knowing about either, so it is handed the resolver rather than the two.
+      // HDR-1: page 1 is an ordinary page unless the profile gives it its own header
+      // and footer, in which case it has to be told so from inside the document.
+      var firstPage = profile.headerFooter && profile.headerFooter.firstDifferent;
+      var md = App.doc.render({
+        frontMatter: frontMatter, blocks: resolved,
+        prologue: firstPage ? '\\thispagestyle{chfirst}' : '',
+        // SEC-4: so a section whose level already starts a page does not get a second
+        // break, and a blank page between the two.
+        levelBreaks: App.docFormat.levelBreaks(profile),
+        // REF-2: prose renders its linked terms too, not just table cells. The host
+        // decided which words those are, from the blocks actually being emitted.
+        linkTerms: meta.linkTerms || null,
+        metrics: App.docFormat.tableMetrics(profile),
+        // CAP-3: which side of the table the caption goes. The look of it is the
+        // profile's business too, but that reaches the page as preamble macros.
+        captionPosition: profile.tables.captionPosition,
+        styleFor: function (part) {
+          return App.docFormat.tableStyle(profile, { head: part.styleHead === true, firstColumn: part.styleFirstColumn === true });
+        }
+      });
+      // GEN-TAB: the last thing that happens to the document, so a tag written anywhere
+      // in it — heading, table cell, footer slot, YAML title — is caught by one pass.
+      md = applyTags(md, meta.tags);
+      return {
+        blob: new Blob([md], { type: 'text/markdown;charset=utf-8' }),
+        // The DOWNLOAD name is the operator's if they typed one (GEN-TAB), and
+        // otherwise whatever the host would have called it.
+        name: docFilename(meta.filename) || meta.fallbackName || 'document.md',
+        issues: [], text: md,
+        // GEN-TAB: what is still unfilled, so the pane can say so before it is downloaded.
+        tags: findTags(md),
+        // `files` keeps a stable LOGICAL name, so anything inspecting what was produced
+        // addresses it by what it is rather than by when it was made.
+        files: [{ name: meta.logicalName || 'document.md', content: md }]
+      };
+    }
 
     App.docGen = {
       // The three the host's own generator is a shim over.
@@ -13116,6 +13240,8 @@
       filterCounts: filterCounts,
       // GEN-TAB: `/[Tag]` placeholders — finding them, filling them, naming the file.
       findTags: findTags, applyTags: applyTags, docFilename: docFilename, TAG_RE: TAG_RE,
+      // CONF-1: blocks in, one finished .md out — the step a host used to write itself.
+      emitDocument: emitDocument,
       // Exposed for a host that assembles its own run: the sections for a run, and
       // the provider behind one block.
       sectionsOf: sectionsOf, providerOf: providerOf
@@ -13592,109 +13718,46 @@
     var docFilename = App.docGen.docFilename;
 
     /**
-     * Assemble, render and package a document.
+     * CH's document pipeline: the module's, with CH's own facts supplied.
+     *
+     * Everything generic about emitting a document — resolving the profile, numbering
+     * the outline, the YAML front matter, the render, the placeholder pass — moved to
+     * App.docGen.emitDocument, so a second host does not have to reproduce eighty lines
+     * of it (CONF-1). What stays here is the part only CH can answer: which device this
+     * is, what the project hashes to, what the tool is called, what its classification
+     * banner says, and the stable name each command's file takes.
+     *
      * @param {Array} blocks  reportBlocks()-shaped, each with `body` and/or `parts`
      * @param {{title:string, subtitle?:string, classification?:boolean}} meta
      * @returns {{blob:Blob,name:string,issues:Issue[],text:string,files:Object[]}}
      */
-    /**
-     * GEN-TAB: a profile whose header and footer slots have had their placeholders
-     * filled in, on the RAW text.
-     *
-     * Every other placeholder in the document is substituted at the very end, on the
-     * finished markdown, which is what makes one pass catch them all. A slot cannot wait
-     * for that pass: it reaches the page through `header-includes`, which pandoc hands
-     * to LaTeX verbatim, so what goes in has to be escaped for LaTeX rather than for
-     * markdown — and by the end of the pipeline the slot has already been escaped and
-     * the two cannot be told apart. Filled here, the value is escaped by `slotLatex`
-     * along with the words around it, once, in the right language.
-     */
-    function taggedProfile(profile, tags) {
-      if (!tags || !Object.keys(tags).length) return profile;
-      var out = JSON.parse(JSON.stringify(profile));
-      var hf = out.headerFooter || {};
-      App.docFormat.HF_SETS.forEach(function (k) {
-        App.docFormat.HF_SLOTS.forEach(function (slot) {
-          if (hf[k] && hf[k][slot]) hf[k][slot] = applyTags(hf[k][slot], tags, true);
-        });
-      });
-      return out;
-    }
-
     function emitDocument(project, dc, command, generatedUtc, blocks, meta) {
-      var profile = taggedProfile(App.docFormat.resolve(project), meta.tags);
-      var resolved = App.doc.outline(blocks, {
-        baseLevel: 1,
-        clampSkips: profile.headings.clampSkips !== false,
-        numbered: profile.headings.numbered !== false
-      });
-      /* TTL-2: the automatic title block is a CHOICE, and it is off unless asked for.
-       *
-       * `title`/`subtitle`/`date` in the YAML make pandoc's template call \maketitle,
-       * which prints a title page this file composed — a heading, a model-and-firmware
-       * line and a date — ahead of everything the designer arranged. Anyone who wants
-       * their own title page cannot have one while it is there, and there is no
-       * markdown that suppresses it: the only way not to get the block is not to name
-       * the metadata. So the switch simply withholds the three keys.
-       *
-       * What is NOT withheld is the provenance: tool, device, version, generated-at and
-       * the project hash still travel as their own YAML keys below, and the Device
-       * Config Information section still prints them where a reader can see them. */
-      var titleBlock = ((project.report || {}).titleBlock === true);
-      var frontMatter = App.docFormat.frontMatter(profile, {
-        title: titleBlock ? meta.title : '',
-        subtitle: titleBlock ? (meta.subtitle || '') : '',
-        date: titleBlock ? App.util.clock.toAest(generatedUtc) : '',
-        // TOC-1: this document prints its own contents list iff it carries the section.
-        tocSection: (blocks || []).some(function (b) { return b && b.kind === 'toc'; }),
+      return App.docGen.emitDocument({ getState: function () { return project; } }, blocks, {
+        // TTL-2 gates all three of these inside the module. The date is AEST because
+        // that is the timezone every other date in a CH document is printed in.
+        title: meta.title, subtitle: meta.subtitle || '',
+        date: App.util.clock.toAest(generatedUtc),
         classification: meta.classification ? 'OFFICIAL: Sensitive' : '',
-        // The manifest's job, done inside the document. `extra` lands in the YAML
-        // block, which pandoc carries into the PDF metadata and any reader can see.
+        linkTerms: meta.linkTerms || null,
+        filename: meta.filename, tags: meta.tags,
+        // The manifest's job, done inside the document: the provenance a reader of the
+        // PDF can see. Every one of the five is a CH shape, which is why they are
+        // handed in rather than reached for.
         extra: [
           { key: 'tool', value: TOOL_NAME + ' ' + TOOL_VERSION },
           { key: 'device-id', value: dc.id },
           { key: 'device-version', value: 'v' + dc.version },
           { key: 'generated-utc', value: generatedUtc },
           { key: 'project-sha256', value: sha(App.projectIo.serializeProject(project)) }
-        ]
-      });
-      // TBS-1: the PART carries the flags, the PROFILE carries the look. App.doc has no
-      // business knowing about either, so it is handed the resolver rather than the two.
-      // HDR-1: page 1 is an ordinary page unless the profile gives it its own header
-      // and footer, in which case it has to be told so from inside the document.
-      var firstPage = profile.headerFooter && profile.headerFooter.firstDifferent;
-      var md = App.doc.render({
-        frontMatter: frontMatter, blocks: resolved,
-        prologue: firstPage ? '\\thispagestyle{chfirst}' : '',
-        // SEC-4: so a section whose level already starts a page does not get a second
-        // break, and a blank page between the two.
-        levelBreaks: App.docFormat.levelBreaks(profile),
-        // REF-2: prose renders its control mentions as links too, not just table cells.
-        linkTerms: meta.linkTerms || null,
-        metrics: App.docFormat.tableMetrics(profile),
-        // CAP-3: which side of the table the caption goes. The look of it is the
-        // profile's business too, but that reaches the page as preamble macros.
-        captionPosition: profile.tables.captionPosition,
-        styleFor: function (part) {
-          return App.docFormat.tableStyle(profile, { head: part.styleHead === true, firstColumn: part.styleFirstColumn === true });
-        }
-      });
-      // GEN-TAB: the last thing that happens to the document, so a tag written anywhere
-      // in it — heading, table cell, footer slot, YAML title — is caught by one pass.
-      md = applyTags(md, meta.tags);
-      return {
-        blob: new Blob([md], { type: 'text/markdown;charset=utf-8' }),
+        ],
         // The DOWNLOAD carries the device and a timestamp, as every artifact does —
         // unless the operator named it themselves (GEN-TAB).
-        name: docFilename(meta.filename) || (dc.id + '-' + command + '-' + stamp(generatedUtc) + '.md'),
-        issues: [], text: md,
-        // GEN-TAB: what is still unfilled, so the pane can say so before it is downloaded.
-        tags: findTags(md),
+        fallbackName: dc.id + '-' + command + '-' + stamp(generatedUtc) + '.md',
         // `files` keeps the stable LOGICAL name the zip entries used to have, so
         // anything inspecting what was produced — the Activity drawer, the preview,
         // the suite — addresses it by what it is rather than by when it was made.
-        files: [{ name: DOC_FILENAMES[command] || (command + '.md'), content: md }]
-      };
+        logicalName: DOC_FILENAMES[command] || (command + '.md')
+      });
     }
 
     /**
@@ -34473,6 +34536,160 @@
       T.assertDeepEqual(App.docHost.validate(App.docHost.get()), []);
     });
   });
+  })(App);
+  </script>
+
+  <script>
+  (function (App) {
+    'use strict';
+    var T = App.test;
+
+    /* ===== SUITES: a host that is not CH (CONF-1) ===== */
+
+    /* The direct descendant of the DOD-11 mock-platform test, one level up: that one
+     * proved a new DATASET needs no core edits, this one proves a new APPLICATION
+     * needs none either. If it passes, the contract is real — something with no
+     * devices, no controls, no platform and no registry drives the document module
+     * from an empty state to a finished .md.
+     *
+     * The fixture is deliberately nothing like CH. A roster of people in regions has
+     * no readiness to compute, no capture to hash and no register to inherit from, so
+     * anything in the module still shaped like a device config shows up here as a
+     * missing member rather than as a subtly wrong document. */
+    T.suite('CONF-1 a minimal foreign host generates a document', function (s) {
+
+      function mockHost() {
+        var state = { report: {} };
+        var host = {
+          getState: function () { return state; },
+          commit: function (m) { m(state); },
+          clock: { nowIso: function () { return '2026-01-01T00:00:00.000Z'; } },
+          subject: {
+            metaLabel: 'About this region',
+            list: function () { return [{ id: 'r1', label: 'Region One' }, { id: 'r2', label: 'Region Two' }]; },
+            ready: function (id) { return id === 'r1'; },
+            meta: function (id) {
+              return [{ id: 'region', label: 'Region', value: id === 'r1' ? 'Region One' : 'Region Two', code: false }];
+            }
+          },
+          // Declared as a FUNCTION of the run, which is the half of the contract a
+          // static array never exercises: these rows exist for r1 and not for r2.
+          sections: function (run) {
+            var subject = run && run.subjectId;
+            return [{
+              id: 'staff', label: 'Staff',
+              keyColumn: { id: '_key', label: 'Name', w: 2, get: function (r) { return r.name; } },
+              columns: [
+                { id: 'role', label: 'Role', w: 3, get: function (r) { return r.role; } },
+                { id: 'band', label: 'Band', w: 2, optional: true, get: function (r) { return r.band; } }
+              ],
+              rows: function () { return subject === 'r1' ? ROWS : []; }
+            }];
+          },
+          filter: {
+            id: 'band', label: 'Band',
+            categories: function () {
+              return [{ key: 'hi', label: 'High', defaultOn: true }, { key: 'lo', label: 'Low', defaultOn: false }];
+            },
+            categoryOf: function (row) { return row.band; }
+          },
+          build: function (subjectId, opts) { return buildDoc(host, subjectId, opts); }
+        };
+        return host;
+      }
+
+      var ROWS = [{ name: 'Ada', role: 'Lead', band: 'hi' }, { name: 'Grace', role: 'Engineer', band: 'lo' }];
+
+      /** What a host's build() does: blocks in, content filled in, one document out. */
+      function buildDoc(host, subjectId, opts) {
+        var o = Object.assign({ subjectId: subjectId }, opts || {});
+        var blocks = App.docGen.reportBlocks(host, o).filter(function (b) { return b.included; });
+        var ctx = { subjectId: subjectId, generatedUtc: host.clock.nowIso() };
+        var meta = host.subject.meta(subjectId);
+        var prepared = blocks.map(function (b) { return App.docGen.sectionContent(host, b, o, ctx, meta); });
+        return App.docGen.emitDocument(host, prepared, {
+          title: 'Roster', subtitle: 'Region One', date: '2026-01-01',
+          filename: o.filename, tags: o.tags,
+          logicalName: 'roster.md', fallbackName: 'roster-r1.md'
+        });
+      }
+
+      function withHost(host, body) {
+        var was = App.docHost.get();
+        App.docHost.set(host);
+        try { return body(); } finally { if (was) App.docHost.set(was); }
+      }
+
+      s.test('the host validates against the contract', function () {
+        T.assertDeepEqual(App.docHost.validate(mockHost()), []);
+      });
+
+      s.test('its sections become orderable blocks, beside the module\'s own', function () {
+        var blocks = App.docGen.reportBlocks(mockHost(), {});
+        var ids = blocks.map(function (b) { return b.id; });
+        T.assert(ids.indexOf('staff') !== -1, 'the host section is not a block: ' + ids.join(','));
+        T.assert(ids.indexOf('toc') !== -1, 'the contents block is missing');
+        T.assert(ids.indexOf('meta') !== -1, 'the metadata block is missing');
+        // META-2: the host names its own provenance section; it is not called "Device".
+        T.assertEqual(blocks.filter(function (b) { return b.id === 'meta'; })[0].label, 'About this region');
+      });
+
+      s.test('the declared columns are the columns the designer would offer', function () {
+        var host = mockHost();
+        var block = App.docGen.reportBlocks(host, {}).filter(function (b) { return b.id === 'staff'; })[0];
+        var cols = App.docGen.sectionColumns(host, block, {});
+        T.assertDeepEqual(cols.fixed.map(function (c) { return c.label; }), ['Name', 'Role']);
+        T.assertDeepEqual(cols.optional.map(function (c) { return c.label; }), ['Band']);
+      });
+
+      s.test('rows are counted by the host\'s own filter axis', function () {
+        T.assertDeepEqual(App.docGen.filterCounts(mockHost(), ROWS), { hi: 1, lo: 1 });
+      });
+
+      s.test('it generates a document containing its own data', function () {
+        var host = mockHost();
+        var out = withHost(host, function () { return host.build('r1', {}); });
+        T.assert(out && typeof out.text === 'string', 'no document produced');
+        T.assert(out.text.indexOf('Ada') !== -1, 'a row is missing from the document');
+        T.assert(out.text.indexOf('Grace') !== -1, 'a row is missing from the document');
+        T.assert(out.text.indexOf('Role') !== -1, 'a declared column heading is missing');
+        T.assert(out.text.indexOf('Region One') !== -1, 'the subject metadata is missing');
+        T.assertEqual(out.files[0].name, 'roster.md');
+        T.assertEqual(out.files[0].content, out.text);
+        T.assertEqual(out.name, 'roster-r1.md', 'an unnamed run falls back to the host\'s name');
+      });
+
+      s.test('the same host and state produce the same bytes (DOD-7)', function () {
+        var host = mockHost();
+        var a = withHost(host, function () { return host.build('r1', {}); });
+        var b = withHost(host, function () { return host.build('r1', {}); });
+        T.assertEqual(a.text, b.text, 'two runs of one design differ');
+      });
+
+      s.test('a placeholder is filled in, and an unfilled one is reported', function () {
+        var host = mockHost();
+        withHost(host, function () {
+          App.docStore.addSection('Issued /[Date]');
+          var open = host.build('r1', {});
+          T.assert(open.tags.indexOf('Date') !== -1, 'the unfilled tag was not reported: ' + open.tags.join(','));
+          var filled = host.build('r1', { tags: { Date: '9 September 2026' }, filename: 'roster-2026.md' });
+          T.assert(filled.text.indexOf('9 September 2026') !== -1, 'the tag was not filled in');
+          T.assertDeepEqual(filled.tags, [], 'a filled tag is still reported as open');
+          T.assertEqual(filled.name, 'roster-2026.md', 'the run\'s filename was not used');
+        });
+      });
+
+      s.test('it needed no core edits — no CH name appears in the host', function () {
+        var src = String(mockHost) + String(buildDoc);
+        // Assembled rather than written out, because the build's boundary check reads
+        // this file too and cannot tell a name in a string from a name being used.
+        ['store', 'registry', 'generate', 'completeness', 'providers', 'overrides',
+         'projectIo', 'ui'].forEach(function (n) {
+          var name = 'App.' + n;
+          T.assertEqual(src.indexOf(name), -1, 'the mock host reaches for ' + name);
+        });
+      });
+    });
   })(App);
   </script>
 

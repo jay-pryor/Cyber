@@ -258,6 +258,92 @@ as code spans, which are verbatim. Nothing is altered in the project: a package 
 `com.samsung.android.app_x` is stored that way, because the implementation script has to name the
 package the device actually has. The escaping happens only in the generated document.
 
+## Using the document module in another app
+
+The report designer and the document generator are not CH code. They live in `src/doc/`, build into
+`doc-designer.js` as well as into the tool, and know nothing about devices, controls, packages or
+platforms — `tools/build.py` fails the build if anything under `src/doc/` so much as names something
+`src/app/` defines. Everything the module needs from the application around it arrives through one
+object, installed once:
+
+```js
+App.docHost.set(myHost);
+```
+
+**The contract.** Four members are required, because only four have no sensible default. The rest
+degrade to something coherent: no subject picker, no filter axis, no log, no preview.
+
+| Member | Required | What it is |
+|---|---|---|
+| `getState()` | ✅ | Returns the host's state object. The module reads its `report` bag from here and never caches it. |
+| `commit(mutator)` | ✅ | Applies `mutator(state)` and records it however the host records changes — so undo, dirty-tracking and autosave keep working. The module never persists anything itself. |
+| `clock.nowIso()` | ✅ | The time, as an ISO string. Engine code takes time from nowhere else. |
+| `sections` | ✅ | An array of section PROVIDERS, or a function of one run returning them. A provider declares `id`, `label`, `keyColumn`, `columns` and `rows()`; give it a `render()` only for something a table cannot express. |
+| `subject` | — | `list()`, `ready(id)`, `meta(id)` — what the document is *about*. Without it there is no subject picker and no provenance section. |
+| `filter` | — | `categories()` and `categoryOf(row)` — the axis rows are included or excluded along. Without it, every row is in. |
+| `build(subjectId, opts)` | — | Produces the document. What the workspace previews and what its Generate button emits. |
+| `linkTerms(blocks)` | — | Which words in the document become links to a section. |
+| `log(issue)` | — | Where `{severity, message}` goes. Without it the message is dropped rather than thrown. |
+
+**A worked example.** This is the CONF-1 self-test, near enough verbatim — a roster of people in
+regions, with no devices, no registry and no platform anywhere in it:
+
+```js
+var ROWS = [{ name: 'Ada', role: 'Lead', band: 'hi' },
+            { name: 'Grace', role: 'Engineer', band: 'lo' }];
+var state = { report: {} };
+
+var host = {
+  getState: function () { return state; },
+  commit: function (m) { m(state); },
+  clock: App.util.clock,
+  subject: {
+    metaLabel: 'About this region',
+    list: function () { return [{ id: 'r1', label: 'Region One' }]; },
+    ready: function (id) { return id === 'r1'; },
+    meta: function (id) { return [{ id: 'region', label: 'Region', value: 'Region One', code: false }]; }
+  },
+  sections: function (run) {
+    return [{
+      id: 'staff', label: 'Staff',
+      keyColumn: { id: '_key', label: 'Name', w: 2, get: function (r) { return r.name; } },
+      columns: [{ id: 'role', label: 'Role', w: 3, get: function (r) { return r.role; } },
+                { id: 'band', label: 'Band', w: 2, optional: true, get: function (r) { return r.band; } }],
+      rows: function () { return run && run.subjectId === 'r1' ? ROWS : []; }
+    }];
+  },
+  filter: {
+    id: 'band', label: 'Band',
+    categories: function () { return [{ key: 'hi', label: 'High', defaultOn: true },
+                                      { key: 'lo', label: 'Low', defaultOn: false }]; },
+    categoryOf: function (row) { return row.band; }
+  },
+  build: function (subjectId, opts) {
+    var o = Object.assign({ subjectId: subjectId }, opts || {});
+    var blocks = App.docGen.reportBlocks(host, o).filter(function (b) { return b.included; });
+    var ctx = { subjectId: subjectId, generatedUtc: host.clock.nowIso() };
+    var meta = host.subject.meta(subjectId);
+    var prepared = blocks.map(function (b) { return App.docGen.sectionContent(host, b, o, ctx, meta); });
+    return App.docGen.emitDocument(host, prepared, {
+      title: 'Roster', filename: o.filename, tags: o.tags,
+      logicalName: 'roster.md', fallbackName: 'roster-r1.md'
+    });
+  }
+};
+
+App.docHost.set(host);
+var doc = host.build('r1', {});   // { text, name, files: [{name, content}], tags, blob }
+```
+
+That host gets the whole workspace: an orderable section list, heading levels, hand-authored
+sections, formatting profiles, cross-references, the live preview, templates and `/[Tag]`
+placeholders — none of which it wrote, and none of which required an edit inside `src/doc/`.
+
+**What stays with the host.** The module builds and renders; the application supplies the facts only
+it has. CH's own generator is a shim of about forty lines around `App.docGen.emitDocument`: it hands
+over the device id, the project hash, the tool version, the classification banner and the stable
+filename for each command, and the module does the rest.
+
 ## Self-tests
 
 Append **`#selftest`** to the URL (e.g. `ch-config-tool.html#selftest`) to run the embedded test

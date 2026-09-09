@@ -106,109 +106,46 @@
     var docFilename = App.docGen.docFilename;
 
     /**
-     * Assemble, render and package a document.
+     * CH's document pipeline: the module's, with CH's own facts supplied.
+     *
+     * Everything generic about emitting a document — resolving the profile, numbering
+     * the outline, the YAML front matter, the render, the placeholder pass — moved to
+     * App.docGen.emitDocument, so a second host does not have to reproduce eighty lines
+     * of it (CONF-1). What stays here is the part only CH can answer: which device this
+     * is, what the project hashes to, what the tool is called, what its classification
+     * banner says, and the stable name each command's file takes.
+     *
      * @param {Array} blocks  reportBlocks()-shaped, each with `body` and/or `parts`
      * @param {{title:string, subtitle?:string, classification?:boolean}} meta
      * @returns {{blob:Blob,name:string,issues:Issue[],text:string,files:Object[]}}
      */
-    /**
-     * GEN-TAB: a profile whose header and footer slots have had their placeholders
-     * filled in, on the RAW text.
-     *
-     * Every other placeholder in the document is substituted at the very end, on the
-     * finished markdown, which is what makes one pass catch them all. A slot cannot wait
-     * for that pass: it reaches the page through `header-includes`, which pandoc hands
-     * to LaTeX verbatim, so what goes in has to be escaped for LaTeX rather than for
-     * markdown — and by the end of the pipeline the slot has already been escaped and
-     * the two cannot be told apart. Filled here, the value is escaped by `slotLatex`
-     * along with the words around it, once, in the right language.
-     */
-    function taggedProfile(profile, tags) {
-      if (!tags || !Object.keys(tags).length) return profile;
-      var out = JSON.parse(JSON.stringify(profile));
-      var hf = out.headerFooter || {};
-      App.docFormat.HF_SETS.forEach(function (k) {
-        App.docFormat.HF_SLOTS.forEach(function (slot) {
-          if (hf[k] && hf[k][slot]) hf[k][slot] = applyTags(hf[k][slot], tags, true);
-        });
-      });
-      return out;
-    }
-
     function emitDocument(project, dc, command, generatedUtc, blocks, meta) {
-      var profile = taggedProfile(App.docFormat.resolve(project), meta.tags);
-      var resolved = App.doc.outline(blocks, {
-        baseLevel: 1,
-        clampSkips: profile.headings.clampSkips !== false,
-        numbered: profile.headings.numbered !== false
-      });
-      /* TTL-2: the automatic title block is a CHOICE, and it is off unless asked for.
-       *
-       * `title`/`subtitle`/`date` in the YAML make pandoc's template call \maketitle,
-       * which prints a title page this file composed — a heading, a model-and-firmware
-       * line and a date — ahead of everything the designer arranged. Anyone who wants
-       * their own title page cannot have one while it is there, and there is no
-       * markdown that suppresses it: the only way not to get the block is not to name
-       * the metadata. So the switch simply withholds the three keys.
-       *
-       * What is NOT withheld is the provenance: tool, device, version, generated-at and
-       * the project hash still travel as their own YAML keys below, and the Device
-       * Config Information section still prints them where a reader can see them. */
-      var titleBlock = ((project.report || {}).titleBlock === true);
-      var frontMatter = App.docFormat.frontMatter(profile, {
-        title: titleBlock ? meta.title : '',
-        subtitle: titleBlock ? (meta.subtitle || '') : '',
-        date: titleBlock ? App.util.clock.toAest(generatedUtc) : '',
-        // TOC-1: this document prints its own contents list iff it carries the section.
-        tocSection: (blocks || []).some(function (b) { return b && b.kind === 'toc'; }),
+      return App.docGen.emitDocument({ getState: function () { return project; } }, blocks, {
+        // TTL-2 gates all three of these inside the module. The date is AEST because
+        // that is the timezone every other date in a CH document is printed in.
+        title: meta.title, subtitle: meta.subtitle || '',
+        date: App.util.clock.toAest(generatedUtc),
         classification: meta.classification ? 'OFFICIAL: Sensitive' : '',
-        // The manifest's job, done inside the document. `extra` lands in the YAML
-        // block, which pandoc carries into the PDF metadata and any reader can see.
+        linkTerms: meta.linkTerms || null,
+        filename: meta.filename, tags: meta.tags,
+        // The manifest's job, done inside the document: the provenance a reader of the
+        // PDF can see. Every one of the five is a CH shape, which is why they are
+        // handed in rather than reached for.
         extra: [
           { key: 'tool', value: TOOL_NAME + ' ' + TOOL_VERSION },
           { key: 'device-id', value: dc.id },
           { key: 'device-version', value: 'v' + dc.version },
           { key: 'generated-utc', value: generatedUtc },
           { key: 'project-sha256', value: sha(App.projectIo.serializeProject(project)) }
-        ]
-      });
-      // TBS-1: the PART carries the flags, the PROFILE carries the look. App.doc has no
-      // business knowing about either, so it is handed the resolver rather than the two.
-      // HDR-1: page 1 is an ordinary page unless the profile gives it its own header
-      // and footer, in which case it has to be told so from inside the document.
-      var firstPage = profile.headerFooter && profile.headerFooter.firstDifferent;
-      var md = App.doc.render({
-        frontMatter: frontMatter, blocks: resolved,
-        prologue: firstPage ? '\\thispagestyle{chfirst}' : '',
-        // SEC-4: so a section whose level already starts a page does not get a second
-        // break, and a blank page between the two.
-        levelBreaks: App.docFormat.levelBreaks(profile),
-        // REF-2: prose renders its control mentions as links too, not just table cells.
-        linkTerms: meta.linkTerms || null,
-        metrics: App.docFormat.tableMetrics(profile),
-        // CAP-3: which side of the table the caption goes. The look of it is the
-        // profile's business too, but that reaches the page as preamble macros.
-        captionPosition: profile.tables.captionPosition,
-        styleFor: function (part) {
-          return App.docFormat.tableStyle(profile, { head: part.styleHead === true, firstColumn: part.styleFirstColumn === true });
-        }
-      });
-      // GEN-TAB: the last thing that happens to the document, so a tag written anywhere
-      // in it — heading, table cell, footer slot, YAML title — is caught by one pass.
-      md = applyTags(md, meta.tags);
-      return {
-        blob: new Blob([md], { type: 'text/markdown;charset=utf-8' }),
+        ],
         // The DOWNLOAD carries the device and a timestamp, as every artifact does —
         // unless the operator named it themselves (GEN-TAB).
-        name: docFilename(meta.filename) || (dc.id + '-' + command + '-' + stamp(generatedUtc) + '.md'),
-        issues: [], text: md,
-        // GEN-TAB: what is still unfilled, so the pane can say so before it is downloaded.
-        tags: findTags(md),
+        fallbackName: dc.id + '-' + command + '-' + stamp(generatedUtc) + '.md',
         // `files` keeps the stable LOGICAL name the zip entries used to have, so
         // anything inspecting what was produced — the Activity drawer, the preview,
         // the suite — addresses it by what it is rather than by when it was made.
-        files: [{ name: DOC_FILENAMES[command] || (command + '.md'), content: md }]
-      };
+        logicalName: DOC_FILENAMES[command] || (command + '.md')
+      });
     }
 
     /**

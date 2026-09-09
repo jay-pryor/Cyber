@@ -441,16 +441,3 @@
         return raw ? String(v) : App.md.text(String(v));
       });
     }
-
-    App.docGen = {
-      // The three the host's own generator is a shim over.
-      reportBlocks: hostBlocks, sectionColumns: hostColumns, sectionContent: hostContent,
-      // How many rows sit in each of the host's filter categories.
-      filterCounts: filterCounts,
-      // GEN-TAB: `/[Tag]` placeholders — finding them, filling them, naming the file.
-      findTags: findTags, applyTags: applyTags, docFilename: docFilename, TAG_RE: TAG_RE,
-      // Exposed for a host that assembles its own run: the sections for a run, and
-      // the provider behind one block.
-      sectionsOf: sectionsOf, providerOf: providerOf
-    };
-  })(App);
