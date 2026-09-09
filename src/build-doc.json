@@ -223,6 +223,42 @@
       "paths": [
         "doc/js/0900-doc-suites/040-conformance-mock-host.js"
       ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/050-markdown.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/060-outline-and-references.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/070-widths-and-type.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "",
+      "close": "",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/080-captions.js"
+      ]
     }
   ]
 }

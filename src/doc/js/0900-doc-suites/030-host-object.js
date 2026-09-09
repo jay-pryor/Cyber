@@ -31,9 +31,15 @@
     });
 
     s.test('a malformed host is refused, and says which member is wrong', function () {
-      var bad = minimal(); bad.clock = {};
-      T.assertThrows(function () { App.docHost.set(bad); }, /host\.clock/);
-      T.assert(App.docHost.get(), 'a refused host must not replace the one already installed');
+      var good = minimal(), bad = minimal();
+      bad.clock = {};
+      // Installed FIRST, so the second half of this is a real assertion rather than a
+      // reading of whatever host happened to be installed by the application around it
+      // — inside CH there is always one, and in the module bundle there is not.
+      withHost(good, function () {
+        T.assertThrows(function () { App.docHost.set(bad); }, /host\.clock/);
+        T.assertEqual(App.docHost.get(), good, 'a refused host must not replace the one installed');
+      });
     });
 
     s.test('an optional member is optional, but not half-declared', function () {
@@ -66,9 +72,15 @@
       });
     });
 
-    s.test('a host IS installed, and it validates', function () {
-      T.assert(App.docHost.get(), 'no host installed at boot');
-      T.assertDeepEqual(App.docHost.validate(App.docHost.get()), []);
+    /* Whether an application installs a host at boot is that APPLICATION's business,
+     * and CH's is asserted in its own tree (HOSTBOOT-1). What belongs here is that a
+     * host, once set, is the one the module hands back. */
+    s.test('the installed host is the one that comes back', function () {
+      var host = minimal();
+      withHost(host, function () {
+        T.assertEqual(App.docHost.get(), host);
+        T.assertDeepEqual(App.docHost.validate(App.docHost.get()), []);
+      });
     });
   });
   })(App);

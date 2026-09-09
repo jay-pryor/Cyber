@@ -713,6 +713,42 @@
       "close": "  </script>\n",
       "gap": "\n",
       "paths": [
+        "doc/js/0900-doc-suites/050-markdown.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/060-outline-and-references.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/070-widths-and-type.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
+        "doc/js/0900-doc-suites/080-captions.js"
+      ]
+    },
+    {
+      "type": "script",
+      "open": "  <script>\n",
+      "close": "  </script>\n",
+      "gap": "\n",
+      "paths": [
         "app/js/0600-v2-2-self-test-suites-report-design-markdown/010-la-te-x-safe-markdown-md-1.js",
         "app/js/0600-v2-2-self-test-suites-report-design-markdown/020-the-designer-s-project-writes-ds-1-ds-6.js",
         "app/js/0600-v2-2-self-test-suites-report-design-markdown/030-guide-1-deviations-from-security-guidelines.js",

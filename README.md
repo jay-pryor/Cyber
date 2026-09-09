@@ -348,7 +348,16 @@ filename for each command, and the module does the rest.
 
 Append **`#selftest`** to the URL (e.g. `ch-config-tool.html#selftest`) to run the embedded test
 suite in-page. It must show all green. The harness is also runnable headlessly (see
-`progress-log.md`).
+`progress-log.md`):
+
+```bash
+node tools/run-selftests.js          # the application's suite, from ch-config-tool.html
+node tools/run-module-selftests.js   # the document module's own suite, from doc-designer.js
+```
+
+The second one loads the module bundle into a bare page with no application present at all, so a
+suite that quietly depended on CH's store, registry or UI fails there rather than passing inside
+the tool and being called portable.
 
 ## Definition-of-Done checklist (spec §1.1)
 

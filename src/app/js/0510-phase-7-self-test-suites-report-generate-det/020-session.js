@@ -62,3 +62,23 @@
         'the category that ships off must still ship off');
     });
   });
+
+  /* ===== SUITES: the application installs its host (HOSTBOOT-1) ===== */
+
+  /* Lives here rather than in the module's own tree because it is a fact about CH, not
+   * about the module: doc-designer.js boots with no host at all, and correctly so. */
+  T.suite('HOSTBOOT-1 CH installs a document host at boot', function (s) {
+    s.test('a host is installed, and it validates', function () {
+      T.assert(App.docHost.get(), 'no host installed at boot');
+      T.assertDeepEqual(App.docHost.validate(App.docHost.get()), []);
+    });
+
+    s.test('it is CH that it describes', function () {
+      readyProject();
+      var host = App.docHost.get();
+      T.assert(host.subject && host.subject.list().length, 'the host offers no subjects');
+      T.assert(App.docHost.sections().length, 'the host declares no sections');
+      T.assertEqual(typeof host.build, 'function', 'the host cannot build a document');
+    });
+  });
+

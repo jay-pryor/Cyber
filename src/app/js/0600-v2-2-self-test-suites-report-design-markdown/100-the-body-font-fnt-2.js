@@ -74,45 +74,6 @@
 
     /* ===== SUITES: the document the designer controls (CODE-1 · TOC-1/2 · TTL-2 · CAP-3) ===== */
 
-    T.suite('CODE-1 a code span is shaded, and a long one still wraps', function (s) {
-      s.test('the shipped profile shades, and says so in one colour', function () {
-        var pre = App.docFormat.preamble(App.docFormat.standard());
-        T.assert(/\\definecolor\{chCodeShade\}\{HTML\}\{F2F2F2\}/.test(pre), 'the colour: ' + pre.slice(0, 400));
-        T.assert(/\\colorbox\{chCodeShade\}/.test(pre), 'and a box that uses it');
-      });
-
-      s.test('the box is chosen by MEASURING, against the line and not the page', function () {
-        // \colorbox is an unbreakable hbox: measured, a 64-character SHA-256 inside one
-        // runs 49pt past the margin — the exact defect BRK-1 fixed. So a run that does
-        // not fit takes the seqsplit route instead, and the width it is compared
-        // against is \linewidth: inside a table cell \columnwidth is still the PAGE's
-        // column, and measuring against it ran an identifier 38pt out of its cell.
-        var pre = App.docFormat.preamble(App.docFormat.standard());
-        T.assert(/\\settowidth\{\\chCodeWidth\}/.test(pre), 'it must measure');
-        T.assert(/\\ifdim\\chCodeWidth>0\.95\\linewidth/.test(pre), 'against the line: ' + pre);
-        T.assert(pre.indexOf('\\columnwidth') === -1 || !/chCodeWidth>[^\n]*columnwidth/.test(pre),
-          'never against the page column');
-        T.assert(/\\chOriginalTexttt\{\\seqsplit\{#1\}\}/.test(pre), 'and the long run must still be breakable');
-      });
-
-      s.test('no shade means no shade, on the page and in the preview', function () {
-        var none = App.docFormat.normalise({ id: 'p', name: 'P', page: { codeShade: '' } });
-        var pre = App.docFormat.preamble(none);
-        T.assert(pre.indexOf('chCodeShade') === -1, 'nothing to define');
-        T.assert(/\\renewcommand\{\\texttt\}\[1\]\{\\chOriginalTexttt\{\\seqsplit\{#1\}\}\}/.test(pre),
-          'and \\texttt is the plain breakable form again');
-        T.assert(/\.rd-paper code \{ background: transparent/.test(App.docFormat.previewCss(none)));
-        T.assert(/\.rd-paper code \{ background: #f2f2f2/.test(App.docFormat.previewCss(App.docFormat.standard())),
-          'the preview wears the profile’s colour');
-      });
-
-      s.test('a malformed colour is dropped, not passed to LaTeX', function () {
-        var bad = App.docFormat.normalise({ id: 'p', name: 'P', page: { codeShade: 'red; } * { display:none' } });
-        T.assertEqual(bad.page.codeShade, '');
-        T.assert(App.docFormat.previewCss(bad).indexOf('display:none') === -1);
-      });
-    });
-
     T.suite('TOC-1/TOC-2 the contents list is a section like any other', function (s) {
       function blocks(p) {
         return App.generate.reportBlocks(p || App.store.getProject(), App.registry.getPlatform('android-adb'), {});

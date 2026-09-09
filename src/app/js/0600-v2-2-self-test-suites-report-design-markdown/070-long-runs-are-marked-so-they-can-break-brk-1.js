@@ -102,67 +102,6 @@
       });
     });
 
-    /* ===== SUITES: what the preview shows (PRV-3) ===== */
-
-    T.suite('PRV-3 the preview reads the document back the way the page will', function (s) {
-      s.test('the outline rail is plain text, with the escaping undone', function () {
-        // It is written into the rail as text and HTML-escaped there, never parsed as
-        // markdown — so a section called "Firmware & build" was listed as "Firmware \&".
-        var o = App.ui.mdPreview.toHtml('# 1 Firmware \\& build 50\\% {#sec-x}\n').outline;
-        T.assertEqual(o[0].title, 'Firmware & build 50%');
-        T.assertEqual(o[0].number, '1');
-      });
-
-      s.test('unescapeMd undoes the writer, including code spans and emphasis', function () {
-        var U = App.ui.mdPreview.unescapeMd;
-        T.assertEqual(U('a\\_b \\$HOME \\{x\\}'), 'a_b $HOME {x}');
-        T.assertEqual(U('**bold** and `code`'), 'bold and code');
-      });
-
-      s.test('each firewall rule is its own line in a cell', function () {
-        var rules = [{ ruleType: 'DENY', portNumber: '443' }, { ruleType: 'ALLOW', portNumber: '80' }];
-        var md = MD.table(['Path', 'Value'], [[MD.code('firewallRules'), MD.cell(MD.human(rules))]], {});
-        var html = App.ui.mdPreview.toHtml(md).html;
-        T.assertEqual((html.match(/class="prv-cp"/g) || []).length, 2, 'one block per rule: ' + html);
-        T.assert(/1\. portNumber: 443; ruleType: DENY<\/div>/.test(html), 'and the rules must not run together');
-      });
-
-      s.test('a wrapped sentence is still one sentence', function () {
-        // Consecutive lines in a cell are ONE paragraph on the page; only a blank line
-        // starts a new one. Both halves of that have to be read back the same way.
-        var md = MD.table(['A'], [['a very long\nsentence wrapped']], {});
-        var html = App.ui.mdPreview.toHtml(md).html;
-        T.assert(/a very long sentence wrapped/.test(html), 'wrapped lines must rejoin with a space: ' + html);
-        T.assert(html.indexOf('prv-cp') === -1, 'and stay one block');
-      });
-
-      s.test('an interior blank line in a cell is not mistaken for padding', function () {
-        var grid = MD.gridTable(['A', 'B'], [['one' + MD.CELL_BREAK + MD.CELL_BREAK + 'two', 'x']], {});
-        var html = App.ui.mdPreview.toHtml(grid).html;
-        T.assert(/>one<\/div>/.test(html) && /<div class="prv-cp">two</.test(html), 'both paragraphs must survive: ' + html);
-      });
-
-      s.test('an unstyled table is not painted with the app\'s own colours', function () {
-        // `--c-surface-alt` is a near-black in dark mode, and the page is white. It also
-        // showed an unstyled header as though it had been given a shade.
-        var css = App.docFormat.previewCss(App.docFormat.standard());
-        T.assert(/\.rd-paper \.prv-table th[^{]*\{[^}]*background: transparent/.test(css),
-          'the page must state its own table background: ' + css);
-        var idx = css.indexOf('background: transparent');
-        T.assert(css.indexOf('prv-shade-head thead th { background:') > idx,
-          'and the shade rule must come after it, or it would be overridden');
-      });
-
-      s.test('no shade in the profile means no shade in the preview', function () {
-        var none = App.docFormat.normalise({ id: 'p', name: 'P', tables: { head: { shade: '' }, firstColumn: { shade: '' } } });
-        var css = App.docFormat.previewCss(none);
-        T.assert(!/prv-shade-head thead th/.test(css), 'an unshaded profile must paint nothing: ' + css);
-        // FNT-4: the header row's weight is no longer tied to opting in, so it is stated
-        // on every table header rather than on the shaded ones.
-        T.assert(/\.rd-paper \.prv-table th[^{]*\{[^}]*font-weight/.test(css), 'while its weight still applies to every table');
-      });
-    });
-
     /* ===== SUITES: a table narrower than the page (TW-3) ===== */
 
     T.suite('TW-3 widths that do not fill the page make a narrower table', function (s) {

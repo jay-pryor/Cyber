@@ -3750,3 +3750,60 @@ binding every handler for its view. Split each into per-concern wiring helpers w
 in those views, then delete its line from the allowlist.
 
 **Result:** 1112/1112 self-tests pass; rebuild byte-identical to the pre-split file.
+
+### 2026-09-09 — The document designer becomes a module — ✅ COMPLETE
+
+**Why.** The Report Design workspace and the document generator are not CH concepts. They know
+about headings, tables, widths, captions, cross-references and formatting profiles — none of which
+have anything to do with devices, packages or hardening controls. They were entangled with CH all
+the same: the generator's `sectionContent` had a branch per CH concept, the designer read the
+device list off `App.ui.model`, and every mutator wrote through `App.store`. Nothing about that
+document machinery could be used by anything else.
+
+**What it is now.** Three source trees — `src/base/` (shared pure utilities), `src/doc/` (the
+module) and `src/app/` (CH) — and two build targets from the same fragments: `ch-config-tool.html`
+and `doc-designer.js`. The module is driven by ONE object the host installs
+(`App.docHost.set(host)`): `getState`, `commit`, `clock` and `sections` are required, and
+`subject`, `filter`, `build`, `linkTerms` and `log` are optional and degrade coherently. A section
+is a PROVIDER the host declares — rows, a key column, columns — not a `kind` the module knows
+about.
+
+**The extraction, task by task:** a golden-output hash pinned first (GOLD-1); multi-manifest
+builds and the boundary check; the tree split; declared key columns (KEY-1); declarative section
+rendering (PROV-1); the block helpers, the render context and the provenance rows (7a/7b); control
+coverage and guideline deviations as host providers (HOST-1); a host-declared subject and filter
+(SUBJ-1/FILT-1); the host object itself (HOSTOBJ-1); the session (SESS-1); the generator's move
+into the module (7d); the wiring split; and the conformance test.
+
+**The guard.** `tools/build.py` fails the build if anything under `src/doc/` references a name
+`src/app/` defines. `BOUNDARY_DEBT` — the allowlist that held the line while the work was in
+flight — is empty, and the build refuses to let anything be put back into it. Both halves of the
+guard are themselves tested, in `tools/test-build-rules.sh`.
+
+**CONF-1, and the gap it found.** A mock host — a roster of people in regions, with no devices, no
+registry and no platform — generates a document end to end. It found exactly the kind of thing it
+was written to find: `emitDocument` did not exist for a foreign host. Resolving the profile,
+numbering the outline, the YAML front matter, the render and the `/[Tag]` pass were eighty lines
+inside CH, so a second host could build every block the module offers and have no way to finish.
+That pipeline is `App.docGen.emitDocument(host, blocks, meta)` now; CH's is a shim that supplies
+the device id, the project hash, the tool version, the classification banner and the filenames.
+
+**The module carries its own tests.** 18 suites that reference nothing CH owns moved into
+`src/doc/js/0900-doc-suites/` — the markdown writer, the outline and its cross-references, the
+width model, the type sizes, and the captions. CAP-1's last test generated CH's report through
+`App.store`; it builds a document from a mock host instead. `tools/run-module-selftests.js` loads
+`doc-designer.js` into a bare page with no `src/app/` code present at all and runs whatever
+registered: **143/143, 22 suites**. Two assumptions surfaced there and were corrected — the module's
+own suite no longer assumes a host is ambient, and "CH installs a host at boot" moved to the tree
+where it is true (HOSTBOOT-1).
+
+**Line-cap follow-up, half done.** The Report Design `wire()` — 680 lines, one of the two
+exemptions — is five per-concern helpers now (shell, sections, text, tables, formatting), moved
+verbatim: all 92 `dom.on(...)` registrations identical, every non-blank line accounted for.
+`src/line-cap-exemptions.txt` is down to one entry, `app/js/0460-ui-app/030-wire.js`, which is the
+same shape and still to do.
+
+**Result:** 1175/1175 self-tests pass (198 suites) in the application; 143/143 (22 suites) in the
+module bundle alone. GOLD-1 green on the hash recorded before the first task: **CH's generated
+document is byte-for-byte what it was.**
+

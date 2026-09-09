@@ -143,49 +143,6 @@
       });
     });
 
-    T.suite('RTX-2 a table cell takes the same formatting a paragraph does', function (s) {
-      s.test('a cell renders its tokens into the document', function () {
-        var ctx = { resolveRef: function () {
-          return { label: 'Table 4: X', numberLabel: 'Table 4', titleLabel: 'X', anchor: 'tbl-1' }; } };
-        var part = { id: 'p1', kind: 'table', header: ['{{b}}Setting{{/b}}', 'Notes'],
-          rows: [['{{c}}io.x.y{{/c}}', 'See {{refn:t}} — {{i}}note{{/i}}']] };
-        var md = App.doc.renderPart(part, ctx);
-        T.assert(md.indexOf('**Setting**') !== -1, 'a heading takes emphasis: ' + md);
-        T.assert(md.indexOf('`io.x.y`') !== -1, 'a cell takes a code span');
-        T.assert(md.indexOf('[Table 4](#tbl-1)') !== -1, 'and a cross-reference');
-        T.assert(md.indexOf('*note*') !== -1);
-      });
-
-      s.test('a line break in a cell is a HARD break, not a fold', function () {
-        // Pandoc folds a grid cell's consecutive lines into one paragraph, so a break
-        // without the trailing backslash does nothing at all on the page.
-        var part = { id: 'p1', kind: 'table', header: ['A'], rows: [['one{{br}}two']] };
-        var md = App.doc.renderPart(part, {});
-        var cell = md.split('\n').filter(function (l) { return /^\|/.test(l); });
-        T.assert(cell.some(function (l) { return /one\\\s*\|/.test(l); }),
-          'the line must end with a backslash:\n' + md);
-        T.assert(cell.some(function (l) { return /\btwo\b/.test(l); }), 'and the next line must follow');
-      });
-
-      s.test('a blank line in a cell is a paragraph in it', function () {
-        var part = { id: 'p1', kind: 'table', header: ['A'], rows: [['one\n\ntwo']] };
-        var md = App.doc.renderPart(part, {});
-        var html = App.ui.mdPreview.toHtml(md).html;
-        T.assert(/prv-cp/.test(html), 'the preview must read it back as two paragraphs: ' + html);
-      });
-
-      s.test('plain text in a cell is written exactly as it was', function () {
-        // Nothing about the change may alter a table nobody has formatted — every
-        // project written before this is full of them.
-        var part = { id: 'p1', kind: 'table', header: ['Key'], rows: [['io.sdsasolutions.tacticalsettings']] };
-        var md = App.doc.renderPart(part, {});
-        T.assert(md.indexOf('`io.sdsasolutions.tacticalsettings`') !== -1,
-          'a long identifier is still marked so it can wrap (BRK-1): ' + md);
-        T.assertEqual(App.md.richCell('costs 50% & $x'), App.md.cell('costs 50% & $x'),
-          'and ordinary text escapes exactly as it always did');
-      });
-    });
-
     /* ===== SUITES: what the report is made of, saved with it (OPT-2 · COL-3) ===== */
 
     T.suite('OPT-2 the report\'s composition travels with the project', function (s) {
