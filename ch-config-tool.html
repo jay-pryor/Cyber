@@ -33487,12 +33487,52 @@
 
     // ======================================================================
     // wiring
+    //
+    // wire(ctx) binds every event handler in the workspace. It used to be one
+    // 680-line function — the whole thing in one body, on the line-cap allowlist
+    // because no file boundary can cut a function in half. It is now five
+    // per-concern helpers, one per fragment beside this one, each handed the same
+    // small bag of shared closures. Nothing else changed: the handlers were moved
+    // verbatim, in the order they were registered.
     // ======================================================================
+
+    /** The closures every wiring helper needs: the delegation root, the DOM helper,
+     *  and the project accessor. Everything else a handler reaches for — dirty,
+     *  repaint, quietly, logIssues, the drag state — is declared at the module's
+     *  own level and already in scope in every fragment of this block. */
+    function wireHelpers(ctx) {
+      return {
+        ctx: ctx,
+        dom: App.util.dom,
+        P: function () { return App.docHost.get().getState(); }
+      };
+    }
 
     function wire(ctx) {
       _ctx = ctx;
-      var dom = App.util.dom;
-      var P = function () { return App.docHost.get().getState(); };
+      var h = wireHelpers(ctx);
+      wireShell(h);
+      wireSections(h);
+      wireText(h);
+      wireTables(h);
+      wireFormatting(h);
+    }
+
+    // ======================================================================
+    // wiring: wireShell
+    //
+    // The workspace itself: opening and closing it, which pane is showing, which
+    // section is selected — plus the two things that are ways of LOOKING at the
+    // document rather than changes to it, the preview controls and the import
+    // conflict dialogue.
+    //
+    // Called by wire(ctx) in 070-wire.js with the shared helper bag. Split out of
+    // that one function so no file in this block sits over the 500-line cap; the
+    // handlers themselves are unchanged.
+    // ======================================================================
+
+    function wireShell(h) {
+      var dom = h.dom, ctx = h.ctx;
 
       dom.on(ctx.root, 'click', '[data-rd-open]', function () {
         _rd.open = true; dirty(); ctx.refreshMain();
@@ -33522,6 +33562,57 @@
         _rd.selected = el.getAttribute('data-rd-select');
         repaint();
       });
+      // ---- conflict resolution ---------------------------------------------
+      dom.on(ctx.root, 'change', '[data-rd-cf]', function (e, el) {
+        if (!_rd.conflict) return;
+        _rd.conflict.decisions[el.getAttribute('data-rd-cf')] = el.value;
+      });
+      dom.on(ctx.root, 'click', '[data-rd-cf-all]', function (e, el) {
+        if (!_rd.conflict) return;
+        var v = el.getAttribute('data-rd-cf-all');
+        _rd.conflict.plan.conflicts.forEach(function (c) {
+          _rd.conflict.decisions[App.docTemplates._norm(c.incoming.name)] = v;
+        });
+        repaint();
+      });
+      dom.on(ctx.root, 'click', '[data-rd-cf-cancel]', function () { _rd.conflict = null; repaint(); });
+      dom.on(ctx.root, 'click', '[data-rd-cf-apply]', function () { applyConflict(); });
+      // ---- preview ----------------------------------------------------------
+      dom.on(ctx.root, 'click', '[data-rd-refresh-preview]', function () { dirty(); repaint(); });
+      // PRV-4: page view is a way of LOOKING at the document, not a change to it, so it
+      // does not invalidate the rendered markdown — only how it is laid out.
+      dom.on(ctx.root, 'change', '[data-rd-pageview]', function (e, el) { _rd.pages = el.checked; repaint(); });
+      dom.on(ctx.root, 'click', '[data-prv-jump]', function (e, el) {
+        e.preventDefault();
+        var target = document.getElementById(el.getAttribute('data-prv-jump'));
+        var doc = document.getElementById('rd-preview-doc');
+        if (!target || !doc) return;
+        /* PRV-4: measured, not accumulated.
+         *
+         * `offsetTop` is relative to the nearest positioned ancestor, and in page view
+         * that is the SHEET rather than the scrolling article — so every link jumped to
+         * the target's offset within its own page, which for anything past page one is
+         * the wrong place entirely and for page one looked like nothing happening.
+         * Two rectangles and the current scroll position work in both views.
+         */
+        doc.scrollTop += target.getBoundingClientRect().top - doc.getBoundingClientRect().top;
+      });
+    }
+    // ======================================================================
+    // wiring: wireSections
+    //
+    // What the document contains and in what order: inclusion ticks, the ordering
+    // buttons and the drag that does the same job, per-section placement and naming,
+    // heading levels, the hand-authored sections and the parts inside them.
+    //
+    // Called by wire(ctx) in 070-wire.js with the shared helper bag. Split out of
+    // that one function so no file in this block sits over the 500-line cap; the
+    // handlers themselves are unchanged.
+    // ======================================================================
+
+    function wireSections(h) {
+      var dom = h.dom, ctx = h.ctx;
+      var P = h.P;
 
       /* ---- inclusion + ordering ------------------------------------------
        *
@@ -33692,7 +33783,6 @@
         quietly(function () { logIssues(App.docStore.setBlockLevel(el.getAttribute('data-rd-level'), v)); });
         dirty(); repaint();
       });
-
       // drag to reorder sections (`_dragId` rather than dataTransfer alone because
       // Firefox will not read dataTransfer during dragover, where the target is decided)
       dom.on(ctx.root, 'dragstart', '[data-rd-block]', function (e, el) {
@@ -33718,7 +33808,6 @@
         }
         _dragId = null;
       });
-
       // ---- custom sections ------------------------------------------------
       dom.on(ctx.root, 'click', '[data-rd-add-section]', function () {
         var res = logIssues(App.docStore.addSection(''));
@@ -33750,7 +33839,6 @@
         App.docHost.log({ severity: 'success', message: 'Saved section template "' + name.trim() + '".' });
         repaint();
       });
-
       // ---- parts ------------------------------------------------------------
       dom.on(ctx.root, 'click', '[data-rd-addpart]', function (e, el) {
         logIssues(App.docStore.addPart(el.getAttribute('data-rd-sec'), el.getAttribute('data-rd-addpart')));
@@ -33773,6 +33861,46 @@
         quietly(function () { logIssues(App.docStore.updatePart(el.getAttribute('data-rd-sec'), el.getAttribute('data-rd-part'), f)); });
         dirty(); repaint();
       });
+      // drag to reorder parts within the open section
+      dom.on(ctx.root, 'dragstart', '[data-rd-partrow]', function (e, el) {
+        _dragPart = el.getAttribute('data-rd-partrow');
+        if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', _dragPart); } catch (err) {} }
+        el.classList.add('dragging');
+        e.stopPropagation();
+      });
+      dom.on(ctx.root, 'dragend', '[data-rd-partrow]', function (e, el) { el.classList.remove('dragging'); _dragPart = null; });
+      dom.on(ctx.root, 'dragover', '[data-rd-partrow]', function (e, el) {
+        if (!_dragPart) return;
+        e.preventDefault();
+        el.classList.add('drop-target');
+      });
+      dom.on(ctx.root, 'dragleave', '[data-rd-partrow]', function (e, el) { el.classList.remove('drop-target'); });
+      dom.on(ctx.root, 'drop', '[data-rd-partrow]', function (e, el) {
+        e.preventDefault();
+        el.classList.remove('drop-target');
+        var target = el.getAttribute('data-rd-partrow');
+        if (_dragPart && _dragPart !== target && _rd.selected) {
+          App.docStore.movePart(_rd.selected, _dragPart, 0, target);
+          dirty(); repaint();
+        }
+        _dragPart = null;
+      });
+    }
+    // ======================================================================
+    // wiring: wireText
+    //
+    // The rich-text boxes (RTX-1/RTX-2). Every one of these handlers exists to keep a
+    // caret and a selection where the author put them across a repaint, which is why
+    // they are gathered here rather than filed under whatever they are editing.
+    //
+    // Called by wire(ctx) in 070-wire.js with the shared helper bag. Split out of
+    // that one function so no file in this block sits over the 500-line cap; the
+    // handlers themselves are unchanged.
+    // ======================================================================
+
+    function wireText(h) {
+      var dom = h.dom, ctx = h.ctx;
+
       /* Keep the caret and the selection where the author put them.
        *
        * `mousedown` is the event that moves focus, so preventing its default is what
@@ -33872,6 +34000,20 @@
         el.innerHTML = boxHtml(next);
         RT.placeCaret(el, at.start + text.length, window);
       });
+    }
+    // ======================================================================
+    // wiring: wireTables
+    //
+    // Tables: cells, rows and columns, and the two ways a column width is set — dragged
+    // on an edge (TW-1/TW-2) or typed into the percentage chip.
+    //
+    // Called by wire(ctx) in 070-wire.js with the shared helper bag. Split out of
+    // that one function so no file in this block sits over the 500-line cap; the
+    // handlers themselves are unchanged.
+    // ======================================================================
+
+    function wireTables(h) {
+      var dom = h.dom, ctx = h.ctx;
 
       // ---- table editing ----------------------------------------------------
       // RTX-2: a cell is a rich box like any other, so it commits through the same
@@ -34020,31 +34162,20 @@
       dom.on(ctx.root, 'keydown', '[data-rd-pct]', function (e, el) {
         if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); editPct(el); }
       });
+    }
+    // ======================================================================
+    // wiring: wireFormatting
+    //
+    // Formatting profiles, the title block, the header and footer slots, and the
+    // template catalogues with their export and import.
+    //
+    // Called by wire(ctx) in 070-wire.js with the shared helper bag. Split out of
+    // that one function so no file in this block sits over the 500-line cap; the
+    // handlers themselves are unchanged.
+    // ======================================================================
 
-      // drag to reorder parts within the open section
-      dom.on(ctx.root, 'dragstart', '[data-rd-partrow]', function (e, el) {
-        _dragPart = el.getAttribute('data-rd-partrow');
-        if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', _dragPart); } catch (err) {} }
-        el.classList.add('dragging');
-        e.stopPropagation();
-      });
-      dom.on(ctx.root, 'dragend', '[data-rd-partrow]', function (e, el) { el.classList.remove('dragging'); _dragPart = null; });
-      dom.on(ctx.root, 'dragover', '[data-rd-partrow]', function (e, el) {
-        if (!_dragPart) return;
-        e.preventDefault();
-        el.classList.add('drop-target');
-      });
-      dom.on(ctx.root, 'dragleave', '[data-rd-partrow]', function (e, el) { el.classList.remove('drop-target'); });
-      dom.on(ctx.root, 'drop', '[data-rd-partrow]', function (e, el) {
-        e.preventDefault();
-        el.classList.remove('drop-target');
-        var target = el.getAttribute('data-rd-partrow');
-        if (_dragPart && _dragPart !== target && _rd.selected) {
-          App.docStore.movePart(_rd.selected, _dragPart, 0, target);
-          dirty(); repaint();
-        }
-        _dragPart = null;
-      });
+    function wireFormatting(h) {
+      var dom = h.dom, ctx = h.ctx;
 
       // ---- formatting -------------------------------------------------------
       dom.on(ctx.root, 'change', '[data-rd-fmt-active]', function (e, el) {
@@ -34129,45 +34260,7 @@
         if (f) doImport(el.getAttribute('data-rd-import'), f);
         el.value = '';                    // so re-picking the same file fires again
       });
-
-      // ---- conflict resolution ---------------------------------------------
-      dom.on(ctx.root, 'change', '[data-rd-cf]', function (e, el) {
-        if (!_rd.conflict) return;
-        _rd.conflict.decisions[el.getAttribute('data-rd-cf')] = el.value;
-      });
-      dom.on(ctx.root, 'click', '[data-rd-cf-all]', function (e, el) {
-        if (!_rd.conflict) return;
-        var v = el.getAttribute('data-rd-cf-all');
-        _rd.conflict.plan.conflicts.forEach(function (c) {
-          _rd.conflict.decisions[App.docTemplates._norm(c.incoming.name)] = v;
-        });
-        repaint();
-      });
-      dom.on(ctx.root, 'click', '[data-rd-cf-cancel]', function () { _rd.conflict = null; repaint(); });
-      dom.on(ctx.root, 'click', '[data-rd-cf-apply]', function () { applyConflict(); });
-
-      // ---- preview ----------------------------------------------------------
-      dom.on(ctx.root, 'click', '[data-rd-refresh-preview]', function () { dirty(); repaint(); });
-      // PRV-4: page view is a way of LOOKING at the document, not a change to it, so it
-      // does not invalidate the rendered markdown — only how it is laid out.
-      dom.on(ctx.root, 'change', '[data-rd-pageview]', function (e, el) { _rd.pages = el.checked; repaint(); });
-      dom.on(ctx.root, 'click', '[data-prv-jump]', function (e, el) {
-        e.preventDefault();
-        var target = document.getElementById(el.getAttribute('data-prv-jump'));
-        var doc = document.getElementById('rd-preview-doc');
-        if (!target || !doc) return;
-        /* PRV-4: measured, not accumulated.
-         *
-         * `offsetTop` is relative to the nearest positioned ancestor, and in page view
-         * that is the SHEET rather than the scrolling article — so every link jumped to
-         * the target's offset within its own page, which for anything past page one is
-         * the wrong place entirely and for page one looked like nothing happening.
-         * Two rectangles and the current scroll position work in both views.
-         */
-        doc.scrollTop += target.getBoundingClientRect().top - doc.getBoundingClientRect().top;
-      });
     }
-
     App.ui = App.ui || {};
     App.ui.views = App.ui.views || {};
     App.ui.views.reportDesign = {

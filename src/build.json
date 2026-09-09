@@ -662,6 +662,11 @@
         "doc/js/0590-ui-views-report-design/050-pane-generate.js",
         "doc/js/0590-ui-views-report-design/060-paginate.js",
         "doc/js/0590-ui-views-report-design/070-wire.js",
+        "doc/js/0590-ui-views-report-design/071-wire-shell.js",
+        "doc/js/0590-ui-views-report-design/072-wire-sections.js",
+        "doc/js/0590-ui-views-report-design/073-wire-text.js",
+        "doc/js/0590-ui-views-report-design/074-wire-tables.js",
+        "doc/js/0590-ui-views-report-design/076-wire-formatting.js",
         "doc/js/0590-ui-views-report-design/080-app-ui-app-ui.js"
       ]
     },
